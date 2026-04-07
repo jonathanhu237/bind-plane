@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = ""
 
+    # Redis
+    redis_host: str
+    redis_port: int = 6379
+    redis_password: str
+    redis_db: int = 0
+
+    # Session
+    session_expires_hours: int = 336
+
     @property
     def database_url(self) -> URL:
         return URL.create(

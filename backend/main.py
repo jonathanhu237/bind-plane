@@ -9,6 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from app.config import settings
 from app.database import async_session, engine
 from app.models.user import Base, User
+from app.redis import close_redis, init_redis
+from app.routers.auth import router as auth_router
 
 logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -65,18 +67,21 @@ async def seed_admin() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables and seed admin
+    # Startup: create tables, seed admin, and initialize Redis
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await seed_admin()
+    await init_redis()
 
     yield
 
-    # Shutdown: dispose engine
+    # Shutdown: close Redis and dispose engine
+    await close_redis()
     await engine.dispose()
 
 
 app = FastAPI(title="BindPlane", description="IP/MAC binding operations platform", lifespan=lifespan)
+app.include_router(auth_router)
 
 
 @app.get("/")
