@@ -3,18 +3,59 @@ schema: spec-driven
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Project: Bind Plane.
+
+  Domain knowledge:
+  bind-plane is an operator-focused internal tool for releasing IPv4 static IP-MAC
+  bindings on network switches. The user enters exactly one IPv4 address, the system
+  resolves the responsible switch from local enabled and validated asset/network data,
+  and the operation deletes the static binding for that IP. A dynamic ARP entry after
+  release can still be a successful result. If final state cannot be determined
+  reliably, store and display `needs_manual_confirmation`.
+
+  MVP scope:
+  Support operator/admin workflows for IPv4 static binding release, job history, minimal
+  user/credential/switch-network import/command-profile/audit management, background
+  worker execution, command-profile-driven parsing, encrypted switch credentials, and
+  auditable release jobs.
+
+  Non-goals unless explicitly requested:
+  binding creation, IPv6/NDP, batch release, approval flows, SSO, public registration,
+  and self-service workflows.
+
+  Preferred stack:
+  FastAPI backend, PostgreSQL, Redis with RQ or Dramatiq, React/Vite frontend, and
+  worker-isolated Telnet sessions. Evaluate Netmiko first for Telnet sessions; use
+  lower-level pexpect only if Netmiko cannot cover required device interactions.
+
+  Engineering conventions:
+  Follow the repository's existing implementation style before adding new framework
+  conventions. Use conventional commits for commit messages.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - After selecting or deriving the change name, create or switch to a dedicated git branch before writing proposal, design, spec, or task artifacts.
+    - Use the repository branch convention unless the user gives a branch name; for this project, prefer `codex/<change-name>`.
+    - Record the selected branch in the working notes or response so later apply work can use the same branch.
+  apply:
+    - Before implementing a change, confirm the current git branch is the dedicated branch recorded during proposal.
+    - If the current branch differs, switch to the recorded branch before editing files.
+    - Do not continue apply work on a different branch unless the user explicitly approves the branch change.
+  verify:
+    - Always spawn a subagent to independently review code changes before producing the final verification report.
+    - The subagent review must check implementation against proposal, design, specs, and tasks when those artifacts exist.
+    - The first verification for a completed implementation should use a broad review scope across backend, worker, frontend, tests, and OpenSpec artifacts.
+    - Subsequent verification after review-fix apply work should default to targeted review, limited to the previous findings, files changed by the latest fixes, directly related tests, and direct regressions introduced by those fixes.
+    - Do not keep broadening the review scope on every verification cycle unless the user explicitly asks for another broad review or the latest fixes touch a new architectural area.
+    - The final verification report must incorporate the subagent's findings, including any disagreements or residual risks.
+    - Do not archive or declare a change ready to archive until the subagent review has completed.
+  archive:
+    - Only archive after verification has completed and any critical issues are resolved.
+    - Run the archive workflow on the dedicated change branch for that OpenSpec change.
+    - After archive artifacts are generated and checks pass, merge the dedicated change branch into the repository main branch.
+    - Commit the final merged archive and implementation state on the main branch.
+    - Push the main branch to the remote after the commit succeeds.
+    - If the repository main branch has a different name than `main`, use the repository's configured default branch.

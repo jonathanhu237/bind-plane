@@ -1,0 +1,65 @@
+[project]
+name = "bind-plane"
+version = "0.1.0"
+description = "Web app for releasing IPv4 static IP-MAC bindings on switches."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.13.3",
+    "argon2-cffi>=23.1.0",
+    "asyncpg>=0.29.0",
+    "cryptography>=43.0.0",
+    "fastapi[standard]>=0.115.0",
+    "netmiko>=4.4.0",
+    "pydantic-settings>=2.5.2",
+    "python-multipart>=0.0.12",
+    "redis>=5.0.8",
+    "rq>=1.16.2",
+    "sqlalchemy[asyncio]>=2.0.35",
+]
+
+[project.scripts]
+bind-plane = "bind_plane.cli:main"
+bind-plane-netmiko-probe = "bind_plane.tools.netmiko_probe:main"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.22.1",
+    "httpx>=0.27.2",
+    "mypy>=1.11.2",
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.6.9",
+]
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.fastapi]
+entrypoint = "bind_plane.api.main:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["bind_plane"]
+strict = true
