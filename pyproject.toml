@@ -19,7 +19,6 @@ dependencies = [
 ]
 
 [project.scripts]
-bind-plane = "bind_plane.cli:main"
 bind-plane-netmiko-probe = "bind_plane.tools.netmiko_probe:main"
 
 [build-system]

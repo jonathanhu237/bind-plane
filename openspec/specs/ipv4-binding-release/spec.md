@@ -15,7 +15,11 @@ The system SHALL allow only authenticated users with the `operator` or `admin` r
 - **THEN** the system denies access and requires login
 
 ### Requirement: Admin-created accounts
-The system SHALL require user accounts to be created by an `admin` and MUST NOT provide public registration.
+The system SHALL bootstrap the first `admin` account from startup configuration when no admin exists, SHALL require later user accounts to be created by an `admin`, and MUST NOT provide public registration or account creation CLI paths.
+
+#### Scenario: Initial admin is bootstrapped
+- **WHEN** the system starts for the first time with valid initial admin configuration and no existing `admin` user
+- **THEN** the system creates the first `admin` account from startup configuration
 
 #### Scenario: Admin creates operator account
 - **WHEN** an `admin` creates a user with the `operator` role
@@ -24,6 +28,10 @@ The system SHALL require user accounts to be created by an `admin` and MUST NOT 
 #### Scenario: Public registration attempted
 - **WHEN** a user attempts to register without admin action
 - **THEN** the system provides no public registration path
+
+#### Scenario: Account creation CLI attempted
+- **WHEN** an operator attempts to use an installed Bind Plane account creation CLI
+- **THEN** the system provides no account creation CLI path
 
 ### Requirement: Single IPv4 input
 The system SHALL accept exactly one valid IPv4 address as the release target.

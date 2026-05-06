@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://bind_plane:bind_plane@localhost:5432/bind_plane"
     redis_url: str = "redis://localhost:6379/0"
     frontend_origin: AnyUrl | None = None
+    initial_admin_username: str | None = Field(default=None, min_length=1, max_length=128)
+    initial_admin_password: str | None = None
+    initial_admin_display_name: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def reject_placeholder_secrets_outside_development(self) -> "Settings":

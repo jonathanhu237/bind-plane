@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+app.state.skip_initial_admin_bootstrap = True
+
 
 @pytest.fixture
 def session_factory() -> Iterator[async_sessionmaker[AsyncSession]]:
