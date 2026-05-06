@@ -8,13 +8,21 @@ import {
   screen,
   waitFor,
   within,
+  act,
 } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createQueryClient } from "@/lib/query";
 import { routes } from "@/routes/router";
+import { ThemeModeSync } from "@/features/preferences/ThemeModeSync";
 import { useAuthStore } from "@/stores/auth";
+import {
+  THEME_STORAGE_KEY,
+  usePreferencesStore,
+} from "@/stores/preferences";
+
+const colorSchemeQuery = "(prefers-color-scheme: dark)";
 
 const operator = {
   id: "user-1",
@@ -57,6 +65,8 @@ const commandProfile = {
   },
   is_active: true,
 };
+
+let setSystemDarkPreference: (matches: boolean) => void;
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -111,6 +121,7 @@ function renderRoute(path: string) {
   const queryClient = createQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
+      <ThemeModeSync />
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
@@ -119,6 +130,18 @@ function renderRoute(path: string) {
 describe("App routes", () => {
   beforeEach(() => {
     const values = new Map<string, string>();
+    const mediaListeners = new Set<(event: MediaQueryListEvent) => void>();
+    let mediaMatches = false;
+    setSystemDarkPreference = (matches: boolean) => {
+      mediaMatches = matches;
+      mediaListeners.forEach((listener) =>
+        listener({
+          matches,
+          media: colorSchemeQuery,
+        } as MediaQueryListEvent),
+      );
+    };
+
     vi.stubGlobal("localStorage", {
       get length() {
         return values.size;
@@ -140,13 +163,31 @@ describe("App routes", () => {
     vi.stubGlobal(
       "matchMedia",
       vi.fn((query: string) => ({
-        matches: false,
+        matches: mediaMatches,
         media: query,
         onchange: null,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
+        addEventListener: vi.fn(
+          (event: string, listener: (event: MediaQueryListEvent) => void) => {
+            if (event === "change") {
+              mediaListeners.add(listener);
+            }
+          },
+        ),
+        removeEventListener: vi.fn(
+          (event: string, listener: (event: MediaQueryListEvent) => void) => {
+            if (event === "change") {
+              mediaListeners.delete(listener);
+            }
+          },
+        ),
+        addListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+          mediaListeners.add(listener);
+        }),
+        removeListener: vi.fn(
+          (listener: (event: MediaQueryListEvent) => void) => {
+            mediaListeners.delete(listener);
+          },
+        ),
         dispatchEvent: vi.fn(),
       })),
     );
@@ -159,13 +200,19 @@ describe("App routes", () => {
       value: vi.fn(),
     });
     window.localStorage.clear();
+    document.documentElement.classList.remove("dark");
+    document.documentElement.style.colorScheme = "";
     useAuthStore.setState({ token: null });
+    usePreferencesStore.setState({ themeMode: "system" });
   });
 
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
+    document.documentElement.classList.remove("dark");
+    document.documentElement.style.colorScheme = "";
     useAuthStore.setState({ token: null });
+    usePreferencesStore.setState({ themeMode: "system" });
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -178,6 +225,51 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("button", { name: /sign in/i }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /theme mode/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("uses system theme mode by default and reacts to system changes", async () => {
+    setSystemDarkPreference(true);
+    vi.stubGlobal("fetch", vi.fn());
+
+    renderRoute("/login");
+
+    await waitFor(() =>
+      expect(document.documentElement).toHaveClass("dark"),
+    );
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+
+    act(() => setSystemDarkPreference(false));
+
+    await waitFor(() =>
+      expect(document.documentElement).not.toHaveClass("dark"),
+    );
+  });
+
+  it("persists explicit light and dark theme selections", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    renderRoute("/login");
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /theme mode/i }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /dark/i }));
+
+    await waitFor(() =>
+      expect(document.documentElement).toHaveClass("dark"),
+    );
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /theme mode/i }));
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: /light/i }),
+    );
+
+    await waitFor(() =>
+      expect(document.documentElement).not.toHaveClass("dark"),
+    );
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
   });
 
   it("logs in and opens the routed release console", async () => {
@@ -203,6 +295,9 @@ describe("App routes", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(await screen.findByLabelText("IPv4 address")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /theme mode/i }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: /audit logs/i }),
     ).not.toBeInTheDocument();

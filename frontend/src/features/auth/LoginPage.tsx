@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Form } from "@/components/ui/form";
+import { ThemeModeToggle } from "@/features/preferences/ThemeModeToggle";
 import { useAuthStore } from "@/stores/auth";
 
 const loginSchema = z.object({
@@ -54,7 +55,10 @@ export function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-svh w-full items-center justify-center bg-muted/40 p-6 md:p-10">
+    <main className="relative flex min-h-svh w-full items-center justify-center bg-muted/40 p-6 md:p-10">
+      <div className="absolute right-4 top-4">
+        <ThemeModeToggle />
+      </div>
       <div className="flex w-full max-w-sm flex-col gap-6">
         <div className="flex items-center justify-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">

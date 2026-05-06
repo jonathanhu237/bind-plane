@@ -29,6 +29,7 @@ import {
   SidebarSeparator,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { ThemeModeToggle } from "@/features/preferences/ThemeModeToggle";
 
 const navItems = [
   { href: "/release", label: "Release console", icon: TerminalSquare },
@@ -190,10 +191,11 @@ export function AppShell() {
         <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <SidebarTrigger />
           <Separator className="h-4" orientation="vertical" />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="truncate text-base font-semibold">{title}</h1>
             <p className="text-xs text-muted-foreground">{userLabel}</p>
           </div>
+          <ThemeModeToggle />
         </header>
         <div className="mx-auto max-w-7xl p-5">
           <Outlet />
