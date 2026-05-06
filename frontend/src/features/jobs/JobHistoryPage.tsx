@@ -9,7 +9,14 @@ import type { ReleaseJob } from "@/api/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { EmptyState, StatusBadge } from "@/features/shared/status";
 import { formatDate } from "@/lib/utils";
 
@@ -29,12 +36,19 @@ export function JobHistoryPage() {
           <FileClock size={18} />
           Job history
         </CardTitle>
-        <Button size="icon" type="button" variant="outline" onClick={() => void jobsQuery.refetch()}>
+        <Button
+          size="icon"
+          type="button"
+          variant="outline"
+          onClick={() => void jobsQuery.refetch()}
+        >
           <RefreshCcw size={16} />
         </Button>
       </CardHeader>
       <CardContent>
-        {jobsQuery.error ? <Alert>{jobsQuery.error.message}</Alert> : null}
+        {jobsQuery.error ? (
+          <Alert variant="destructive">{jobsQuery.error.message}</Alert>
+        ) : null}
         {jobs.length ? (
           <Table>
             <TableHeader>
@@ -63,7 +77,9 @@ export function JobHistoryPage() {
             </TableBody>
           </Table>
         ) : (
-          <EmptyState label={jobsQuery.isLoading ? "Loading jobs" : "No jobs"} />
+          <EmptyState
+            label={jobsQuery.isLoading ? "Loading jobs" : "No jobs"}
+          />
         )}
       </CardContent>
     </Card>

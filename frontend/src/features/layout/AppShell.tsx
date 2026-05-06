@@ -11,19 +11,154 @@ import {
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useCurrentUser, useLogout } from "@/api/hooks";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarSeparator,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 
 const navItems = [
   { href: "/release", label: "Release console", icon: TerminalSquare },
   { href: "/jobs", label: "Job history", icon: FileClock },
   { href: "/admin/users", label: "User management", icon: Users, admin: true },
-  { href: "/admin/credentials", label: "Credential management", icon: KeyRound, admin: true },
-  { href: "/admin/imports", label: "Switch/network imports", icon: Network, admin: true },
-  { href: "/admin/profiles", label: "Command profiles", icon: TerminalSquare, admin: true },
-  { href: "/admin/audit", label: "Audit logs", icon: ClipboardList, admin: true },
+  {
+    href: "/admin/credentials",
+    label: "Credential management",
+    icon: KeyRound,
+    admin: true,
+  },
+  {
+    href: "/admin/imports",
+    label: "Switch/network imports",
+    icon: Network,
+    admin: true,
+  },
+  {
+    href: "/admin/profiles",
+    label: "Command profiles",
+    icon: TerminalSquare,
+    admin: true,
+  },
+  {
+    href: "/admin/audit",
+    label: "Audit logs",
+    icon: ClipboardList,
+    admin: true,
+  },
 ];
+
+type AppSidebarProps = {
+  isAdmin: boolean;
+  onSignOut: () => void;
+  pathname: string;
+  userLabel?: string;
+};
+
+function isActivePath(pathname: string, href: string) {
+  if (href === "/jobs") {
+    return pathname === href || pathname.startsWith("/jobs/");
+  }
+  return pathname === href;
+}
+
+function AppSidebar({
+  isAdmin,
+  onSignOut,
+  pathname,
+  userLabel,
+}: AppSidebarProps) {
+  const visibleNav = navItems.filter((item) => !item.admin || isAdmin);
+
+  return (
+    <Sidebar collapsible="icon">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton className="h-12" size="lg" tooltip="Bind Plane">
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                <Shield size={18} />
+              </div>
+              <div className="grid flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-semibold">Bind Plane</span>
+                <span className="truncate text-xs">IPv4 release ops</span>
+              </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarSeparator />
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Operations</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {visibleNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActivePath(pathname, item.href)}
+                      tooltip={item.label}
+                    >
+                      <NavLink to={item.href}>
+                        <Icon />
+                        <span>{item.label}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className="h-12"
+              size="lg"
+              tooltip={userLabel ?? "Current user"}
+            >
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground">
+                <Shield size={16} />
+              </div>
+              <div className="grid flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-medium">
+                  {userLabel ?? "Signed in"}
+                </span>
+                <span className="truncate text-xs text-sidebar-foreground/70">
+                  {isAdmin ? "admin" : "operator"}
+                </span>
+              </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={onSignOut} tooltip="Sign out">
+              <LogOut />
+              <span>Sign out</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  );
+}
 
 export function AppShell() {
   const userQuery = useCurrentUser();
@@ -32,10 +167,11 @@ export function AppShell() {
   const location = useLocation();
   const user = userQuery.data;
   const isAdmin = user?.roles.includes("admin") ?? false;
-  const visibleNav = navItems.filter((item) => !item.admin || isAdmin);
   const title =
-    visibleNav.find((item) => location.pathname === item.href)?.label ??
+    navItems.find((item) => isActivePath(location.pathname, item.href))
+      ?.label ??
     (location.pathname.startsWith("/jobs/") ? "Job detail" : "Bind Plane");
+  const userLabel = user?.display_name || user?.username;
 
   function signOut() {
     logout();
@@ -43,54 +179,26 @@ export function AppShell() {
   }
 
   return (
-    <main className="grid min-h-screen bg-background lg:grid-cols-[250px_1fr]">
-      <aside className="border-r bg-card">
-        <div className="flex h-16 items-center gap-3 px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Shield size={20} />
+    <SidebarProvider>
+      <AppSidebar
+        isAdmin={isAdmin}
+        pathname={location.pathname}
+        userLabel={userLabel}
+        onSignOut={signOut}
+      />
+      <SidebarInset>
+        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <SidebarTrigger />
+          <Separator className="h-4" orientation="vertical" />
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold">{title}</h1>
+            <p className="text-xs text-muted-foreground">{userLabel}</p>
           </div>
-          <div>
-            <div className="text-sm font-semibold">Bind Plane</div>
-            <div className="text-xs text-muted-foreground">IPv4 release ops</div>
-          </div>
-        </div>
-        <Separator />
-        <nav className="grid gap-1 p-3">
-          {visibleNav.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.href}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                    isActive && "bg-accent text-accent-foreground",
-                  )
-                }
-                to={item.href}
-              >
-                <Icon size={17} />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
-        </nav>
-      </aside>
-      <section className="min-w-0">
-        <header className="flex h-16 items-center justify-between border-b bg-card px-5">
-          <div>
-            <h1 className="text-lg font-semibold">{title}</h1>
-            <p className="text-xs text-muted-foreground">{user?.display_name || user?.username}</p>
-          </div>
-          <Button type="button" variant="secondary" onClick={signOut}>
-            <LogOut size={16} />
-            Sign out
-          </Button>
         </header>
         <div className="mx-auto max-w-7xl p-5">
           <Outlet />
         </div>
-      </section>
-    </main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

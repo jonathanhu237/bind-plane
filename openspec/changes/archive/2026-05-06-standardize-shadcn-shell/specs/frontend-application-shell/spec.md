@@ -1,8 +1,5 @@
-# frontend-application-shell Specification
+## MODIFIED Requirements
 
-## Purpose
-Define the routed authenticated frontend shell, client/server state boundaries, reusable UI primitives, and validated form behavior for the Bind Plane operator and admin workflows.
-## Requirements
 ### Requirement: Routed authenticated frontend shell
 The frontend SHALL provide routed authenticated navigation for the existing Bind Plane release, job, and admin workflows using shadcn/ui Sidebar primitives for the authenticated application shell.
 
@@ -17,28 +14,6 @@ The frontend SHALL provide routed authenticated navigation for the existing Bind
 #### Scenario: Admin route opened by operator
 - **WHEN** an authenticated operator opens an admin-only route
 - **THEN** the frontend displays an access-denied view instead of the admin page
-
-### Requirement: Query-managed server state
-The frontend SHALL use a server-state layer for API reads, mutations, invalidation, and release job polling.
-
-#### Scenario: Release job detail polling
-- **WHEN** a release job detail route displays a non-terminal job
-- **THEN** the frontend periodically refreshes that job until it reaches a terminal status
-
-#### Scenario: Mutation refreshes dependent data
-- **WHEN** a user creates, updates, confirms, retries, imports, or resets data through the frontend
-- **THEN** the frontend invalidates or refreshes the dependent server-state queries
-
-### Requirement: Client auth state boundary
-The frontend SHALL keep client auth token state separate from server-owned user and workflow data.
-
-#### Scenario: User logs in
-- **WHEN** a user successfully logs in
-- **THEN** the frontend stores the access token in client auth state and loads the current user through the API
-
-#### Scenario: User logs out
-- **WHEN** a user logs out
-- **THEN** the frontend clears the token, clears cached server state, and returns to the login route
 
 ### Requirement: Reusable operator-focused UI primitives
 The frontend SHALL use official shadcn/ui registry components for shared UI primitives when shadcn provides an equivalent component, while preserving a restrained operator-focused interface.
@@ -55,16 +30,7 @@ The frontend SHALL use official shadcn/ui registry components for shared UI prim
 - **WHEN** the frontend needs a reusable primitive such as button, card, input, dialog, dropdown menu, tooltip, sheet, or sidebar
 - **THEN** the implementation uses the official shadcn/ui component instead of a hand-maintained equivalent
 
-### Requirement: Validated frontend forms
-The frontend SHALL validate required form fields before submitting workflow and admin mutations while still surfacing backend validation errors.
-
-#### Scenario: Required login field missing
-- **WHEN** a user submits the login form with missing required fields
-- **THEN** the frontend displays validation feedback before sending the request
-
-#### Scenario: Backend rejects submitted form
-- **WHEN** the backend rejects a submitted form
-- **THEN** the frontend displays the backend error message to the user
+## ADDED Requirements
 
 ### Requirement: shadcn visual baseline
 The frontend SHALL use the standard shadcn/ui `new-york` style with `neutral` base color for global UI tokens.
@@ -94,4 +60,3 @@ The frontend SHALL preserve the existing Vite, React Router, TanStack Query, Zus
 #### Scenario: Server-side data table behavior
 - **WHEN** a list route such as job history, users, credentials, command profiles, switches, or audit logs renders in this change
 - **THEN** it preserves the current list API contract without adding server-side pagination, filtering, or sorting
-

@@ -1,7 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,7 +36,10 @@ const commandProfile = {
   id: "profile-1",
   name: "h3c",
   description: "H3C Telnet profile",
-  login_prompt_patterns: { username_pattern: "Username:", password_pattern: "Password:" },
+  login_prompt_patterns: {
+    username_pattern: "Username:",
+    password_pattern: "Password:",
+  },
   command_templates: {
     single_arp_query: "display arp $ip",
     arp_release: "undo arp static $ip",
@@ -117,6 +127,27 @@ describe("App routes", () => {
         disconnect() {}
       },
     );
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
+    Object.defineProperty(window.Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
     window.localStorage.clear();
     useAuthStore.setState({ token: null });
   });
@@ -134,7 +165,9 @@ describe("App routes", () => {
 
     renderRoute("/release");
 
-    expect(await screen.findByRole("button", { name: /sign in/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /sign in/i }),
+    ).toBeInTheDocument();
   });
 
   it("logs in and opens the routed release console", async () => {
@@ -151,12 +184,18 @@ describe("App routes", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     renderRoute("/login");
-    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "operator" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "password123" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(await screen.findByLabelText("IPv4 address")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /audit logs/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /audit logs/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows access denied for operator admin routes", async () => {
@@ -179,26 +218,34 @@ describe("App routes", () => {
 
   it("reloads current user when the auth token changes", async () => {
     useAuthStore.setState({ token: "token-1" });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const headers = new Headers(init?.headers);
-      if (url.endsWith("/api/auth/me")) {
-        return jsonResponse(
-          headers.get("Authorization") === "Bearer token-2" ? admin : operator,
-        );
-      }
-      return jsonResponse({ detail: "not found" }, 404);
-    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const headers = new Headers(init?.headers);
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(
+            headers.get("Authorization") === "Bearer token-2"
+              ? admin
+              : operator,
+          );
+        }
+        return jsonResponse({ detail: "not found" }, 404);
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderRoute("/release");
 
     expect(await screen.findByLabelText("IPv4 address")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /audit logs/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /audit logs/i }),
+    ).not.toBeInTheDocument();
 
     useAuthStore.getState().setToken("token-2");
 
-    expect(await screen.findByRole("link", { name: /audit logs/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: /audit logs/i }),
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/auth/me"),
       expect.objectContaining({
@@ -207,63 +254,68 @@ describe("App routes", () => {
     );
   });
 
-
   it("prepares a release and navigates to the created job detail", async () => {
     useAuthStore.setState({ token: "token-1" });
     let confirmed = false;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith("/api/auth/me")) {
-        return jsonResponse(operator);
-      }
-      if (url.endsWith("/api/releases/prepare")) {
-        expect(JSON.parse(String(init?.body))).toMatchObject({
-          target_ip: "10.44.132.254",
-          reason: "temporary_test",
-        });
-        return jsonResponse({
-          preparation_job_id: "job-prep",
-          status: "query_queued",
-          target_ip: "10.44.132.254",
-          resolved_switch: {
-            switch_id: "switch-1",
-            network_id: "network-1",
-            command_profile_id: "profile-1",
-            management_ip: "10.0.0.10",
-            name: "edge-sw-01",
-            cidr: "10.44.132.0/24",
-            prefix_length: 24,
-          },
-          observation: null,
-          force: false,
-          reason: "temporary_test",
-        });
-      }
-      if (url.endsWith("/api/releases/jobs/job-prep")) {
-        return jsonResponse(
-          releaseJob({
-            id: "job-prep",
-            kind: "pre_release_query",
-            status: confirmed ? "queued" : "waiting_confirmation",
-            error_message: null,
-            raw_output: {
-              before: "10.44.132.254 0011-2233-4455 S",
-              release: null,
-              after: null,
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(operator);
+        }
+        if (url.endsWith("/api/releases/prepare")) {
+          expect(JSON.parse(String(init?.body))).toMatchObject({
+            target_ip: "10.44.132.254",
+            reason: "temporary_test",
+          });
+          return jsonResponse({
+            preparation_job_id: "job-prep",
+            status: "query_queued",
+            target_ip: "10.44.132.254",
+            resolved_switch: {
+              switch_id: "switch-1",
+              network_id: "network-1",
+              command_profile_id: "profile-1",
+              management_ip: "10.0.0.10",
+              name: "edge-sw-01",
+              cidr: "10.44.132.0/24",
+              prefix_length: 24,
             },
-          }),
-        );
-      }
-      if (url.endsWith("/api/releases/jobs") && init?.method === "POST") {
-        confirmed = true;
-        expect(JSON.parse(String(init.body))).toMatchObject({ preparation_job_id: "job-prep" });
-        return jsonResponse({ job_id: "job-2" });
-      }
-      if (url.endsWith("/api/releases/jobs/job-2")) {
-        return jsonResponse(releaseJob({ id: "job-2", status: "queued", error_message: null }));
-      }
-      return jsonResponse({ detail: "not found" }, 404);
-    });
+            observation: null,
+            force: false,
+            reason: "temporary_test",
+          });
+        }
+        if (url.endsWith("/api/releases/jobs/job-prep")) {
+          return jsonResponse(
+            releaseJob({
+              id: "job-prep",
+              kind: "pre_release_query",
+              status: confirmed ? "queued" : "waiting_confirmation",
+              error_message: null,
+              raw_output: {
+                before: "10.44.132.254 0011-2233-4455 S",
+                release: null,
+                after: null,
+              },
+            }),
+          );
+        }
+        if (url.endsWith("/api/releases/jobs") && init?.method === "POST") {
+          confirmed = true;
+          expect(JSON.parse(String(init.body))).toMatchObject({
+            preparation_job_id: "job-prep",
+          });
+          return jsonResponse({ job_id: "job-2" });
+        }
+        if (url.endsWith("/api/releases/jobs/job-2")) {
+          return jsonResponse(
+            releaseJob({ id: "job-2", status: "queued", error_message: null }),
+          );
+        }
+        return jsonResponse({ detail: "not found" }, 404);
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderRoute("/release");
@@ -271,7 +323,9 @@ describe("App routes", () => {
       target: { value: "10.44.132.254" },
     });
     fireEvent.click(screen.getByRole("button", { name: /prepare/i }));
-    const createButton = await screen.findByRole("button", { name: /create job/i });
+    const createButton = await screen.findByRole("button", {
+      name: /create job/i,
+    });
     await waitFor(() => expect(createButton).toBeEnabled());
     fireEvent.click(createButton);
 
@@ -280,33 +334,42 @@ describe("App routes", () => {
 
   it("sends explicit switch selection for forced admin preparation", async () => {
     useAuthStore.setState({ token: "token-1" });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith("/api/auth/me")) {
-        return jsonResponse(admin);
-      }
-      if (url.endsWith("/api/admin/switches")) {
-        return jsonResponse([
-          { id: "switch-1", name: "edge-sw-01", management_ip: "10.0.0.10", is_enabled: true, networks: [] },
-        ]);
-      }
-      if (url.endsWith("/api/releases/prepare")) {
-        expect(JSON.parse(String(init?.body))).toMatchObject({
-          force: true,
-          selected_switch_id: "switch-1",
-        });
-        return jsonResponse({
-          preparation_job_id: null,
-          status: "stopped_no_record",
-          target_ip: "10.44.132.254",
-          resolved_switch: null,
-          observation: null,
-          force: true,
-          reason: "temporary_test",
-        });
-      }
-      return jsonResponse({ detail: "not found" }, 404);
-    });
+    let prepareBody: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(admin);
+        }
+        if (url.endsWith("/api/admin/switches")) {
+          return jsonResponse([
+            {
+              id: "switch-1",
+              name: "edge-sw-01",
+              management_ip: "10.0.0.10",
+              is_enabled: true,
+              networks: [],
+            },
+          ]);
+        }
+        if (url.endsWith("/api/releases/prepare")) {
+          prepareBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          return jsonResponse({
+            preparation_job_id: null,
+            status: "stopped_no_record",
+            target_ip: "10.44.132.254",
+            resolved_switch: null,
+            observation: null,
+            force: true,
+            reason: "temporary_test",
+          });
+        }
+        return jsonResponse({ detail: "not found" }, 404);
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderRoute("/release");
@@ -314,31 +377,45 @@ describe("App routes", () => {
       target: { value: "10.44.132.254" },
     });
     fireEvent.click(screen.getByText("Force release"));
-    fireEvent.change(await screen.findByLabelText("Forced switch"), { target: { value: "switch-1" } });
+    fireEvent.click(await screen.findByLabelText("Forced switch"));
+    fireEvent.click(await screen.findByRole("option", { name: /edge-sw-01/i }));
     fireEvent.click(screen.getByRole("button", { name: /prepare/i }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/releases/prepare"), expect.anything()));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/releases/prepare"),
+        expect.anything(),
+      ),
+    );
+    expect(prepareBody).toMatchObject({
+      force: true,
+      selected_switch_id: "switch-1",
+    });
   });
 
   it("retries a failed release and navigates to the new retry job", async () => {
     useAuthStore.setState({ token: "token-1" });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith("/api/auth/me")) {
-        return jsonResponse(operator);
-      }
-      if (url.endsWith("/api/releases/jobs/job-1/retry")) {
-        expect(init?.method).toBe("POST");
-        return jsonResponse({ job_id: "job-2" });
-      }
-      if (url.endsWith("/api/releases/jobs/job-2")) {
-        return jsonResponse(releaseJob({ id: "job-2", status: "queued", error_message: null }));
-      }
-      if (url.endsWith("/api/releases/jobs/job-1")) {
-        return jsonResponse(releaseJob());
-      }
-      return jsonResponse({ detail: "not found" }, 404);
-    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(operator);
+        }
+        if (url.endsWith("/api/releases/jobs/job-1/retry")) {
+          expect(init?.method).toBe("POST");
+          return jsonResponse({ job_id: "job-2" });
+        }
+        if (url.endsWith("/api/releases/jobs/job-2")) {
+          return jsonResponse(
+            releaseJob({ id: "job-2", status: "queued", error_message: null }),
+          );
+        }
+        if (url.endsWith("/api/releases/jobs/job-1")) {
+          return jsonResponse(releaseJob());
+        }
+        return jsonResponse({ detail: "not found" }, 404);
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderRoute("/jobs/job-1");
@@ -346,32 +423,45 @@ describe("App routes", () => {
 
     expect(await screen.findByText("queued")).toBeInTheDocument();
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/releases/jobs/job-2"), expect.anything()),
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/releases/jobs/job-2"),
+        expect.anything(),
+      ),
     );
   });
 
   it("resets a user password from the admin user route", async () => {
     useAuthStore.setState({ token: "token-1" });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith("/api/auth/me")) {
-        return jsonResponse(admin);
-      }
-      if (url.endsWith("/api/admin/users/operator/reset-password")) {
-        expect(JSON.parse(String(init?.body))).toEqual({ password: "NewPass123!" });
-        return jsonResponse(operator);
-      }
-      if (url.endsWith("/api/admin/users")) {
-        return jsonResponse([operator]);
-      }
-      return jsonResponse({ detail: "not found" }, 404);
-    });
+    let resetPasswordBody: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(admin);
+        }
+        if (url.endsWith("/api/admin/users/operator/reset-password")) {
+          resetPasswordBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          return jsonResponse(operator);
+        }
+        if (url.endsWith("/api/admin/users")) {
+          return jsonResponse([operator]);
+        }
+        return jsonResponse({ detail: "not found" }, 404);
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderRoute("/admin/users");
-    const passwordInput = await screen.findByLabelText("New password for operator");
+    const passwordInput = await screen.findByLabelText(
+      "New password for operator",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
-    expect(await screen.findByText("Password must be at least 8 characters")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Password must be at least 8 characters"),
+    ).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining("/api/admin/users/operator/reset-password"),
       expect.anything(),
@@ -388,37 +478,40 @@ describe("App routes", () => {
         expect.anything(),
       ),
     );
+    expect(resetPasswordBody).toEqual({ password: "NewPass123!" });
   });
 
   it("updates full command profile fields from the admin profile route", async () => {
     useAuthStore.setState({ token: "token-1" });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith("/api/auth/me")) {
-        return jsonResponse(admin);
-      }
-      if (url.endsWith("/api/admin/command-profiles/profile-1")) {
-        const body = JSON.parse(String(init?.body));
-        expect(body).toMatchObject({
-          name: "h3c",
-          success_patterns: ["OK"],
-          prompt_patterns: { query_expect_string: "[>#]" },
-        });
-        return jsonResponse({ ...commandProfile, success_patterns: ["OK"] });
-      }
-      if (url.endsWith("/api/admin/command-profiles")) {
-        return jsonResponse([commandProfile]);
-      }
-      return jsonResponse({ detail: "not found" }, 404);
-    });
+    let patchBody: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(admin);
+        }
+        if (url.endsWith("/api/admin/command-profiles/profile-1")) {
+          patchBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          return jsonResponse({ ...commandProfile, success_patterns: ["OK"] });
+        }
+        if (url.endsWith("/api/admin/command-profiles")) {
+          return jsonResponse([commandProfile]);
+        }
+        return jsonResponse({ detail: "not found" }, 404);
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     renderRoute("/admin/profiles");
     fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
     const successInput = screen.getByLabelText("Success patterns");
-    fireEvent.change(successInput, { target: { value: JSON.stringify(["OK"]) } });
+    fireEvent.change(successInput, {
+      target: { value: JSON.stringify(["OK"]) },
+    });
     const profileForm = successInput.closest("form") as HTMLElement;
-    fireEvent.click(within(profileForm).getByRole("button", { name: /save changes/i }));
+    fireEvent.click(
+      within(profileForm).getByRole("button", { name: /save changes/i }),
+    );
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -426,5 +519,29 @@ describe("App routes", () => {
         expect.objectContaining({ method: "PATCH" }),
       ),
     );
+    expect(patchBody).toMatchObject({
+      name: "h3c",
+      description: "H3C Telnet profile",
+      login_prompt_patterns: {
+        username_pattern: "Username:",
+        password_pattern: "Password:",
+      },
+      command_templates: {
+        single_arp_query: "display arp $ip",
+        arp_release: "undo arp static $ip",
+      },
+      prompt_patterns: {
+        connection_options: { device_type: "hp_comware_telnet" },
+        query_expect_string: "[>#]",
+      },
+      pagination_rules: { disable_paging_command: "screen-length disable" },
+      success_patterns: ["OK"],
+      error_patterns: ["Error"],
+      parser_rules: {
+        arp_entry_regex: "(?P<ip>\\S+)\\s+(?P<mac>\\S+)",
+        static_type_values: ["S"],
+      },
+      is_active: true,
+    });
   });
 });

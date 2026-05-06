@@ -45,8 +45,12 @@ export function JobDetailPage() {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {jobQuery.error ? <Alert>{jobQuery.error.message}</Alert> : null}
-        {retryMutation.error ? <Alert>{retryMutation.error.message}</Alert> : null}
+        {jobQuery.error ? (
+          <Alert variant="destructive">{jobQuery.error.message}</Alert>
+        ) : null}
+        {retryMutation.error ? (
+          <Alert variant="destructive">{retryMutation.error.message}</Alert>
+        ) : null}
         {job ? (
           <div className="grid gap-5">
             <div className="flex flex-wrap gap-2">
@@ -64,12 +68,16 @@ export function JobDetailPage() {
                 ["Finished", formatDate(job.finished_at)],
               ].map(([term, value]) => (
                 <div key={term} className="rounded-md border bg-muted/30 p-3">
-                  <dt className="text-xs uppercase text-muted-foreground">{term}</dt>
+                  <dt className="text-xs uppercase text-muted-foreground">
+                    {term}
+                  </dt>
                   <dd className="mt-1 break-words font-medium">{value}</dd>
                 </div>
               ))}
             </dl>
-            {job.error_message ? <Alert>{job.error_message}</Alert> : null}
+            {job.error_message ? (
+              <Alert variant="destructive">{job.error_message}</Alert>
+            ) : null}
             <div className="grid gap-4 lg:grid-cols-3">
               <div>
                 <h3 className="mb-2 text-sm font-semibold">Before</h3>
@@ -86,16 +94,24 @@ export function JobDetailPage() {
             </div>
             {job.raw_output ? (
               <details>
-                <summary className="cursor-pointer text-sm font-medium">Raw output</summary>
+                <summary className="cursor-pointer text-sm font-medium">
+                  Raw output
+                </summary>
                 <pre className="mt-2">
-                  {[job.raw_output.before, job.raw_output.release, job.raw_output.after]
+                  {[
+                    job.raw_output.before,
+                    job.raw_output.release,
+                    job.raw_output.after,
+                  ]
                     .filter(Boolean)
                     .join("\n\n")}
                 </pre>
               </details>
             ) : null}
             {job.kind === "release" &&
-            ["failed", "timeout", "needs_manual_confirmation"].includes(job.status) ? (
+            ["failed", "timeout", "needs_manual_confirmation"].includes(
+              job.status,
+            ) ? (
               <Button
                 className="w-fit"
                 disabled={retryMutation.isPending}

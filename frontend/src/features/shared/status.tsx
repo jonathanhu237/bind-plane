@@ -1,17 +1,34 @@
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export function StatusBadge({ value }: { value: string }) {
   const normalized = value.replace(/_/g, " ");
-  const variant =
-    value === "succeeded" || value === "ready"
-      ? "success"
-      : value === "failed" || value === "timeout" || value === "cancelled"
-        ? "destructive"
-        : value === "needs_manual_confirmation" || value === "waiting_confirmation"
-          ? "warning"
-          : "secondary";
+  const isSuccess = value === "succeeded" || value === "ready";
+  const isWarning =
+    value === "needs_manual_confirmation" || value === "waiting_confirmation";
+  const isDestructive =
+    value === "failed" || value === "timeout" || value === "cancelled";
 
-  return <Badge variant={variant}>{normalized}</Badge>;
+  return (
+    <Badge
+      className={cn(
+        "capitalize",
+        isSuccess &&
+          "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
+        isWarning &&
+          "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
+      )}
+      variant={
+        isDestructive
+          ? "destructive"
+          : isSuccess || isWarning
+            ? "outline"
+            : "secondary"
+      }
+    >
+      {normalized}
+    </Badge>
+  );
 }
 
 export function EmptyState({ label }: { label: string }) {
