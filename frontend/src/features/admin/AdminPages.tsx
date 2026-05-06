@@ -14,6 +14,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { apiRequest } from "@/api/client";
+import { withListParams } from "@/api/listParams";
 import { useToken } from "@/api/hooks";
 import { queryKeys } from "@/api/queryKeys";
 import type {
@@ -21,6 +22,7 @@ import type {
   CommandProfile,
   Credential,
   ImportBatch,
+  PaginatedResponse,
   SwitchRecord,
   UserRead,
 } from "@/api/types";
@@ -49,7 +51,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  SortableTableHead,
+  TableFilterSelect,
+  TablePagination,
+  TableToolbar,
+} from "@/features/shared/TableControls";
 import { EmptyState } from "@/features/shared/status";
+import { useTableState } from "@/features/shared/tableState";
 import { formatDate, pretty } from "@/lib/utils";
 
 import {
@@ -80,6 +89,43 @@ const importSchema = z.object({
 const roleOptions = [
   { value: "operator", label: "operator" },
   { value: "admin", label: "admin" },
+];
+const activeFilterOptions = [
+  { value: "true", label: "active" },
+  { value: "false", label: "inactive" },
+];
+const booleanFilterOptions = [
+  { value: "true", label: "yes" },
+  { value: "false", label: "no" },
+];
+const userFilterKeys = ["role", "is_active"];
+const activeFilterKeys = ["is_active"];
+const switchFilterKeys = ["is_enabled", "is_validated"];
+const importFilterKeys = ["status"];
+const auditFilterKeys = ["action", "target_type"];
+const importStatusOptions = [
+  { value: "applied", label: "applied" },
+  { value: "failed", label: "failed" },
+  { value: "draft", label: "draft" },
+  { value: "validated", label: "validated" },
+];
+const auditActionOptions = [
+  { value: "release_pre_query_queued", label: "pre-query queued" },
+  { value: "release_pre_query_completed", label: "pre-query completed" },
+  { value: "release_pre_query_confirmed", label: "pre-query confirmed" },
+  { value: "release_job_created", label: "job created" },
+  { value: "release_job_retried", label: "job retried" },
+  { value: "release_job_finished", label: "job finished" },
+  { value: "release_job_enqueue_failed", label: "enqueue failed" },
+  { value: "release_retry_enqueue_failed", label: "retry enqueue failed" },
+];
+const auditTargetOptions = [
+  { value: "release_job", label: "release job" },
+  { value: "user", label: "user" },
+  { value: "credential", label: "credential" },
+  { value: "command_profile", label: "command profile" },
+  { value: "switch", label: "switch" },
+  { value: "import_batch", label: "import batch" },
 ];
 
 function AdminPanel({
@@ -112,14 +158,23 @@ function AdminPanel({
 export function UsersAdminPage() {
   const token = useToken();
   const queryClient = useQueryClient();
+  const table = useTableState({
+    defaultSortBy: "username",
+    filterKeys: userFilterKeys,
+  });
   const [resetPasswords, setResetPasswords] = useState<Record<string, string>>(
     {},
   );
   const [resetErrors, setResetErrors] = useState<Record<string, string>>({});
   const usersQuery = useQuery({
-    queryKey: queryKeys.users,
-    queryFn: () => apiRequest<UserRead[]>("/admin/users", token),
+    queryKey: queryKeys.usersList(table.apiParams),
+    queryFn: () =>
+      apiRequest<PaginatedResponse<UserRead>>(
+        withListParams("/admin/users", table.apiParams),
+        token,
+      ),
   });
+  const users = usersQuery.data?.items ?? [];
   const form = useForm<z.infer<typeof userSchema>>({
     resolver: zodResolver(userSchema),
     defaultValues: {
@@ -237,18 +292,50 @@ export function UsersAdminPage() {
           </div>
         </form>
       </Form>
-      {(usersQuery.data ?? []).length ? (
+      <TableToolbar
+        search={table.search}
+        searchPlaceholder="Search users"
+        onSearchChange={table.setSearch}
+      >
+        <TableFilterSelect
+          label="Role"
+          options={roleOptions}
+          value={table.filters.role}
+          onValueChange={(value) => table.setFilter("role", value)}
+        />
+        <TableFilterSelect
+          label="State"
+          options={activeFilterOptions}
+          value={table.filters.is_active}
+          onValueChange={(value) => table.setFilter("is_active", value)}
+        />
+      </TableToolbar>
+      {users.length ? (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Username</TableHead>
+              <SortableTableHead
+                field="username"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                Username
+              </SortableTableHead>
               <TableHead>Roles</TableHead>
-              <TableHead>State</TableHead>
+              <SortableTableHead
+                field="is_active"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                State
+              </SortableTableHead>
               <TableHead>Reset password</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(usersQuery.data ?? []).map((item) => (
+            {users.map((item) => (
               <TableRow key={item.id}>
                 <TableCell>{item.username}</TableCell>
                 <TableCell>{item.roles.join(", ")}</TableCell>
@@ -291,6 +378,16 @@ export function UsersAdminPage() {
           label={usersQuery.isLoading ? "Loading users" : "No users"}
         />
       )}
+      {usersQuery.data ? (
+        <TablePagination
+          page={usersQuery.data.page}
+          pageCount={usersQuery.data.page_count}
+          pageSize={usersQuery.data.page_size}
+          total={usersQuery.data.total}
+          onPageChange={table.setPage}
+          onPageSizeChange={table.setPageSize}
+        />
+      ) : null}
     </AdminPanel>
   );
 }
@@ -298,10 +395,19 @@ export function UsersAdminPage() {
 export function CredentialsAdminPage() {
   const token = useToken();
   const queryClient = useQueryClient();
-  const credentialsQuery = useQuery({
-    queryKey: queryKeys.credentials,
-    queryFn: () => apiRequest<Credential[]>("/admin/credentials", token),
+  const table = useTableState({
+    defaultSortBy: "name",
+    filterKeys: activeFilterKeys,
   });
+  const credentialsQuery = useQuery({
+    queryKey: queryKeys.credentialsList(table.apiParams),
+    queryFn: () =>
+      apiRequest<PaginatedResponse<Credential>>(
+        withListParams("/admin/credentials", table.apiParams),
+        token,
+      ),
+  });
+  const credentials = credentialsQuery.data?.items ?? [];
   const form = useForm<z.infer<typeof credentialSchema>>({
     resolver: zodResolver(credentialSchema),
     defaultValues: { name: "", username: "", password: "", secret: "" },
@@ -365,10 +471,50 @@ export function CredentialsAdminPage() {
           </div>
         </form>
       </Form>
-      {(credentialsQuery.data ?? []).length ? (
+      <TableToolbar
+        search={table.search}
+        searchPlaceholder="Search credentials"
+        onSearchChange={table.setSearch}
+      >
+        <TableFilterSelect
+          label="State"
+          options={activeFilterOptions}
+          value={table.filters.is_active}
+          onValueChange={(value) => table.setFilter("is_active", value)}
+        />
+      </TableToolbar>
+      {credentials.length ? (
         <Table>
+          <TableHeader>
+            <TableRow>
+              <SortableTableHead
+                field="name"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                Name
+              </SortableTableHead>
+              <SortableTableHead
+                field="username"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                Username
+              </SortableTableHead>
+              <SortableTableHead
+                field="is_active"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                State
+              </SortableTableHead>
+            </TableRow>
+          </TableHeader>
           <TableBody>
-            {(credentialsQuery.data ?? []).map((item) => (
+            {credentials.map((item) => (
               <TableRow key={item.id}>
                 <TableCell>{item.name}</TableCell>
                 <TableCell>{item.username}</TableCell>
@@ -386,6 +532,16 @@ export function CredentialsAdminPage() {
           }
         />
       )}
+      {credentialsQuery.data ? (
+        <TablePagination
+          page={credentialsQuery.data.page}
+          pageCount={credentialsQuery.data.page_count}
+          pageSize={credentialsQuery.data.page_size}
+          total={credentialsQuery.data.total}
+          onPageChange={table.setPage}
+          onPageSizeChange={table.setPageSize}
+        />
+      ) : null}
     </AdminPanel>
   );
 }
@@ -393,23 +549,54 @@ export function CredentialsAdminPage() {
 export function ImportsAdminPage() {
   const token = useToken();
   const queryClient = useQueryClient();
+  const switchTable = useTableState({
+    defaultSortBy: "name",
+    filterKeys: switchFilterKeys,
+    prefix: "switch_",
+  });
+  const importTable = useTableState({
+    defaultSortBy: "created_at",
+    defaultSortOrder: "desc",
+    filterKeys: importFilterKeys,
+    prefix: "import_",
+  });
   const credentialsQuery = useQuery({
-    queryKey: queryKeys.credentials,
-    queryFn: () => apiRequest<Credential[]>("/admin/credentials", token),
+    queryKey: queryKeys.credentialsList({ pageSize: 200, sortBy: "name" }),
+    queryFn: () =>
+      apiRequest<PaginatedResponse<Credential>>(
+        withListParams("/admin/credentials", { pageSize: 200, sortBy: "name" }),
+        token,
+      ),
   });
   const profilesQuery = useQuery({
-    queryKey: queryKeys.commandProfiles,
+    queryKey: queryKeys.commandProfilesList({ pageSize: 200, sortBy: "name" }),
     queryFn: () =>
-      apiRequest<CommandProfile[]>("/admin/command-profiles", token),
+      apiRequest<PaginatedResponse<CommandProfile>>(
+        withListParams("/admin/command-profiles", {
+          pageSize: 200,
+          sortBy: "name",
+        }),
+        token,
+      ),
   });
   const switchesQuery = useQuery({
-    queryKey: queryKeys.switches,
-    queryFn: () => apiRequest<SwitchRecord[]>("/admin/switches", token),
+    queryKey: queryKeys.switchesList(switchTable.apiParams),
+    queryFn: () =>
+      apiRequest<PaginatedResponse<SwitchRecord>>(
+        withListParams("/admin/switches", switchTable.apiParams),
+        token,
+      ),
   });
   const importsQuery = useQuery({
-    queryKey: queryKeys.imports,
-    queryFn: () => apiRequest<ImportBatch[]>("/admin/imports", token),
+    queryKey: queryKeys.importsList(importTable.apiParams),
+    queryFn: () =>
+      apiRequest<PaginatedResponse<ImportBatch>>(
+        withListParams("/admin/imports", importTable.apiParams),
+        token,
+      ),
   });
+  const switches = switchesQuery.data?.items ?? [];
+  const imports = importsQuery.data?.items ?? [];
   const form = useForm<z.infer<typeof importSchema>>({
     resolver: zodResolver(importSchema),
     defaultValues: { recordsJson: "[]" },
@@ -438,8 +625,10 @@ export function ImportsAdminPage() {
             switch_name: "edge-sw-01",
             management_ip: "10.0.0.10",
             cidr: "10.44.132.0/24",
-            credential_id: credentialsQuery.data?.[0]?.id ?? "credential-uuid",
-            command_profile_id: profilesQuery.data?.[0]?.id ?? "profile-uuid",
+            credential_id:
+              credentialsQuery.data?.items[0]?.id ?? "credential-uuid",
+            command_profile_id:
+              profilesQuery.data?.items[0]?.id ?? "profile-uuid",
             network_validated: true,
           },
         ],
@@ -488,10 +677,53 @@ export function ImportsAdminPage() {
       <div className="grid gap-5 lg:grid-cols-2">
         <div>
           <h3 className="mb-2 text-sm font-semibold">Switches</h3>
-          {(switchesQuery.data ?? []).length ? (
+          <TableToolbar
+            search={switchTable.search}
+            searchPlaceholder="Search switches"
+            onSearchChange={switchTable.setSearch}
+          >
+            <TableFilterSelect
+              label="Enabled"
+              options={booleanFilterOptions}
+              value={switchTable.filters.is_enabled}
+              onValueChange={(value) =>
+                switchTable.setFilter("is_enabled", value)
+              }
+            />
+            <TableFilterSelect
+              label="Validated"
+              options={booleanFilterOptions}
+              value={switchTable.filters.is_validated}
+              onValueChange={(value) =>
+                switchTable.setFilter("is_validated", value)
+              }
+            />
+          </TableToolbar>
+          {switches.length ? (
             <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHead
+                    field="name"
+                    sortBy={switchTable.sortBy}
+                    sortOrder={switchTable.sortOrder}
+                    onSort={switchTable.toggleSort}
+                  >
+                    Name
+                  </SortableTableHead>
+                  <SortableTableHead
+                    field="management_ip"
+                    sortBy={switchTable.sortBy}
+                    sortOrder={switchTable.sortOrder}
+                    onSort={switchTable.toggleSort}
+                  >
+                    Management IP
+                  </SortableTableHead>
+                  <TableHead>Networks</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {(switchesQuery.data ?? []).map((item) => (
+                {switches.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.management_ip}</TableCell>
@@ -505,15 +737,59 @@ export function ImportsAdminPage() {
           ) : (
             <EmptyState label="No switches" />
           )}
+          {switchesQuery.data ? (
+            <TablePagination
+              page={switchesQuery.data.page}
+              pageCount={switchesQuery.data.page_count}
+              pageSize={switchesQuery.data.page_size}
+              total={switchesQuery.data.total}
+              onPageChange={switchTable.setPage}
+              onPageSizeChange={switchTable.setPageSize}
+            />
+          ) : null}
         </div>
         <div>
           <h3 className="mb-2 text-sm font-semibold">Import batches</h3>
-          {(importsQuery.data ?? []).length ? (
+          <TableToolbar
+            search={importTable.search}
+            searchPlaceholder="Search imports"
+            onSearchChange={importTable.setSearch}
+          >
+            <TableFilterSelect
+              label="Status"
+              options={importStatusOptions}
+              value={importTable.filters.status}
+              onValueChange={(value) => importTable.setFilter("status", value)}
+            />
+          </TableToolbar>
+          {imports.length ? (
             <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHead
+                    field="status"
+                    sortBy={importTable.sortBy}
+                    sortOrder={importTable.sortOrder}
+                    onSort={importTable.toggleSort}
+                  >
+                    Status
+                  </SortableTableHead>
+                  <SortableTableHead
+                    field="created_at"
+                    sortBy={importTable.sortBy}
+                    sortOrder={importTable.sortOrder}
+                    onSort={importTable.toggleSort}
+                  >
+                    Created
+                  </SortableTableHead>
+                  <TableHead>Summary</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {(importsQuery.data ?? []).map((item) => (
+                {imports.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell>{item.status}</TableCell>
+                    <TableCell>{formatDate(item.created_at)}</TableCell>
                     <TableCell>
                       <code>{pretty(item.summary)}</code>
                     </TableCell>
@@ -524,6 +800,16 @@ export function ImportsAdminPage() {
           ) : (
             <EmptyState label="No imports" />
           )}
+          {importsQuery.data ? (
+            <TablePagination
+              page={importsQuery.data.page}
+              pageCount={importsQuery.data.page_count}
+              pageSize={importsQuery.data.page_size}
+              total={importsQuery.data.total}
+              onPageChange={importTable.setPage}
+              onPageSizeChange={importTable.setPageSize}
+            />
+          ) : null}
         </div>
       </div>
     </AdminPanel>
@@ -535,11 +821,19 @@ export function ProfilesAdminPage() {
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const profilesQuery = useQuery({
-    queryKey: queryKeys.commandProfiles,
-    queryFn: () =>
-      apiRequest<CommandProfile[]>("/admin/command-profiles", token),
+  const table = useTableState({
+    defaultSortBy: "name",
+    filterKeys: activeFilterKeys,
   });
+  const profilesQuery = useQuery({
+    queryKey: queryKeys.commandProfilesList(table.apiParams),
+    queryFn: () =>
+      apiRequest<PaginatedResponse<CommandProfile>>(
+        withListParams("/admin/command-profiles", table.apiParams),
+        token,
+      ),
+  });
+  const profiles = profilesQuery.data?.items ?? [];
   const form = useForm<CommandProfileFormValues>({
     defaultValues: defaultCommandProfileForm,
   });
@@ -662,18 +956,44 @@ export function ProfilesAdminPage() {
           </div>
         </form>
       </Form>
-      {(profilesQuery.data ?? []).length ? (
+      <TableToolbar
+        search={table.search}
+        searchPlaceholder="Search profiles"
+        onSearchChange={table.setSearch}
+      >
+        <TableFilterSelect
+          label="State"
+          options={activeFilterOptions}
+          value={table.filters.is_active}
+          onValueChange={(value) => table.setFilter("is_active", value)}
+        />
+      </TableToolbar>
+      {profiles.length ? (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
+              <SortableTableHead
+                field="name"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                Name
+              </SortableTableHead>
               <TableHead>Templates</TableHead>
-              <TableHead>State</TableHead>
+              <SortableTableHead
+                field="is_active"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                State
+              </SortableTableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(profilesQuery.data ?? []).map((item) => (
+            {profiles.map((item) => (
               <TableRow key={item.id}>
                 <TableCell>{item.name}</TableCell>
                 <TableCell>
@@ -698,16 +1018,36 @@ export function ProfilesAdminPage() {
           label={profilesQuery.isLoading ? "Loading profiles" : "No profiles"}
         />
       )}
+      {profilesQuery.data ? (
+        <TablePagination
+          page={profilesQuery.data.page}
+          pageCount={profilesQuery.data.page_count}
+          pageSize={profilesQuery.data.page_size}
+          total={profilesQuery.data.total}
+          onPageChange={table.setPage}
+          onPageSizeChange={table.setPageSize}
+        />
+      ) : null}
     </AdminPanel>
   );
 }
 
 export function AuditLogsPage() {
   const token = useToken();
-  const auditQuery = useQuery({
-    queryKey: queryKeys.audit,
-    queryFn: () => apiRequest<AuditLog[]>("/audit", token),
+  const table = useTableState({
+    defaultSortBy: "created_at",
+    defaultSortOrder: "desc",
+    filterKeys: auditFilterKeys,
   });
+  const auditQuery = useQuery({
+    queryKey: queryKeys.auditList(table.apiParams),
+    queryFn: () =>
+      apiRequest<PaginatedResponse<AuditLog>>(
+        withListParams("/audit", table.apiParams),
+        token,
+      ),
+  });
+  const logs = auditQuery.data?.items ?? [];
 
   return (
     <AdminPanel
@@ -715,18 +1055,57 @@ export function AuditLogsPage() {
       icon={<ClipboardList size={18} />}
       error={auditQuery.error?.message}
     >
-      {(auditQuery.data ?? []).length ? (
+      <TableToolbar
+        search={table.search}
+        searchPlaceholder="Search audit logs"
+        onSearchChange={table.setSearch}
+      >
+        <TableFilterSelect
+          label="Action"
+          options={auditActionOptions}
+          value={table.filters.action}
+          onValueChange={(value) => table.setFilter("action", value)}
+        />
+        <TableFilterSelect
+          label="Target"
+          options={auditTargetOptions}
+          value={table.filters.target_type}
+          onValueChange={(value) => table.setFilter("target_type", value)}
+        />
+      </TableToolbar>
+      {logs.length ? (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Time</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>Target</TableHead>
+              <SortableTableHead
+                field="created_at"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                Time
+              </SortableTableHead>
+              <SortableTableHead
+                field="action"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                Action
+              </SortableTableHead>
+              <SortableTableHead
+                field="target_type"
+                sortBy={table.sortBy}
+                sortOrder={table.sortOrder}
+                onSort={table.toggleSort}
+              >
+                Target
+              </SortableTableHead>
               <TableHead>Payload</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(auditQuery.data ?? []).map((log) => (
+            {logs.map((log) => (
               <TableRow key={log.id}>
                 <TableCell>{formatDate(log.created_at)}</TableCell>
                 <TableCell>{log.action}</TableCell>
@@ -743,6 +1122,16 @@ export function AuditLogsPage() {
           label={auditQuery.isLoading ? "Loading audit logs" : "No audit logs"}
         />
       )}
+      {auditQuery.data ? (
+        <TablePagination
+          page={auditQuery.data.page}
+          pageCount={auditQuery.data.page_count}
+          pageSize={auditQuery.data.page_size}
+          total={auditQuery.data.total}
+          onPageChange={table.setPage}
+          onPageSizeChange={table.setPageSize}
+        />
+      ) : null}
     </AdminPanel>
   );
 }

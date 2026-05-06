@@ -85,13 +85,13 @@ The frontend SHALL render the login route using a shadcn auth/login block visual
 - **THEN** the frontend displays the backend error message inside the shadcn-styled login surface
 
 ### Requirement: Frontend architecture preservation
-The frontend SHALL preserve the existing Vite, React Router, TanStack Query, Zustand, and FastAPI API boundary while standardizing shadcn UI components.
+The frontend SHALL preserve the existing Vite, React Router, TanStack Query, Zustand, and FastAPI API boundary while using routed shadcn table controls backed by server-side list queries.
 
 #### Scenario: API request from frontend
-- **WHEN** the frontend calls an existing backend workflow API
-- **THEN** it uses the existing API contract without requiring backend route or response shape changes
+- **WHEN** the frontend calls an existing backend workflow API that is not a supported list endpoint
+- **THEN** it uses the existing API contract without requiring unrelated backend route or response shape changes
 
 #### Scenario: Server-side data table behavior
-- **WHEN** a list route such as job history, users, credentials, command profiles, switches, or audit logs renders in this change
-- **THEN** it preserves the current list API contract without adding server-side pagination, filtering, or sorting
+- **WHEN** a list route such as job history, users, credentials, command profiles, switches, imports, or audit logs renders
+- **THEN** it requests paginated, filtered, and sorted data from the backend rather than loading an unbounded array and filtering in the browser
 

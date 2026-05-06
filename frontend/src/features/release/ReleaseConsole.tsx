@@ -6,8 +6,14 @@ import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 
 import { apiRequest } from "@/api/client";
+import { withListParams } from "@/api/listParams";
 import { queryKeys } from "@/api/queryKeys";
-import type { ReleaseJob, ReleasePreparation, SwitchRecord } from "@/api/types";
+import type {
+  PaginatedResponse,
+  ReleaseJob,
+  ReleasePreparation,
+  SwitchRecord,
+} from "@/api/types";
 import { reasonLabels, terminalStatuses } from "@/api/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -32,6 +38,29 @@ const reasonOptions = Object.entries(reasonLabels).map(([value, label]) => ({
   value,
   label,
 }));
+
+async function fetchEnabledSwitchOptions(token: string | null) {
+  const items: SwitchRecord[] = [];
+  let page = 1;
+  let pageCount = 1;
+
+  do {
+    const response = await apiRequest<PaginatedResponse<SwitchRecord>>(
+      withListParams("/admin/switches", {
+        page,
+        pageSize: 200,
+        sortBy: "name",
+        filters: { is_enabled: true },
+      }),
+      token,
+    );
+    items.push(...response.items);
+    pageCount = response.page_count;
+    page += 1;
+  } while (page <= pageCount);
+
+  return items;
+}
 
 function preparationFromJob(
   job: ReleaseJob,
@@ -101,8 +130,8 @@ export function ReleaseConsole() {
   });
 
   const switchesQuery = useQuery({
-    queryKey: queryKeys.switches,
-    queryFn: () => apiRequest<SwitchRecord[]>("/admin/switches", token),
+    queryKey: queryKeys.switchOptions,
+    queryFn: () => fetchEnabledSwitchOptions(token),
     enabled: Boolean(token && isAdmin),
   });
 
@@ -205,7 +234,7 @@ export function ReleaseConsole() {
     !hasPreparedJob &&
     (preparation?.status ?? null) !== "ready";
   const enabledSwitches = useMemo(
-    () => (switchesQuery.data ?? []).filter((item) => item.is_enabled),
+    () => switchesQuery.data ?? [],
     [switchesQuery.data],
   );
   const loading = prepareMutation.isPending || createJobMutation.isPending;

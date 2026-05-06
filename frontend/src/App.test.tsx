@@ -65,6 +65,16 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function paginated<T>(items: T[]) {
+  return {
+    items,
+    total: items.length,
+    page: 1,
+    page_size: 25,
+    page_count: items.length ? 1 : 0,
+  };
+}
+
 function releaseJob(overrides: Record<string, unknown> = {}) {
   return {
     id: "job-1",
@@ -341,8 +351,8 @@ describe("App routes", () => {
         if (url.endsWith("/api/auth/me")) {
           return jsonResponse(admin);
         }
-        if (url.endsWith("/api/admin/switches")) {
-          return jsonResponse([
+        if (url.includes("/api/admin/switches")) {
+          return jsonResponse(paginated([
             {
               id: "switch-1",
               name: "edge-sw-01",
@@ -350,7 +360,7 @@ describe("App routes", () => {
               is_enabled: true,
               networks: [],
             },
-          ]);
+          ]));
         }
         if (url.endsWith("/api/releases/prepare")) {
           prepareBody = JSON.parse(String(init?.body)) as Record<
@@ -430,6 +440,67 @@ describe("App routes", () => {
     );
   });
 
+  it("uses URL-backed server-side controls on job history", async () => {
+    useAuthStore.setState({ token: "token-1" });
+    const jobRequests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/me")) {
+        return jsonResponse(operator);
+      }
+      if (url.includes("/api/releases/jobs?")) {
+        jobRequests.push(url);
+        const params = new URL(url, "http://bind-plane.test").searchParams;
+        return jsonResponse({
+          items: [releaseJob({ target_ip: params.get("search") || "10.44.132.254" })],
+          total: 2,
+          page: Number(params.get("page") ?? "1"),
+          page_size: Number(params.get("page_size") ?? "25"),
+          page_count: 2,
+        });
+      }
+      return jsonResponse({ detail: "not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderRoute("/jobs");
+
+    expect(await screen.findByText("10.44.132.254")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Search table"), {
+      target: { value: "10.44.132.10" },
+    });
+    await waitFor(() =>
+      expect(
+        jobRequests.some((url) =>
+          new URL(url, "http://bind-plane.test").searchParams.has("search"),
+        ),
+      ).toBe(true),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /target/i }));
+    await waitFor(() =>
+      expect(
+        jobRequests.some(
+          (url) =>
+            new URL(url, "http://bind-plane.test").searchParams.get(
+              "sort_by",
+            ) === "target_ip",
+        ),
+      ).toBe(true),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /next/i }));
+    await waitFor(() =>
+      expect(
+        jobRequests.some(
+          (url) =>
+            new URL(url, "http://bind-plane.test").searchParams.get("page") ===
+            "2",
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("resets a user password from the admin user route", async () => {
     useAuthStore.setState({ token: "token-1" });
     let resetPasswordBody: Record<string, unknown> | null = null;
@@ -446,8 +517,8 @@ describe("App routes", () => {
           >;
           return jsonResponse(operator);
         }
-        if (url.endsWith("/api/admin/users")) {
-          return jsonResponse([operator]);
+        if (url.includes("/api/admin/users")) {
+          return jsonResponse(paginated([operator]));
         }
         return jsonResponse({ detail: "not found" }, 404);
       },
@@ -494,8 +565,8 @@ describe("App routes", () => {
           patchBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
           return jsonResponse({ ...commandProfile, success_patterns: ["OK"] });
         }
-        if (url.endsWith("/api/admin/command-profiles")) {
-          return jsonResponse([commandProfile]);
+        if (url.includes("/api/admin/command-profiles")) {
+          return jsonResponse(paginated([commandProfile]));
         }
         return jsonResponse({ detail: "not found" }, 404);
       },

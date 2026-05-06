@@ -1,5 +1,24 @@
 export type RoleName = "operator" | "admin";
 
+export type SortOrder = "asc" | "desc";
+
+export type PaginatedResponse<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  page_count: number;
+};
+
+export type ListQueryParams = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  sortBy?: string;
+  sortOrder?: SortOrder;
+  filters?: Record<string, string | number | boolean | null | undefined>;
+};
+
 export type ReleaseReason =
   | "temporary_test"
   | "user_report"

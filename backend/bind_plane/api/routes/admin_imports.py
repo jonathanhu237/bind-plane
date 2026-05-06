@@ -1,12 +1,13 @@
 from ipaddress import ip_address, ip_network
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from bind_plane.api.deps import AdminUserDep, SessionDep
+from bind_plane.api.pagination import apply_sort, paginate_query
 from bind_plane.db.models import (
     CommandProfile,
     Credential,
@@ -22,6 +23,7 @@ from bind_plane.schemas.admin import (
     SwitchNetworkImportRequest,
     SwitchRead,
 )
+from bind_plane.schemas.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/admin", tags=["admin-imports"])
 
@@ -161,11 +163,50 @@ def _summary_payload(
 async def list_switches(
     session: SessionDep,
     _: AdminUserDep,
-) -> list[SwitchRead]:
-    result = await session.execute(
-        select(Switch).options(selectinload(Switch.networks)).order_by(Switch.name)
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=200),
+    search: str | None = Query(default=None, max_length=128),
+    is_enabled: bool | None = Query(default=None),
+    is_validated: bool | None = Query(default=None),
+    sort_by: str = Query(default="name", max_length=64),
+    sort_order: Literal["asc", "desc"] = Query(default="asc"),
+) -> PaginatedResponse[SwitchRead]:
+    query = select(Switch).options(selectinload(Switch.networks))
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                Switch.name.ilike(search_term),
+                Switch.management_ip.ilike(search_term),
+                Switch.vendor.ilike(search_term),
+                Switch.model.ilike(search_term),
+                Switch.location.ilike(search_term),
+                Switch.networks.any(Network.cidr.ilike(search_term)),
+            )
+        )
+    if is_enabled is not None:
+        query = query.where(Switch.is_enabled == is_enabled)
+    if is_validated is not None:
+        query = query.where(Switch.networks.any(Network.is_validated == is_validated))
+    query = apply_sort(
+        query,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed={
+            "name": Switch.name,
+            "management_ip": Switch.management_ip,
+            "created_at": Switch.created_at,
+            "updated_at": Switch.updated_at,
+            "is_enabled": Switch.is_enabled,
+        },
     )
-    return [SwitchRead.model_validate(switch) for switch in result.scalars().all()]
+    return await paginate_query(
+        session,
+        query,
+        page=page,
+        page_size=page_size,
+        item_factory=SwitchRead.model_validate,
+    )
 
 
 @router.post("/imports/switch-networks")
@@ -202,13 +243,42 @@ async def import_switch_networks(
 async def list_import_batches(
     session: SessionDep,
     _: AdminUserDep,
-) -> list[ImportBatchRead]:
-    result = await session.execute(
-        select(ImportBatch)
-        .options(selectinload(ImportBatch.issues))
-        .order_by(ImportBatch.created_at.desc())
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=200),
+    search: str | None = Query(default=None, max_length=128),
+    status_filter: Annotated[ImportBatchStatus | None, Query(alias="status")] = None,
+    sort_by: str = Query(default="created_at", max_length=64),
+    sort_order: Literal["asc", "desc"] = Query(default="desc"),
+) -> PaginatedResponse[ImportBatchRead]:
+    query = select(ImportBatch).options(selectinload(ImportBatch.issues))
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                ImportBatch.kind.ilike(search_term),
+                ImportBatch.source_filename.ilike(search_term),
+            )
+        )
+    if status_filter is not None:
+        query = query.where(ImportBatch.status == status_filter)
+    query = apply_sort(
+        query,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed={
+            "created_at": ImportBatch.created_at,
+            "updated_at": ImportBatch.updated_at,
+            "status": ImportBatch.status,
+            "kind": ImportBatch.kind,
+        },
     )
-    return [ImportBatchRead.model_validate(batch) for batch in result.scalars().all()]
+    return await paginate_query(
+        session,
+        query,
+        page=page,
+        page_size=page_size,
+        item_factory=ImportBatchRead.model_validate,
+    )
 
 
 @router.get("/imports/{batch_id}")

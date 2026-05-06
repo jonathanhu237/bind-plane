@@ -1,8 +1,9 @@
 from collections.abc import Callable
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import desc, select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +13,7 @@ from bind_plane.api.deps import (
     ReleaseEnqueuerDep,
     SessionDep,
 )
+from bind_plane.api.pagination import apply_sort, paginate_query
 from bind_plane.db.models import (
     ArpEntryType,
     AuditLog,
@@ -21,6 +23,7 @@ from bind_plane.db.models import (
     ReleaseJobPhase,
     ReleaseJobStatus,
     RoleName,
+    Switch,
     User,
     utc_now,
 )
@@ -32,6 +35,7 @@ from bind_plane.domain.release import (
     ReleaseReason,
     ResolvedSwitch,
 )
+from bind_plane.schemas.pagination import PaginatedResponse
 from bind_plane.schemas.release import (
     ArpObservationRead,
     OperatorSummaryRead,
@@ -677,8 +681,15 @@ async def create_release_job(
 async def list_release_jobs(
     session: SessionDep,
     current_user: OperatorUserDep,
-    limit: int = Query(default=50, ge=1, le=200),
-) -> list[ReleaseJobRead]:
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=200),
+    search: str | None = Query(default=None, max_length=128),
+    status_filter: Annotated[ReleaseJobStatus | None, Query(alias="status")] = None,
+    kind: ReleaseJobKind | None = None,
+    force: bool | None = None,
+    sort_by: str = Query(default="created_at", max_length=64),
+    sort_order: Literal["asc", "desc"] = Query(default="desc"),
+) -> PaginatedResponse[ReleaseJobRead]:
     query = (
         select(ReleaseJob)
         .options(
@@ -686,13 +697,45 @@ async def list_release_jobs(
             selectinload(ReleaseJob.switch),
             selectinload(ReleaseJob.events),
         )
-        .order_by(desc(ReleaseJob.created_at))
-        .limit(limit)
     )
     if not _is_admin(current_user):
         query = query.where(ReleaseJob.operator_id == current_user.id)
-    result = await session.execute(query)
-    return [_job_read(job, include_raw=False) for job in result.scalars().all()]
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                ReleaseJob.target_ip.ilike(search_term),
+                ReleaseJob.reason.ilike(search_term),
+                ReleaseJob.ticket_id.ilike(search_term),
+                ReleaseJob.switch.has(Switch.name.ilike(search_term)),
+                ReleaseJob.operator.has(User.username.ilike(search_term)),
+            )
+        )
+    if status_filter is not None:
+        query = query.where(ReleaseJob.status == status_filter)
+    if kind is not None:
+        query = query.where(ReleaseJob.kind == kind)
+    if force is not None:
+        query = query.where(ReleaseJob.force == force)
+    query = apply_sort(
+        query,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed={
+            "created_at": ReleaseJob.created_at,
+            "updated_at": ReleaseJob.updated_at,
+            "target_ip": ReleaseJob.target_ip,
+            "status": ReleaseJob.status,
+            "phase": ReleaseJob.phase,
+        },
+    )
+    return await paginate_query(
+        session,
+        query,
+        page=page,
+        page_size=page_size,
+        item_factory=lambda job: _job_read(job, include_raw=False),
+    )
 
 
 @router.get("/jobs/{job_id}")

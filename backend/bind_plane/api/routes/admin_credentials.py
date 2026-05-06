@@ -1,11 +1,14 @@
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import or_, select
 
 from bind_plane.api.deps import AdminUserDep, SessionDep
+from bind_plane.api.pagination import apply_sort, paginate_query
 from bind_plane.db.models import Credential
 from bind_plane.schemas.admin import CredentialCreate, CredentialRead, CredentialUpdate
+from bind_plane.schemas.pagination import PaginatedResponse
 from bind_plane.security.credentials import encrypt_secret
 
 router = APIRouter(prefix="/admin/credentials", tags=["admin-credentials"])
@@ -15,9 +18,44 @@ router = APIRouter(prefix="/admin/credentials", tags=["admin-credentials"])
 async def list_credentials(
     session: SessionDep,
     _: AdminUserDep,
-) -> list[CredentialRead]:
-    result = await session.execute(select(Credential).order_by(Credential.name))
-    return [CredentialRead.model_validate(credential) for credential in result.scalars().all()]
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=200),
+    search: str | None = Query(default=None, max_length=128),
+    is_active: bool | None = Query(default=None),
+    sort_by: str = Query(default="name", max_length=64),
+    sort_order: Literal["asc", "desc"] = Query(default="asc"),
+) -> PaginatedResponse[CredentialRead]:
+    query = select(Credential)
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                Credential.name.ilike(search_term),
+                Credential.username.ilike(search_term),
+                Credential.description.ilike(search_term),
+            )
+        )
+    if is_active is not None:
+        query = query.where(Credential.is_active == is_active)
+    query = apply_sort(
+        query,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed={
+            "name": Credential.name,
+            "username": Credential.username,
+            "created_at": Credential.created_at,
+            "updated_at": Credential.updated_at,
+            "is_active": Credential.is_active,
+        },
+    )
+    return await paginate_query(
+        session,
+        query,
+        page=page,
+        page_size=page_size,
+        item_factory=CredentialRead.model_validate,
+    )
 
 
 @router.post("")

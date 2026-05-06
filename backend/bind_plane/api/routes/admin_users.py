@@ -1,9 +1,13 @@
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from bind_plane.api.deps import AdminUserDep, SessionDep
+from bind_plane.api.pagination import apply_sort, paginate_query
 from bind_plane.db.models import RoleName, User, UserRole
+from bind_plane.schemas.pagination import PaginatedResponse
 from bind_plane.schemas.users import UserCreate, UserRead, UserResetPassword, UserUpdate
 from bind_plane.security.passwords import hash_password
 
@@ -63,9 +67,45 @@ async def reset_password(
 async def list_users(
     session: SessionDep,
     _: AdminUserDep,
-) -> list[UserRead]:
-    result = await session.execute(select(User).options(selectinload(User.roles)))
-    return [UserRead.model_validate(user) for user in result.scalars().all()]
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=200),
+    search: str | None = Query(default=None, max_length=128),
+    role: RoleName | None = None,
+    is_active: bool | None = None,
+    sort_by: str = Query(default="username", max_length=64),
+    sort_order: Literal["asc", "desc"] = Query(default="asc"),
+) -> PaginatedResponse[UserRead]:
+    query = select(User).options(selectinload(User.roles))
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                User.username.ilike(search_term),
+                User.display_name.ilike(search_term),
+            )
+        )
+    if role is not None:
+        query = query.where(User.roles.any(UserRole.role == role))
+    if is_active is not None:
+        query = query.where(User.is_active == is_active)
+    query = apply_sort(
+        query,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed={
+            "username": User.username,
+            "created_at": User.created_at,
+            "updated_at": User.updated_at,
+            "is_active": User.is_active,
+        },
+    )
+    return await paginate_query(
+        session,
+        query,
+        page=page,
+        page_size=page_size,
+        item_factory=UserRead.model_validate,
+    )
 
 
 @router.patch("/{username}")
