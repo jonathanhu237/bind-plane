@@ -1,18 +1,20 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Activity, ListRestart } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { apiRequest } from "@/api/client";
 import { useJob, useToken } from "@/api/hooks";
 import { queryKeys } from "@/api/queryKeys";
-import { reasonLabels } from "@/api/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, StatusBadge } from "@/features/shared/status";
+import { reasonLabel } from "@/i18n/labels";
 import { formatDate, pretty } from "@/lib/utils";
 
 export function JobDetailPage() {
+  const { t } = useTranslation();
   const { jobId } = useParams();
   const token = useToken();
   const navigate = useNavigate();
@@ -33,7 +35,7 @@ export function JobDetailPage() {
   });
 
   if (!jobId) {
-    return <EmptyState label="No job selected" />;
+    return <EmptyState label={t("jobs.noJobSelected")} />;
   }
 
   return (
@@ -41,7 +43,7 @@ export function JobDetailPage() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Activity size={18} />
-          Job detail
+          {t("jobs.detailTitle")}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -60,12 +62,12 @@ export function JobDetailPage() {
             </div>
             <dl className="grid gap-3 text-sm md:grid-cols-3">
               {[
-                ["Target", job.target_ip],
-                ["Switch", `${job.switch.name} (${job.switch.management_ip})`],
-                ["Operator", job.operator.username],
-                ["Reason", reasonLabels[job.reason]],
-                ["Created", formatDate(job.created_at)],
-                ["Finished", formatDate(job.finished_at)],
+                [t("jobs.target"), job.target_ip],
+                [t("jobs.switch"), `${job.switch.name} (${job.switch.management_ip})`],
+                [t("jobs.operator"), job.operator.username],
+                [t("jobs.reason"), reasonLabel(t, job.reason)],
+                [t("jobs.created"), formatDate(job.created_at)],
+                [t("jobs.finished"), formatDate(job.finished_at)],
               ].map(([term, value]) => (
                 <div key={term} className="rounded-md border bg-muted/30 p-3">
                   <dt className="text-xs uppercase text-muted-foreground">
@@ -80,22 +82,22 @@ export function JobDetailPage() {
             ) : null}
             <div className="grid gap-4 lg:grid-cols-3">
               <div>
-                <h3 className="mb-2 text-sm font-semibold">Before</h3>
+                <h3 className="mb-2 text-sm font-semibold">{t("jobs.before")}</h3>
                 <pre>{pretty(job.before_state)}</pre>
               </div>
               <div>
-                <h3 className="mb-2 text-sm font-semibold">After</h3>
+                <h3 className="mb-2 text-sm font-semibold">{t("jobs.after")}</h3>
                 <pre>{pretty(job.after_state)}</pre>
               </div>
               <div>
-                <h3 className="mb-2 text-sm font-semibold">Result</h3>
+                <h3 className="mb-2 text-sm font-semibold">{t("jobs.result")}</h3>
                 <pre>{pretty(job.result)}</pre>
               </div>
             </div>
             {job.raw_output ? (
               <details>
                 <summary className="cursor-pointer text-sm font-medium">
-                  Raw output
+                  {t("jobs.rawOutput")}
                 </summary>
                 <pre className="mt-2">
                   {[
@@ -120,12 +122,12 @@ export function JobDetailPage() {
                 onClick={() => retryMutation.mutate()}
               >
                 <ListRestart size={16} />
-                Retry
+                {t("common.retry")}
               </Button>
             ) : null}
           </div>
         ) : (
-          <EmptyState label="Loading job" />
+          <EmptyState label={t("jobs.loadingJob")} />
         )}
       </CardContent>
     </Card>

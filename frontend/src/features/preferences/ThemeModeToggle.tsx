@@ -1,4 +1,5 @@
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,12 +20,12 @@ import {
 
 const themeOptions: Array<{
   value: ThemeMode;
-  label: string;
+  labelKey: string;
   icon: typeof Sun;
 }> = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
+  { value: "light", labelKey: "preferences.light", icon: Sun },
+  { value: "dark", labelKey: "preferences.dark", icon: Moon },
+  { value: "system", labelKey: "preferences.system", icon: Monitor },
 ];
 
 type ThemeModeToggleProps = {
@@ -32,6 +33,7 @@ type ThemeModeToggleProps = {
 };
 
 export function ThemeModeToggle({ className }: ThemeModeToggleProps) {
+  const { t } = useTranslation();
   const themeMode = usePreferencesStore((state) => state.themeMode);
   const setThemeMode = usePreferencesStore((state) => state.setThemeMode);
   const selectedTheme =
@@ -49,17 +51,17 @@ export function ThemeModeToggle({ className }: ThemeModeToggleProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          aria-label="Theme mode"
+          aria-label={t("preferences.themeMode")}
           className={cn("shrink-0", className)}
           size="icon"
-          title="Theme mode"
+          title={t("preferences.themeMode")}
           variant="ghost"
         >
           <SelectedIcon size={16} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuLabel>Theme</DropdownMenuLabel>
+        <DropdownMenuLabel>{t("preferences.theme")}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup
           onValueChange={updateThemeMode}
@@ -70,7 +72,7 @@ export function ThemeModeToggle({ className }: ThemeModeToggleProps) {
             return (
               <DropdownMenuRadioItem key={option.value} value={option.value}>
                 <Icon />
-                <span>{option.label}</span>
+                <span>{t(option.labelKey)}</span>
               </DropdownMenuRadioItem>
             );
           })}

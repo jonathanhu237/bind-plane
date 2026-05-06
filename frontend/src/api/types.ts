@@ -139,14 +139,14 @@ export type AuditLog = {
   created_at: string;
 };
 
-export const reasonLabels: Record<ReleaseReason, string> = {
-  temporary_test: "Temporary test",
-  user_report: "User report",
-  ip_mac_change: "IP or MAC change",
-  wrong_binding_fix: "Wrong binding fix",
-  security_response: "Security response",
-  other: "Other",
-};
+export const releaseReasonValues: ReleaseReason[] = [
+  "temporary_test",
+  "user_report",
+  "ip_mac_change",
+  "wrong_binding_fix",
+  "security_response",
+  "other",
+];
 
 export const terminalStatuses = new Set([
   "succeeded",

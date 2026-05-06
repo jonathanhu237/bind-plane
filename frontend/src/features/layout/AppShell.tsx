@@ -8,6 +8,7 @@ import {
   TerminalSquare,
   Users,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useCurrentUser, useLogout } from "@/api/hooks";
@@ -29,33 +30,35 @@ import {
   SidebarSeparator,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { LocaleSwitcher } from "@/features/preferences/LocaleSwitcher";
 import { ThemeModeToggle } from "@/features/preferences/ThemeModeToggle";
+import { roleLabel } from "@/i18n/labels";
 
 const navItems = [
-  { href: "/release", label: "Release console", icon: TerminalSquare },
-  { href: "/jobs", label: "Job history", icon: FileClock },
-  { href: "/admin/users", label: "User management", icon: Users, admin: true },
+  { href: "/release", labelKey: "nav.release", icon: TerminalSquare },
+  { href: "/jobs", labelKey: "nav.jobs", icon: FileClock },
+  { href: "/admin/users", labelKey: "nav.users", icon: Users, admin: true },
   {
     href: "/admin/credentials",
-    label: "Credential management",
+    labelKey: "nav.credentials",
     icon: KeyRound,
     admin: true,
   },
   {
     href: "/admin/imports",
-    label: "Switch/network imports",
+    labelKey: "nav.imports",
     icon: Network,
     admin: true,
   },
   {
     href: "/admin/profiles",
-    label: "Command profiles",
+    labelKey: "nav.profiles",
     icon: TerminalSquare,
     admin: true,
   },
   {
     href: "/admin/audit",
-    label: "Audit logs",
+    labelKey: "nav.audit",
     icon: ClipboardList,
     admin: true,
   },
@@ -81,6 +84,7 @@ function AppSidebar({
   pathname,
   userLabel,
 }: AppSidebarProps) {
+  const { t } = useTranslation();
   const visibleNav = navItems.filter((item) => !item.admin || isAdmin);
 
   return (
@@ -88,13 +92,17 @@ function AppSidebar({
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton className="h-12" size="lg" tooltip="Bind Plane">
+            <SidebarMenuButton
+              className="h-12"
+              size="lg"
+              tooltip={t("app.name")}
+            >
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                 <Shield size={18} />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">Bind Plane</span>
-                <span className="truncate text-xs">IPv4 release ops</span>
+                <span className="truncate font-semibold">{t("app.name")}</span>
+                <span className="truncate text-xs">{t("app.tagline")}</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -103,7 +111,7 @@ function AppSidebar({
       <SidebarSeparator />
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Operations</SidebarGroupLabel>
+          <SidebarGroupLabel>{t("nav.operations")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {visibleNav.map((item) => {
@@ -113,11 +121,11 @@ function AppSidebar({
                     <SidebarMenuButton
                       asChild
                       isActive={isActivePath(pathname, item.href)}
-                      tooltip={item.label}
+                      tooltip={t(item.labelKey)}
                     >
                       <NavLink to={item.href}>
                         <Icon />
-                        <span>{item.label}</span>
+                        <span>{t(item.labelKey)}</span>
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -133,25 +141,25 @@ function AppSidebar({
             <SidebarMenuButton
               className="h-12"
               size="lg"
-              tooltip={userLabel ?? "Current user"}
+              tooltip={userLabel ?? t("nav.currentUser")}
             >
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground">
                 <Shield size={16} />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">
-                  {userLabel ?? "Signed in"}
+                  {userLabel ?? t("nav.signedIn")}
                 </span>
                 <span className="truncate text-xs text-sidebar-foreground/70">
-                  {isAdmin ? "admin" : "operator"}
+                  {roleLabel(t, isAdmin ? "admin" : "operator")}
                 </span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={onSignOut} tooltip="Sign out">
+            <SidebarMenuButton onClick={onSignOut} tooltip={t("nav.signOut")}>
               <LogOut />
-              <span>Sign out</span>
+              <span>{t("nav.signOut")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -162,6 +170,7 @@ function AppSidebar({
 }
 
 export function AppShell() {
+  const { t } = useTranslation();
   const userQuery = useCurrentUser();
   const logout = useLogout();
   const navigate = useNavigate();
@@ -170,8 +179,8 @@ export function AppShell() {
   const isAdmin = user?.roles.includes("admin") ?? false;
   const title =
     navItems.find((item) => isActivePath(location.pathname, item.href))
-      ?.label ??
-    (location.pathname.startsWith("/jobs/") ? "Job detail" : "Bind Plane");
+      ?.labelKey ??
+    (location.pathname.startsWith("/jobs/") ? "nav.jobDetail" : "app.name");
   const userLabel = user?.display_name || user?.username;
 
   function signOut() {
@@ -192,9 +201,10 @@ export function AppShell() {
           <SidebarTrigger />
           <Separator className="h-4" orientation="vertical" />
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-semibold">{title}</h1>
+            <h1 className="truncate text-base font-semibold">{t(title)}</h1>
             <p className="text-xs text-muted-foreground">{userLabel}</p>
           </div>
+          <LocaleSwitcher />
           <ThemeModeToggle />
         </header>
         <div className="mx-auto max-w-7xl p-5">

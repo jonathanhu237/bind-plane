@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react";
 import type { Control, FieldPath, FieldValues } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 
 import {
   FormControl,
@@ -117,6 +118,7 @@ export function SelectField<
   placeholder?: string;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <FormField
       control={control}
@@ -131,7 +133,11 @@ export function SelectField<
           >
             <FormControl>
               <SelectTrigger>
-                <SelectValue placeholder={placeholder} />
+                <SelectValue
+                  placeholder={
+                    placeholder === "Select" ? t("common.select") : placeholder
+                  }
+                />
               </SelectTrigger>
             </FormControl>
             <SelectContent>

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileClock, RefreshCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 import { apiRequest } from "@/api/client";
@@ -26,10 +27,11 @@ import {
 } from "@/features/shared/TableControls";
 import { EmptyState, StatusBadge } from "@/features/shared/status";
 import { useTableState } from "@/features/shared/tableState";
+import { statusLabel } from "@/i18n/labels";
 import { formatDate } from "@/lib/utils";
 
 const jobFilterKeys = ["status", "kind", "force"];
-const jobStatusOptions = [
+const jobStatusValues = [
   "queued",
   "running",
   "waiting_confirmation",
@@ -38,17 +40,10 @@ const jobStatusOptions = [
   "timeout",
   "needs_manual_confirmation",
   "cancelled",
-].map((value) => ({ value, label: value }));
-const jobKindOptions = [
-  { value: "pre_release_query", label: "pre-release query" },
-  { value: "release", label: "release" },
-];
-const forceOptions = [
-  { value: "true", label: "forced" },
-  { value: "false", label: "normal" },
 ];
 
 export function JobHistoryPage() {
+  const { t } = useTranslation();
   const token = useToken();
   const navigate = useNavigate();
   const table = useTableState({
@@ -66,13 +61,25 @@ export function JobHistoryPage() {
   });
   const jobsPage = jobsQuery.data;
   const jobs = jobsPage?.items ?? [];
+  const jobStatusOptions = jobStatusValues.map((value) => ({
+    value,
+    label: statusLabel(t, value),
+  }));
+  const jobKindOptions = [
+    { value: "pre_release_query", label: statusLabel(t, "pre_release_query") },
+    { value: "release", label: statusLabel(t, "release") },
+  ];
+  const forceOptions = [
+    { value: "true", label: t("jobs.forced") },
+    { value: "false", label: t("jobs.normal") },
+  ];
 
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
           <FileClock size={18} />
-          Job history
+          {t("jobs.historyTitle")}
         </CardTitle>
         <Button
           size="icon"
@@ -89,23 +96,23 @@ export function JobHistoryPage() {
         ) : null}
         <TableToolbar
           search={table.search}
-          searchPlaceholder="Search IP, switch, reason"
+          searchPlaceholder={t("jobs.search")}
           onSearchChange={table.setSearch}
         >
           <TableFilterSelect
-            label="Status"
+            label={t("jobs.status")}
             options={jobStatusOptions}
             value={table.filters.status}
             onValueChange={(value) => table.setFilter("status", value)}
           />
           <TableFilterSelect
-            label="Kind"
+            label={t("jobs.kind")}
             options={jobKindOptions}
             value={table.filters.kind}
             onValueChange={(value) => table.setFilter("kind", value)}
           />
           <TableFilterSelect
-            label="Force"
+            label={t("jobs.force")}
             options={forceOptions}
             value={table.filters.force}
             onValueChange={(value) => table.setFilter("force", value)}
@@ -121,16 +128,16 @@ export function JobHistoryPage() {
                   sortOrder={table.sortOrder}
                   onSort={table.toggleSort}
                 >
-                  Target
+                  {t("jobs.target")}
                 </SortableTableHead>
-                <TableHead>Switch</TableHead>
+                <TableHead>{t("jobs.switch")}</TableHead>
                 <SortableTableHead
                   field="status"
                   sortBy={table.sortBy}
                   sortOrder={table.sortOrder}
                   onSort={table.toggleSort}
                 >
-                  Status
+                  {t("jobs.status")}
                 </SortableTableHead>
                 <SortableTableHead
                   field="created_at"
@@ -138,7 +145,7 @@ export function JobHistoryPage() {
                   sortOrder={table.sortOrder}
                   onSort={table.toggleSort}
                 >
-                  Created
+                  {t("jobs.created")}
                 </SortableTableHead>
               </TableRow>
             </TableHeader>
@@ -161,7 +168,9 @@ export function JobHistoryPage() {
           </Table>
         ) : (
           <EmptyState
-            label={jobsQuery.isLoading ? "Loading jobs" : "No jobs"}
+            label={
+              jobsQuery.isLoading ? t("jobs.loadingJobs") : t("jobs.noJobs")
+            }
           />
         )}
         {jobsPage ? (

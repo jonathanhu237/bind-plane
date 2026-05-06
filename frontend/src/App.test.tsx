@@ -15,10 +15,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createQueryClient } from "@/lib/query";
 import { routes } from "@/routes/router";
+import "@/i18n/i18n";
+import { LocaleSync } from "@/features/preferences/LocaleSync";
 import { ThemeModeSync } from "@/features/preferences/ThemeModeSync";
 import { useAuthStore } from "@/stores/auth";
 import {
+  LOCALE_STORAGE_KEY,
   THEME_STORAGE_KEY,
+  type Locale,
   usePreferencesStore,
 } from "@/stores/preferences";
 
@@ -116,11 +120,17 @@ function releaseJob(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderRoute(path: string) {
+function renderRoute(path: string, options: { locale?: Locale | null } = {}) {
+  const locale = options.locale === undefined ? "en-US" : options.locale;
+  if (locale) {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    usePreferencesStore.setState({ locale });
+  }
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const queryClient = createQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
+      <LocaleSync />
       <ThemeModeSync />
       <RouterProvider router={router} />
     </QueryClientProvider>,
@@ -203,7 +213,7 @@ describe("App routes", () => {
     document.documentElement.classList.remove("dark");
     document.documentElement.style.colorScheme = "";
     useAuthStore.setState({ token: null });
-    usePreferencesStore.setState({ themeMode: "system" });
+    usePreferencesStore.setState({ themeMode: "system", locale: "zh-CN" });
   });
 
   afterEach(() => {
@@ -212,7 +222,7 @@ describe("App routes", () => {
     document.documentElement.classList.remove("dark");
     document.documentElement.style.colorScheme = "";
     useAuthStore.setState({ token: null });
-    usePreferencesStore.setState({ themeMode: "system" });
+    usePreferencesStore.setState({ themeMode: "system", locale: "zh-CN" });
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -228,6 +238,42 @@ describe("App routes", () => {
     expect(
       screen.getByRole("button", { name: /theme mode/i }),
     ).toBeInTheDocument();
+  });
+
+  it("uses Chinese by default and switches locale without reloading", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    renderRoute("/login", { locale: null });
+
+    expect(await screen.findByRole("button", { name: "登录" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "语言" }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBeNull();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "语言" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "English" }));
+
+    expect(
+      await screen.findByRole("button", { name: /sign in/i }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("en-US");
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /language/i }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "中文" }));
+
+    expect(await screen.findByRole("button", { name: "登录" })).toBeInTheDocument();
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
+  });
+
+  it("shows frontend-owned validation in the selected locale", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    renderRoute("/login", { locale: null });
+    fireEvent.click(await screen.findByRole("button", { name: "登录" }));
+
+    expect(await screen.findByText("请输入用户名")).toBeInTheDocument();
+    expect(screen.getByText("请输入密码")).toBeInTheDocument();
   });
 
   it("uses system theme mode by default and reacts to system changes", async () => {
@@ -297,6 +343,9 @@ describe("App routes", () => {
     expect(await screen.findByLabelText("IPv4 address")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /theme mode/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /language/i }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: /audit logs/i }),

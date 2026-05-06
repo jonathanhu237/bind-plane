@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronsUpDown, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,12 +27,13 @@ export function TableToolbar({
   onSearchChange: (value: string) => void;
   children?: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="relative md:w-72">
         <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input
-          aria-label="Search table"
+          aria-label={t("common.searchTable")}
           className="pl-8"
           placeholder={searchPlaceholder}
           value={search}
@@ -56,6 +58,8 @@ export function TableFilterSelect({
   options: Array<{ value: string; label: string }>;
   onValueChange: (value: string) => void;
 }) {
+  const { t } = useTranslation();
+  const allLabel = t("common.all", { label: label.toLowerCase() });
   return (
     <Select
       value={value || allValue}
@@ -67,7 +71,7 @@ export function TableFilterSelect({
         <SelectValue placeholder={label} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={allValue}>All {label.toLowerCase()}</SelectItem>
+        <SelectItem value={allValue}>{allLabel}</SelectItem>
         {options.map((option) => (
           <SelectItem key={option.value} value={option.value}>
             {option.label}
@@ -127,22 +131,30 @@ export function TablePagination({
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
 }) {
+  const { t } = useTranslation();
   const firstItem = total ? (page - 1) * pageSize + 1 : 0;
   const lastItem = Math.min(page * pageSize, total);
   return (
     <div className="mt-3 flex flex-col gap-3 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
       <div>
         {total
-          ? `${firstItem}-${lastItem} of ${total}`
-          : "0 results"}
+          ? t("table.resultRange", {
+              first: firstItem,
+              last: lastItem,
+              total,
+            })
+          : t("table.noResults")}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span>Rows</span>
+        <span>{t("table.rows")}</span>
         <Select
           value={String(pageSize)}
           onValueChange={(value) => onPageSizeChange(Number(value))}
         >
-          <SelectTrigger aria-label="Rows per page" className="w-[88px]">
+          <SelectTrigger
+            aria-label={t("table.rowsPerPage")}
+            className="w-[88px]"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -160,10 +172,10 @@ export function TablePagination({
           variant="outline"
           onClick={() => onPageChange(page - 1)}
         >
-          Previous
+          {t("table.previous")}
         </Button>
         <span className="min-w-20 text-center">
-          Page {page} / {Math.max(pageCount, 1)}
+          {t("table.pageOf", { page, pageCount: Math.max(pageCount, 1) })}
         </span>
         <Button
           disabled={pageCount === 0 || page >= pageCount}
@@ -172,7 +184,7 @@ export function TablePagination({
           variant="outline"
           onClick={() => onPageChange(page + 1)}
         >
-          Next
+          {t("table.next")}
         </Button>
       </div>
     </div>

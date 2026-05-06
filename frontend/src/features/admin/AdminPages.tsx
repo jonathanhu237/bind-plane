@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
 import { apiRequest } from "@/api/client";
@@ -59,56 +60,46 @@ import {
 } from "@/features/shared/TableControls";
 import { EmptyState } from "@/features/shared/status";
 import { useTableState } from "@/features/shared/tableState";
+import { activeLabel, booleanLabel, roleLabel, statusLabel } from "@/i18n/labels";
 import { formatDate, pretty } from "@/lib/utils";
 
 import {
-  commandProfileSchema,
+  createCommandProfileSchema,
   commandProfileToForm,
   defaultCommandProfileForm,
   type CommandProfileFormValues,
 } from "./commandProfileForm";
 
-const userSchema = z.object({
-  username: z.string().min(1, "Username is required"),
-  displayName: z.string(),
-  password: z.string().min(1, "Password is required"),
-  role: z.enum(["operator", "admin"]),
-});
+function createUserSchema(t: (key: string) => string) {
+  return z.object({
+    username: z.string().min(1, t("validation.usernameRequired")),
+    displayName: z.string(),
+    password: z.string().min(1, t("validation.passwordRequired")),
+    role: z.enum(["operator", "admin"]),
+  });
+}
 
-const credentialSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  username: z.string().min(1, "Username is required"),
-  password: z.string().min(1, "Password is required"),
-  secret: z.string(),
-});
+function createCredentialSchema(t: (key: string) => string) {
+  return z.object({
+    name: z.string().min(1, t("validation.nameRequired")),
+    username: z.string().min(1, t("validation.usernameRequired")),
+    password: z.string().min(1, t("validation.passwordRequired")),
+    secret: z.string(),
+  });
+}
 
-const importSchema = z.object({
-  recordsJson: z.string().min(1, "Import JSON is required"),
-});
+function createImportSchema(t: (key: string) => string) {
+  return z.object({
+    recordsJson: z.string().min(1, t("validation.importJsonRequired")),
+  });
+}
 
-const roleOptions = [
-  { value: "operator", label: "operator" },
-  { value: "admin", label: "admin" },
-];
-const activeFilterOptions = [
-  { value: "true", label: "active" },
-  { value: "false", label: "inactive" },
-];
-const booleanFilterOptions = [
-  { value: "true", label: "yes" },
-  { value: "false", label: "no" },
-];
 const userFilterKeys = ["role", "is_active"];
 const activeFilterKeys = ["is_active"];
 const switchFilterKeys = ["is_enabled", "is_validated"];
 const importFilterKeys = ["status"];
 const auditFilterKeys = ["action", "target_type"];
-const importStatusOptions = [
-  { value: "applied", label: "applied" },
-  { value: "failed", label: "failed" },
-  { value: "draft", label: "draft" },
-  { value: "validated", label: "validated" },
-];
+const importStatusValues = ["applied", "failed", "draft", "validated"];
 const auditActionOptions = [
   { value: "release_pre_query_queued", label: "pre-query queued" },
   { value: "release_pre_query_completed", label: "pre-query completed" },
@@ -156,6 +147,7 @@ function AdminPanel({
 }
 
 export function UsersAdminPage() {
+  const { t } = useTranslation();
   const token = useToken();
   const queryClient = useQueryClient();
   const table = useTableState({
@@ -175,6 +167,21 @@ export function UsersAdminPage() {
       ),
   });
   const users = usersQuery.data?.items ?? [];
+  const userSchema = useMemo(() => createUserSchema(t), [t]);
+  const roleOptions = useMemo(
+    () => [
+      { value: "operator", label: roleLabel(t, "operator") },
+      { value: "admin", label: roleLabel(t, "admin") },
+    ],
+    [t],
+  );
+  const activeFilterOptions = useMemo(
+    () => [
+      { value: "true", label: activeLabel(t, true) },
+      { value: "false", label: activeLabel(t, false) },
+    ],
+    [t],
+  );
   const form = useForm<z.infer<typeof userSchema>>({
     resolver: zodResolver(userSchema),
     defaultValues: {
@@ -200,10 +207,14 @@ export function UsersAdminPage() {
       await queryClient.invalidateQueries({ queryKey: queryKeys.users });
     },
   });
-  const resetPasswordSchema = z.object({
-    username: z.string().min(1),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-  });
+  const resetPasswordSchema = useMemo(
+    () =>
+      z.object({
+        username: z.string().min(1),
+        password: z.string().min(8, t("validation.passwordMin8")),
+      }),
+    [t],
+  );
   const resetMutation = useMutation({
     mutationFn: ({
       username,
@@ -234,7 +245,8 @@ export function UsersAdminPage() {
     if (!parsed.success) {
       setResetErrors((current) => ({
         ...current,
-        [username]: parsed.error.issues[0]?.message ?? "Invalid password",
+        [username]:
+          parsed.error.issues[0]?.message ?? t("validation.invalidPassword"),
       }));
       return;
     }
@@ -244,7 +256,7 @@ export function UsersAdminPage() {
 
   return (
     <AdminPanel
-      title="User management"
+      title={t("admin.users.title")}
       icon={<Users size={18} />}
       error={
         usersQuery.error?.message ??
@@ -261,50 +273,50 @@ export function UsersAdminPage() {
         >
           <InputField
             control={form.control}
-            label="Username"
+            label={t("auth.username")}
             name="username"
-            placeholder="Username"
+            placeholder={t("auth.username")}
           />
           <InputField
             control={form.control}
-            label="Display name"
+            label={t("admin.users.displayName")}
             name="displayName"
-            placeholder="Display name"
+            placeholder={t("admin.users.displayName")}
           />
           <InputField
             control={form.control}
-            label="Initial password"
+            label={t("admin.users.initialPassword")}
             name="password"
-            placeholder="Initial password"
+            placeholder={t("admin.users.initialPassword")}
             type="password"
           />
           <SelectField
             control={form.control}
-            label="Role"
+            label={t("admin.users.role")}
             name="role"
             options={roleOptions}
           />
           <div className="flex items-end">
             <Button disabled={createMutation.isPending} type="submit">
               <UserCog size={16} />
-              Create
+              {t("common.create")}
             </Button>
           </div>
         </form>
       </Form>
       <TableToolbar
         search={table.search}
-        searchPlaceholder="Search users"
+        searchPlaceholder={t("admin.users.search")}
         onSearchChange={table.setSearch}
       >
         <TableFilterSelect
-          label="Role"
+          label={t("admin.users.role")}
           options={roleOptions}
           value={table.filters.role}
           onValueChange={(value) => table.setFilter("role", value)}
         />
         <TableFilterSelect
-          label="State"
+          label={t("common.state")}
           options={activeFilterOptions}
           value={table.filters.is_active}
           onValueChange={(value) => table.setFilter("is_active", value)}
@@ -320,31 +332,35 @@ export function UsersAdminPage() {
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                Username
+                {t("auth.username")}
               </SortableTableHead>
-              <TableHead>Roles</TableHead>
+              <TableHead>{t("admin.users.roles")}</TableHead>
               <SortableTableHead
                 field="is_active"
                 sortBy={table.sortBy}
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                State
+                {t("common.state")}
               </SortableTableHead>
-              <TableHead>Reset password</TableHead>
+              <TableHead>{t("admin.users.resetPassword")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {users.map((item) => (
               <TableRow key={item.id}>
                 <TableCell>{item.username}</TableCell>
-                <TableCell>{item.roles.join(", ")}</TableCell>
-                <TableCell>{item.is_active ? "active" : "inactive"}</TableCell>
+                <TableCell>
+                  {item.roles.map((role) => roleLabel(t, role)).join(", ")}
+                </TableCell>
+                <TableCell>{activeLabel(t, item.is_active)}</TableCell>
                 <TableCell>
                   <div className="flex max-w-md gap-2">
                     <Input
-                      aria-label={`New password for ${item.username}`}
-                      placeholder="New password"
+                      aria-label={t("admin.users.newPasswordFor", {
+                        username: item.username,
+                      })}
+                      placeholder={t("admin.users.newPassword")}
                       type="password"
                       value={resetPasswords[item.username] ?? ""}
                       onChange={(event) =>
@@ -360,7 +376,7 @@ export function UsersAdminPage() {
                       variant="secondary"
                       onClick={() => resetPassword(item.username)}
                     >
-                      Reset
+                      {t("common.reset")}
                     </Button>
                   </div>
                   {resetErrors[item.username] ? (
@@ -375,7 +391,11 @@ export function UsersAdminPage() {
         </Table>
       ) : (
         <EmptyState
-          label={usersQuery.isLoading ? "Loading users" : "No users"}
+          label={
+            usersQuery.isLoading
+              ? t("admin.users.loading")
+              : t("admin.users.empty")
+          }
         />
       )}
       {usersQuery.data ? (
@@ -393,6 +413,7 @@ export function UsersAdminPage() {
 }
 
 export function CredentialsAdminPage() {
+  const { t } = useTranslation();
   const token = useToken();
   const queryClient = useQueryClient();
   const table = useTableState({
@@ -408,6 +429,14 @@ export function CredentialsAdminPage() {
       ),
   });
   const credentials = credentialsQuery.data?.items ?? [];
+  const credentialSchema = useMemo(() => createCredentialSchema(t), [t]);
+  const activeFilterOptions = useMemo(
+    () => [
+      { value: "true", label: activeLabel(t, true) },
+      { value: "false", label: activeLabel(t, false) },
+    ],
+    [t],
+  );
   const form = useForm<z.infer<typeof credentialSchema>>({
     resolver: zodResolver(credentialSchema),
     defaultValues: { name: "", username: "", password: "", secret: "" },
@@ -426,7 +455,7 @@ export function CredentialsAdminPage() {
 
   return (
     <AdminPanel
-      title="Credential management"
+      title={t("admin.credentials.title")}
       icon={<KeyRound size={18} />}
       error={credentialsQuery.error?.message ?? createMutation.error?.message}
     >
@@ -439,45 +468,45 @@ export function CredentialsAdminPage() {
         >
           <InputField
             control={form.control}
-            label="Name"
+            label={t("admin.credentials.name")}
             name="name"
-            placeholder="Name"
+            placeholder={t("admin.credentials.name")}
           />
           <InputField
             control={form.control}
-            label="Username"
+            label={t("admin.credentials.username")}
             name="username"
-            placeholder="Username"
+            placeholder={t("admin.credentials.username")}
           />
           <InputField
             control={form.control}
-            label="Password"
+            label={t("admin.credentials.password")}
             name="password"
-            placeholder="Password"
+            placeholder={t("admin.credentials.password")}
             type="password"
           />
           <InputField
             control={form.control}
-            label="Enable secret"
+            label={t("admin.credentials.secret")}
             name="secret"
-            placeholder="Enable secret"
+            placeholder={t("admin.credentials.secret")}
             type="password"
           />
           <div className="flex items-end">
             <Button disabled={createMutation.isPending} type="submit">
               <KeyRound size={16} />
-              Save
+              {t("common.save")}
             </Button>
           </div>
         </form>
       </Form>
       <TableToolbar
         search={table.search}
-        searchPlaceholder="Search credentials"
+        searchPlaceholder={t("admin.credentials.search")}
         onSearchChange={table.setSearch}
       >
         <TableFilterSelect
-          label="State"
+          label={t("common.state")}
           options={activeFilterOptions}
           value={table.filters.is_active}
           onValueChange={(value) => table.setFilter("is_active", value)}
@@ -493,7 +522,7 @@ export function CredentialsAdminPage() {
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                Name
+                {t("admin.credentials.name")}
               </SortableTableHead>
               <SortableTableHead
                 field="username"
@@ -501,7 +530,7 @@ export function CredentialsAdminPage() {
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                Username
+                {t("admin.credentials.username")}
               </SortableTableHead>
               <SortableTableHead
                 field="is_active"
@@ -509,7 +538,7 @@ export function CredentialsAdminPage() {
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                State
+                {t("common.state")}
               </SortableTableHead>
             </TableRow>
           </TableHeader>
@@ -518,7 +547,7 @@ export function CredentialsAdminPage() {
               <TableRow key={item.id}>
                 <TableCell>{item.name}</TableCell>
                 <TableCell>{item.username}</TableCell>
-                <TableCell>{item.is_active ? "active" : "inactive"}</TableCell>
+                <TableCell>{activeLabel(t, item.is_active)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -527,8 +556,8 @@ export function CredentialsAdminPage() {
         <EmptyState
           label={
             credentialsQuery.isLoading
-              ? "Loading credentials"
-              : "No credentials"
+              ? t("admin.credentials.loading")
+              : t("admin.credentials.empty")
           }
         />
       )}
@@ -547,6 +576,7 @@ export function CredentialsAdminPage() {
 }
 
 export function ImportsAdminPage() {
+  const { t } = useTranslation();
   const token = useToken();
   const queryClient = useQueryClient();
   const switchTable = useTableState({
@@ -597,6 +627,18 @@ export function ImportsAdminPage() {
   });
   const switches = switchesQuery.data?.items ?? [];
   const imports = importsQuery.data?.items ?? [];
+  const importSchema = useMemo(() => createImportSchema(t), [t]);
+  const booleanFilterOptions = useMemo(
+    () => [
+      { value: "true", label: booleanLabel(t, true) },
+      { value: "false", label: booleanLabel(t, false) },
+    ],
+    [t],
+  );
+  const importStatusOptions = importStatusValues.map((value) => ({
+    value,
+    label: statusLabel(t, value),
+  }));
   const form = useForm<z.infer<typeof importSchema>>({
     resolver: zodResolver(importSchema),
     defaultValues: { recordsJson: "[]" },
@@ -640,7 +682,7 @@ export function ImportsAdminPage() {
 
   return (
     <AdminPanel
-      title="Switch and network imports"
+      title={t("admin.imports.title")}
       icon={<Network size={18} />}
       error={
         credentialsQuery.error?.message ??
@@ -660,7 +702,7 @@ export function ImportsAdminPage() {
           <TextareaField
             controlClassName="font-mono text-xs"
             control={form.control}
-            label="Import records JSON"
+            label={t("admin.imports.importRecordsJson")}
             name="recordsJson"
             placeholder={sample}
           />
@@ -670,20 +712,22 @@ export function ImportsAdminPage() {
             type="submit"
           >
             <Database size={16} />
-            Import
+            {t("common.import")}
           </Button>
         </form>
       </Form>
       <div className="grid gap-5 lg:grid-cols-2">
         <div>
-          <h3 className="mb-2 text-sm font-semibold">Switches</h3>
+          <h3 className="mb-2 text-sm font-semibold">
+            {t("admin.imports.switches")}
+          </h3>
           <TableToolbar
             search={switchTable.search}
-            searchPlaceholder="Search switches"
+            searchPlaceholder={t("admin.imports.searchSwitches")}
             onSearchChange={switchTable.setSearch}
           >
             <TableFilterSelect
-              label="Enabled"
+              label={t("admin.imports.enabled")}
               options={booleanFilterOptions}
               value={switchTable.filters.is_enabled}
               onValueChange={(value) =>
@@ -691,7 +735,7 @@ export function ImportsAdminPage() {
               }
             />
             <TableFilterSelect
-              label="Validated"
+              label={t("admin.imports.validated")}
               options={booleanFilterOptions}
               value={switchTable.filters.is_validated}
               onValueChange={(value) =>
@@ -709,7 +753,7 @@ export function ImportsAdminPage() {
                     sortOrder={switchTable.sortOrder}
                     onSort={switchTable.toggleSort}
                   >
-                    Name
+                    {t("admin.credentials.name")}
                   </SortableTableHead>
                   <SortableTableHead
                     field="management_ip"
@@ -717,9 +761,9 @@ export function ImportsAdminPage() {
                     sortOrder={switchTable.sortOrder}
                     onSort={switchTable.toggleSort}
                   >
-                    Management IP
+                    {t("admin.imports.managementIp")}
                   </SortableTableHead>
-                  <TableHead>Networks</TableHead>
+                  <TableHead>{t("admin.imports.networks")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -735,7 +779,7 @@ export function ImportsAdminPage() {
               </TableBody>
             </Table>
           ) : (
-            <EmptyState label="No switches" />
+            <EmptyState label={t("admin.imports.noSwitches")} />
           )}
           {switchesQuery.data ? (
             <TablePagination
@@ -749,14 +793,16 @@ export function ImportsAdminPage() {
           ) : null}
         </div>
         <div>
-          <h3 className="mb-2 text-sm font-semibold">Import batches</h3>
+          <h3 className="mb-2 text-sm font-semibold">
+            {t("admin.imports.batches")}
+          </h3>
           <TableToolbar
             search={importTable.search}
-            searchPlaceholder="Search imports"
+            searchPlaceholder={t("admin.imports.searchImports")}
             onSearchChange={importTable.setSearch}
           >
             <TableFilterSelect
-              label="Status"
+              label={t("jobs.status")}
               options={importStatusOptions}
               value={importTable.filters.status}
               onValueChange={(value) => importTable.setFilter("status", value)}
@@ -772,7 +818,7 @@ export function ImportsAdminPage() {
                     sortOrder={importTable.sortOrder}
                     onSort={importTable.toggleSort}
                   >
-                    Status
+                    {t("jobs.status")}
                   </SortableTableHead>
                   <SortableTableHead
                     field="created_at"
@@ -780,15 +826,15 @@ export function ImportsAdminPage() {
                     sortOrder={importTable.sortOrder}
                     onSort={importTable.toggleSort}
                   >
-                    Created
+                    {t("jobs.created")}
                   </SortableTableHead>
-                  <TableHead>Summary</TableHead>
+                  <TableHead>{t("admin.imports.summary")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {imports.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell>{item.status}</TableCell>
+                    <TableCell>{statusLabel(t, item.status)}</TableCell>
                     <TableCell>{formatDate(item.created_at)}</TableCell>
                     <TableCell>
                       <code>{pretty(item.summary)}</code>
@@ -798,7 +844,7 @@ export function ImportsAdminPage() {
               </TableBody>
             </Table>
           ) : (
-            <EmptyState label="No imports" />
+            <EmptyState label={t("admin.imports.noImports")} />
           )}
           {importsQuery.data ? (
             <TablePagination
@@ -817,6 +863,7 @@ export function ImportsAdminPage() {
 }
 
 export function ProfilesAdminPage() {
+  const { t } = useTranslation();
   const token = useToken();
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -834,6 +881,14 @@ export function ProfilesAdminPage() {
       ),
   });
   const profiles = profilesQuery.data?.items ?? [];
+  const commandProfileSchema = useMemo(() => createCommandProfileSchema(t), [t]);
+  const activeFilterOptions = useMemo(
+    () => [
+      { value: "true", label: activeLabel(t, true) },
+      { value: "false", label: activeLabel(t, false) },
+    ],
+    [t],
+  );
   const form = useForm<CommandProfileFormValues>({
     defaultValues: defaultCommandProfileForm,
   });
@@ -842,7 +897,8 @@ export function ProfilesAdminPage() {
       const parsed = commandProfileSchema.safeParse(values);
       if (!parsed.success) {
         throw new Error(
-          parsed.error.issues[0]?.message ?? "Invalid command profile",
+          parsed.error.issues[0]?.message ??
+            t("validation.invalidCommandProfile"),
         );
       }
       return apiRequest<CommandProfile>(
@@ -865,7 +921,9 @@ export function ProfilesAdminPage() {
       });
     },
     onError: (err) =>
-      setFormError(err instanceof Error ? err.message : "Save profile failed"),
+      setFormError(
+        err instanceof Error ? err.message : t("admin.profiles.saveFailed"),
+      ),
   });
 
   function startEdit(profile: CommandProfile) {
@@ -881,18 +939,18 @@ export function ProfilesAdminPage() {
   }
 
   const textFields: Array<[keyof CommandProfileFormValues, string]> = [
-    ["loginPromptPatterns", "Login prompt patterns"],
-    ["commandTemplates", "Command templates"],
-    ["promptPatterns", "Prompt patterns"],
-    ["paginationRules", "Pagination rules"],
-    ["parserRules", "Parser rules"],
-    ["errorPatterns", "Error patterns"],
-    ["successPatterns", "Success patterns"],
+    ["loginPromptPatterns", t("admin.profiles.loginPromptPatterns")],
+    ["commandTemplates", t("admin.profiles.commandTemplates")],
+    ["promptPatterns", t("admin.profiles.promptPatterns")],
+    ["paginationRules", t("admin.profiles.paginationRules")],
+    ["parserRules", t("admin.profiles.parserRules")],
+    ["errorPatterns", t("admin.profiles.errorPatterns")],
+    ["successPatterns", t("admin.profiles.successPatterns")],
   ];
 
   return (
     <AdminPanel
-      title="Command profiles"
+      title={t("admin.profiles.title")}
       icon={<TerminalSquare size={18} />}
       error={profilesQuery.error?.message ?? formError}
     >
@@ -904,15 +962,15 @@ export function ProfilesAdminPage() {
           <div className="grid gap-3 md:grid-cols-2">
             <InputField
               control={form.control}
-              label="Profile name"
+              label={t("admin.profiles.profileName")}
               name="name"
-              placeholder="Profile name"
+              placeholder={t("admin.profiles.profileName")}
             />
             <InputField
               control={form.control}
-              label="Description"
+              label={t("admin.profiles.description")}
               name="description"
-              placeholder="Description"
+              placeholder={t("admin.profiles.description")}
             />
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
@@ -939,18 +997,18 @@ export function ProfilesAdminPage() {
                     }
                   />
                 </FormControl>
-                <FormLabel>Active</FormLabel>
+                <FormLabel>{t("common.active")}</FormLabel>
               </FormItem>
             )}
           />
           <div className="flex flex-wrap gap-2">
             <Button disabled={saveMutation.isPending} type="submit">
               <TerminalSquare size={16} />
-              {editingId ? "Save changes" : "Create"}
+              {editingId ? t("common.saveChanges") : t("common.create")}
             </Button>
             {editingId ? (
               <Button type="button" variant="secondary" onClick={resetForm}>
-                Cancel edit
+                {t("common.cancelEdit")}
               </Button>
             ) : null}
           </div>
@@ -958,11 +1016,11 @@ export function ProfilesAdminPage() {
       </Form>
       <TableToolbar
         search={table.search}
-        searchPlaceholder="Search profiles"
+        searchPlaceholder={t("admin.profiles.search")}
         onSearchChange={table.setSearch}
       >
         <TableFilterSelect
-          label="State"
+          label={t("common.state")}
           options={activeFilterOptions}
           value={table.filters.is_active}
           onValueChange={(value) => table.setFilter("is_active", value)}
@@ -978,18 +1036,18 @@ export function ProfilesAdminPage() {
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                Name
+                {t("admin.credentials.name")}
               </SortableTableHead>
-              <TableHead>Templates</TableHead>
+              <TableHead>{t("admin.profiles.templates")}</TableHead>
               <SortableTableHead
                 field="is_active"
                 sortBy={table.sortBy}
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                State
+                {t("common.state")}
               </SortableTableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead>{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -999,14 +1057,14 @@ export function ProfilesAdminPage() {
                 <TableCell>
                   {Object.keys(item.command_templates).join(", ")}
                 </TableCell>
-                <TableCell>{item.is_active ? "active" : "inactive"}</TableCell>
+                <TableCell>{activeLabel(t, item.is_active)}</TableCell>
                 <TableCell>
                   <Button
                     type="button"
                     variant="secondary"
                     onClick={() => startEdit(item)}
                   >
-                    Edit
+                    {t("common.edit")}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -1015,7 +1073,11 @@ export function ProfilesAdminPage() {
         </Table>
       ) : (
         <EmptyState
-          label={profilesQuery.isLoading ? "Loading profiles" : "No profiles"}
+          label={
+            profilesQuery.isLoading
+              ? t("admin.profiles.loading")
+              : t("admin.profiles.empty")
+          }
         />
       )}
       {profilesQuery.data ? (
@@ -1033,6 +1095,7 @@ export function ProfilesAdminPage() {
 }
 
 export function AuditLogsPage() {
+  const { t } = useTranslation();
   const token = useToken();
   const table = useTableState({
     defaultSortBy: "created_at",
@@ -1048,27 +1111,35 @@ export function AuditLogsPage() {
       ),
   });
   const logs = auditQuery.data?.items ?? [];
+  const translatedAuditActionOptions = auditActionOptions.map((option) => ({
+    ...option,
+    label: statusLabel(t, option.value),
+  }));
+  const translatedAuditTargetOptions = auditTargetOptions.map((option) => ({
+    ...option,
+    label: statusLabel(t, option.value),
+  }));
 
   return (
     <AdminPanel
-      title="Audit logs"
+      title={t("admin.audit.title")}
       icon={<ClipboardList size={18} />}
       error={auditQuery.error?.message}
     >
       <TableToolbar
         search={table.search}
-        searchPlaceholder="Search audit logs"
+        searchPlaceholder={t("admin.audit.search")}
         onSearchChange={table.setSearch}
       >
         <TableFilterSelect
-          label="Action"
-          options={auditActionOptions}
+          label={t("admin.audit.action")}
+          options={translatedAuditActionOptions}
           value={table.filters.action}
           onValueChange={(value) => table.setFilter("action", value)}
         />
         <TableFilterSelect
-          label="Target"
-          options={auditTargetOptions}
+          label={t("admin.audit.target")}
+          options={translatedAuditTargetOptions}
           value={table.filters.target_type}
           onValueChange={(value) => table.setFilter("target_type", value)}
         />
@@ -1083,7 +1154,7 @@ export function AuditLogsPage() {
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                Time
+                {t("admin.audit.time")}
               </SortableTableHead>
               <SortableTableHead
                 field="action"
@@ -1091,7 +1162,7 @@ export function AuditLogsPage() {
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                Action
+                {t("admin.audit.action")}
               </SortableTableHead>
               <SortableTableHead
                 field="target_type"
@@ -1099,9 +1170,9 @@ export function AuditLogsPage() {
                 sortOrder={table.sortOrder}
                 onSort={table.toggleSort}
               >
-                Target
+                {t("admin.audit.target")}
               </SortableTableHead>
-              <TableHead>Payload</TableHead>
+              <TableHead>{t("admin.audit.payload")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1119,7 +1190,11 @@ export function AuditLogsPage() {
         </Table>
       ) : (
         <EmptyState
-          label={auditQuery.isLoading ? "Loading audit logs" : "No audit logs"}
+          label={
+            auditQuery.isLoading
+              ? t("admin.audit.loading")
+              : t("admin.audit.empty")
+          }
         />
       )}
       {auditQuery.data ? (

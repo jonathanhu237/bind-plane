@@ -1,8 +1,12 @@
+import { useTranslation } from "react-i18next";
+
 import { Badge } from "@/components/ui/badge";
+import { statusLabel } from "@/i18n/labels";
 import { cn } from "@/lib/utils";
 
 export function StatusBadge({ value }: { value: string }) {
-  const normalized = value.replace(/_/g, " ");
+  const { t } = useTranslation();
+  const normalized = statusLabel(t, value);
   const isSuccess = value === "succeeded" || value === "ready";
   const isWarning =
     value === "needs_manual_confirmation" || value === "waiting_confirmation";

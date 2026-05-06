@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardList, Play, RefreshCcw, TerminalSquare } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 import { apiRequest } from "@/api/client";
@@ -14,7 +15,7 @@ import type {
   ReleasePreparation,
   SwitchRecord,
 } from "@/api/types";
-import { reasonLabels, terminalStatuses } from "@/api/types";
+import { releaseReasonValues, terminalStatuses } from "@/api/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,16 +29,16 @@ import {
   FormLabel,
 } from "@/components/ui/form";
 import { EmptyState, StatusBadge } from "@/features/shared/status";
+import { booleanLabel, reasonLabel, statusLabel } from "@/i18n/labels";
 import { useCurrentUser, useToken } from "@/api/hooks";
 import { cn } from "@/lib/utils";
 
-import { releasePrepareSchema, type ReleasePrepareValues } from "./schemas";
+import {
+  createReleasePrepareSchema,
+  type ReleasePrepareValues,
+} from "./schemas";
 
 const automaticSwitchValue = "__automatic__";
-const reasonOptions = Object.entries(reasonLabels).map(([value, label]) => ({
-  value,
-  label,
-}));
 
 async function fetchEnabledSwitchOptions(token: string | null) {
   const items: SwitchRecord[] = [];
@@ -104,6 +105,7 @@ function preparationFromJob(
 }
 
 export function ReleaseConsole() {
+  const { t } = useTranslation();
   const token = useToken();
   const userQuery = useCurrentUser();
   const queryClient = useQueryClient();
@@ -117,6 +119,15 @@ export function ReleaseConsole() {
   const [error, setError] = useState<string | null>(null);
   const user = userQuery.data;
   const isAdmin = user?.roles.includes("admin") ?? false;
+  const releasePrepareSchema = useMemo(() => createReleasePrepareSchema(t), [t]);
+  const reasonOptions = useMemo(
+    () =>
+      releaseReasonValues.map((value) => ({
+        value,
+        label: reasonLabel(t, value),
+      })),
+    [t],
+  );
 
   const form = useForm<ReleasePrepareValues>({
     resolver: zodResolver(releasePrepareSchema),
@@ -165,9 +176,9 @@ export function ReleaseConsole() {
       setPreparationJobId(null);
     }
     if (job.status === "failed" || job.status === "timeout") {
-      setError(job.error_message || "Pre-release query failed");
+      setError(job.error_message || t("release.preQueryFailed"));
     }
-  }, [form, preparationJobQuery.data, preparationSeed]);
+  }, [form, preparationJobQuery.data, preparationSeed, t]);
 
   const prepareMutation = useMutation({
     mutationFn: (values: ReleasePrepareValues) =>
@@ -191,14 +202,14 @@ export function ReleaseConsole() {
       setError(null);
     },
     onError: (err) =>
-      setError(err instanceof Error ? err.message : "Preparation failed"),
+      setError(err instanceof Error ? err.message : t("release.preparationFailed")),
   });
 
   const createJobMutation = useMutation({
     mutationFn: ({ forceOverride }: { forceOverride?: boolean }) => {
       const values = form.getValues();
       if (!preparation?.preparation_job_id) {
-        throw new Error("Preparation job is required before confirmation");
+        throw new Error(t("release.preparationRequired"));
       }
       return apiRequest<{ job_id: string }>("/releases/jobs", token, {
         method: "POST",
@@ -217,7 +228,7 @@ export function ReleaseConsole() {
       navigate(`/jobs/${response.job_id}`);
     },
     onError: (err) =>
-      setError(err instanceof Error ? err.message : "Job creation failed"),
+      setError(err instanceof Error ? err.message : t("release.jobCreationFailed")),
   });
 
   const hasPreparedJob = Boolean(preparation?.preparation_job_id);
@@ -252,7 +263,7 @@ export function ReleaseConsole() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <TerminalSquare size={18} />
-            Release console
+            {t("release.title")}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -260,19 +271,19 @@ export function ReleaseConsole() {
             <form className="grid gap-4" onSubmit={form.handleSubmit(submit)}>
               <InputField
                 control={form.control}
-                label="IPv4 address"
+                label={t("release.ipv4Address")}
                 name="targetIp"
                 placeholder="10.44.132.254"
               />
               <SelectField
                 control={form.control}
-                label="Reason"
+                label={t("release.reason")}
                 name="reason"
                 options={reasonOptions}
               />
               <InputField
                 control={form.control}
-                label="Ticket ID"
+                label={t("release.ticketId")}
                 name="ticketId"
               />
               {isAdmin ? (
@@ -290,7 +301,7 @@ export function ReleaseConsole() {
                           }
                         />
                       </FormControl>
-                      <FormLabel>Force release</FormLabel>
+                      <FormLabel>{t("release.forceRelease")}</FormLabel>
                     </FormItem>
                   )}
                 />
@@ -298,12 +309,12 @@ export function ReleaseConsole() {
               {showForcedSwitchSelector ? (
                 <SelectField
                   control={form.control}
-                  label="Forced switch"
+                  label={t("release.forcedSwitch")}
                   name="selectedSwitchId"
                   options={[
                     {
                       value: automaticSwitchValue,
-                      label: "Automatic resolution",
+                      label: t("release.automaticResolution"),
                     },
                     ...enabledSwitches.map((item) => ({
                       value: item.id,
@@ -315,7 +326,9 @@ export function ReleaseConsole() {
               {error ? <Alert variant="destructive">{error}</Alert> : null}
               <Button disabled={loading} type="submit">
                 <RefreshCcw size={16} />
-                {prepareMutation.isPending ? "Preparing" : "Prepare"}
+                {prepareMutation.isPending
+                  ? t("release.preparing")
+                  : t("release.prepare")}
               </Button>
             </form>
           </Form>
@@ -326,7 +339,7 @@ export function ReleaseConsole() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ClipboardList size={18} />
-            Confirmation
+            {t("release.confirmation")}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -335,32 +348,33 @@ export function ReleaseConsole() {
               <StatusBadge value={preparation.status} />
               <dl className="grid gap-3 text-sm md:grid-cols-2">
                 {[
-                  ["Target", preparation.target_ip],
+                  [t("release.target"), preparation.target_ip],
                   [
-                    "Switch",
+                    t("release.switch"),
                     preparation.resolved_switch
                       ? `${preparation.resolved_switch.name} (${preparation.resolved_switch.management_ip})`
-                      : "Not resolved",
+                      : t("common.notResolved"),
                   ],
-                  ["Network", preparation.resolved_switch?.cidr ?? "None"],
                   [
-                    "Current state",
+                    t("release.network"),
+                    preparation.resolved_switch?.cidr ?? t("common.none"),
+                  ],
+                  [
+                    t("release.currentState"),
                     preparation.observation
-                      ? `${preparation.observation.entry_type}${
+                      ? `${statusLabel(t, preparation.observation.entry_type)}${
                           preparation.observation.mac
                             ? `, ${preparation.observation.mac}`
                             : ""
                         }`
-                      : "Unknown",
+                      : t("common.unknown"),
                   ],
                   [
-                    "Reason",
-                    reasonLabels[
-                      preparation.reason ?? form.getValues("reason")
-                    ],
+                    t("release.reason"),
+                    reasonLabel(t, preparation.reason ?? form.getValues("reason")),
                   ],
-                  ["Force", displayedForce ? "Yes" : "No"],
-                ].map(([term, value]) => (
+                  [t("release.force"), booleanLabel(t, displayedForce)],
+                ].map(([term, value], index) => (
                   <div key={term} className="rounded-md border bg-muted/30 p-3">
                     <dt className="text-xs uppercase text-muted-foreground">
                       {term}
@@ -368,9 +382,7 @@ export function ReleaseConsole() {
                     <dd
                       className={cn(
                         "mt-1 break-words font-medium",
-                        term === "Force" &&
-                          displayedForce &&
-                          "text-destructive",
+                        index === 5 && displayedForce && "text-destructive",
                       )}
                     >
                       {value}
@@ -381,7 +393,7 @@ export function ReleaseConsole() {
               {preparation.observation ? (
                 <details>
                   <summary className="cursor-pointer text-sm font-medium">
-                    Raw pre-query output
+                    {t("release.rawPreQueryOutput")}
                   </summary>
                   <pre className="mt-2">
                     {preparation.observation.raw_output}
@@ -400,7 +412,7 @@ export function ReleaseConsole() {
                   onClick={() => createJobMutation.mutate({})}
                 >
                   <Play size={16} />
-                  Create job
+                  {t("release.createJob")}
                 </Button>
                 {canForceStoppedNoRecord ? (
                   <Button
@@ -412,13 +424,13 @@ export function ReleaseConsole() {
                     }
                   >
                     <Play size={16} />
-                    Force release job
+                    {t("release.forceReleaseJob")}
                   </Button>
                 ) : null}
               </div>
             </div>
           ) : (
-            <EmptyState label="No preparation result" />
+            <EmptyState label={t("release.noPreparation")} />
           )}
         </CardContent>
       </Card>
