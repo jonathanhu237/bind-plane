@@ -1,7 +1,7 @@
 # ipv4-binding-release Specification
 
 ## Purpose
-TBD - created by archiving change add-ipv4-release-workflow. Update Purpose after archive.
+Define the end-to-end Bind Plane workflow for releasing a single IPv4 static IP-MAC binding through authorized users, switch resolution, command-profile-driven worker execution, result classification, retry behavior, and audit review.
 ## Requirements
 ### Requirement: Authorized users can access the release workflow
 The system SHALL allow only authenticated users with the `operator` or `admin` role to access the IPv4 binding release workflow.
@@ -183,3 +183,24 @@ The system SHALL provide admin-only paths to manage users, credentials, switch/n
 - **WHEN** an `admin` updates a command profile used by switches
 - **THEN** the system persists the change for future release preparation and job execution
 
+### Requirement: Routed release workflow parity
+The frontend SHALL preserve the existing IPv4 binding release workflow behavior while exposing release, job history, and job detail screens through routed navigation.
+
+#### Scenario: User confirms release from routed console
+- **WHEN** an authenticated user prepares and confirms a release from `/release`
+- **THEN** the frontend creates the same backend release job as the previous release console flow and navigates to that job's detail route
+
+#### Scenario: User retries failed job from routed detail
+- **WHEN** an authorized user retries a failed release job from `/jobs/:jobId`
+- **THEN** the frontend creates a retry job and navigates to the new retry job detail route
+
+### Requirement: Routed admin workflow parity
+The frontend SHALL preserve existing admin management behavior while exposing admin sections through admin-only routed navigation.
+
+#### Scenario: Admin resets user password
+- **WHEN** an admin resets a user password from the routed user management page
+- **THEN** the frontend calls the existing password reset API and refreshes the user data
+
+#### Scenario: Admin creates or updates command profile
+- **WHEN** an admin creates or updates a command profile from the routed command profile page
+- **THEN** the frontend submits the existing command profile payload contract and refreshes the command profile list
