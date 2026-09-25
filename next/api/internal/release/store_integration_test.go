@@ -63,6 +63,10 @@ func TestPrepareAndConfirmPersistSeparateJobs(t *testing.T) {
 	if released.Status != "queued" || released.ID == prepared.PreparationJobID {
 		t.Fatalf("%+v", released)
 	}
+	detail, err := store.Job(ctx, released.ID, actor, false)
+	if err != nil || detail.TargetIP != "10.2.1.7" || detail.CommandProfileID != profile || len(detail.Events) != 1 || detail.PreparationJobID == nil || *detail.PreparationJobID != prepared.PreparationJobID {
+		t.Fatalf("release evidence: %+v %v", detail, err)
+	}
 	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='succeeded',phase='finished' WHERE id=$1`, released.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +90,21 @@ func TestPrepareAndConfirmPersistSeparateJobs(t *testing.T) {
 	if _, err = store.Retry(ctx, retried.ID, actor, "operator@test.invalid", false); err != nil {
 		t.Fatalf("retry of retry: %v", err)
 	}
+	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='needs_manual_confirmation' WHERE id=$1`, released.ID); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := store.Prepare(ctx, PrepareInput{TargetIP: "10.2.1.7", ActorID: actor, ActorEmail: "operator@test.invalid", Reason: "temporary_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='waiting_confirmation',phase='waiting_confirmation',before_state='{"entry_type":"static"}' WHERE id=$1`, blocked.PreparationJobID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Confirm(ctx, ConfirmInput{PreparationJobID: blocked.PreparationJobID, ActorID: actor}); err != ErrConflict {
+		t.Fatalf("uncertain prior command allowed: %v", err)
+	}
 	jobs, err := store.Jobs(ctx, actor, false)
-	if err != nil || len(jobs) != 4 {
+	if err != nil || len(jobs) != 5 {
 		t.Fatalf("jobs %d %v", len(jobs), err)
 	}
 }

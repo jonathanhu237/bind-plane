@@ -1,6 +1,8 @@
 # Bind Plane · Temvia migration preview
 
-This preview is not production-ready: switch end-to-end tests, asset edits/imports, and full audit browsing are pending. Keep the legacy application running until explicit cutover. Never point this preview at production switches.
+This preview is not production-ready: switch end-to-end tests, asset edits/imports, and complete audit browsing are pending. Keep the legacy application running until explicit cutover. Never point this preview at production switches.
+
+Safety boundary: a dynamic pre-query record is not a static binding and cannot be released. An expired release-command lease becomes `needs_manual_confirmation`; new queries may be recorded, but further release commands for that IP are blocked. No automatic replay or in-app clearance is provided. Before any future manual reconciliation, an administrator must stop the old executor, verify its switch session is gone, inspect independent job evidence and switch state, and arrange a separately audited resolution. Do not just reset the job status to requeue it.
 
 English | [简体中文](README.zh-CN.md)
 

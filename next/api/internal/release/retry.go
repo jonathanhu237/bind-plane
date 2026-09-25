@@ -38,7 +38,7 @@ func (s *SQLStore) Retry(ctx context.Context, original, actorID, actorEmail stri
 	var id, ip, reason, switchID string
 	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,ticket_id,force,status,phase,actor_id,actor_email,switch_id,command_profile_id,retry_of_id)
  SELECT target_ip,'pre_release_query',reason,ticket_id,force,'queued','queued',$1,$2,switch_id,command_profile_id,id
- FROM bp_release_jobs WHERE id=$3 RETURNING id::text,target_ip::text,reason,switch_id::text`, actorID, actorEmail, original).Scan(&id, &ip, &reason, &switchID)
+ FROM bp_release_jobs WHERE id=$3 RETURNING id::text,host(target_ip),reason,switch_id::text`, actorID, actorEmail, original).Scan(&id, &ip, &reason, &switchID)
 	if err != nil {
 		return Job{}, err
 	}

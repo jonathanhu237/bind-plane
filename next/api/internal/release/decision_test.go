@@ -10,7 +10,7 @@ func TestCanConfirmRelease(t *testing.T) {
 	}{
 		{"static", false, false, true},
 		{"static", true, true, false},
-		{"dynamic", false, false, true},
+		{"dynamic", false, false, false},
 		{"missing", false, true, false},
 		{"missing", true, false, false},
 		{"missing", true, true, true},

@@ -223,7 +223,7 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 	queries := map[string]string{
 		"credentials": `SELECT id::text,name,username,is_active FROM bp_credentials ORDER BY name`,
 		"profiles":    `SELECT id::text,name,is_active FROM bp_command_profiles ORDER BY name`,
-		"switches":    `SELECT id::text,name,management_ip::text,credential_id::text,command_profile_id::text,is_enabled FROM bp_switches ORDER BY name`,
+		"switches":    `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled FROM bp_switches ORDER BY name`,
 		"networks":    `SELECT id::text,switch_id::text,cidr::text,is_enabled,is_validated FROM bp_networks ORDER BY cidr`,
 	}
 	for category, query := range queries {

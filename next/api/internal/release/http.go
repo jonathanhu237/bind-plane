@@ -46,6 +46,7 @@ type Job struct {
 	JobID            string     `json:"job_id,omitempty"`
 	TargetIP         string     `json:"target_ip,omitempty"`
 	SwitchID         string     `json:"switch_id,omitempty"`
+	CommandProfileID string     `json:"command_profile_id,omitempty"`
 	ActorEmail       string     `json:"actor_email,omitempty"`
 	RetryOfID        *string    `json:"retry_of_id,omitempty"`
 	PreparationJobID *string    `json:"preparation_job_id,omitempty"`

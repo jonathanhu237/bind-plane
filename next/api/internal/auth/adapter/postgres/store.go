@@ -14,7 +14,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-const ExpectedMigrationVersion int64 = 15
+const ExpectedMigrationVersion int64 = 16
 
 const stateOperationTimeout = time.Second
 

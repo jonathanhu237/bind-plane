@@ -67,6 +67,27 @@ def test_release_after_dynamic_entry_is_success():
     assert events[-1]["after_state"]["entry_type"] == "dynamic"
 
 
+def test_dynamic_record_never_sends_release_command():
+    class DynamicDevice(Device):
+        def query_before(self, commands):
+            return "10.1.2.3 aa:bb dynamic"
+
+    events = []
+    instance = DynamicDevice(None)
+    with (
+        patch("worker.main.NetmikoSwitchSession", return_value=instance),
+        patch("worker.main.build_connection_settings_for_switch", return_value=SimpleNamespace()),
+        patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
+    ):
+        device_task(
+            {"target_ip": "10.1.2.3", "kind": "release", "force": False},
+            dependency(),
+            lambda **data: events.append(data),
+        )
+    assert instance.release_calls == 0
+    assert events[-1]["status"] == "cancelled"
+
+
 def test_prequery_never_sends_release_command():
     events = []
     instance = Device(None)

@@ -2,7 +2,7 @@ package release
 
 // CanConfirmRelease is evaluated again under a database lock, not just in the UI.
 func CanConfirmRelease(before string, force, admin bool) bool {
-	if before == "static" || before == "dynamic" {
+	if before == "static" {
 		return !force
 	}
 	return before == "missing" && force && admin

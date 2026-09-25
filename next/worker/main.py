@@ -42,18 +42,47 @@ async def sweep_expired(pool):
 
 
 async def claim(pool):
-    async with pool.acquire() as conn, conn.transaction():
-        row = await conn.fetchrow("""SELECT id FROM bp_release_jobs WHERE status='queued'
-                ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1""")
-        if row is None:
-            return None
-        return await conn.fetchrow(
-            """UPDATE bp_release_jobs SET status='running',phase='connecting',
-                started_at=now(),updated_at=now(),lease_token=gen_random_uuid(),
-                lease_until=now()+interval '90 seconds' WHERE id=$1
-                RETURNING id,lease_token,kind,target_ip::text,force,switch_id,command_profile_id""",
-            row["id"],
-        )
+    try:
+        async with pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow("""SELECT j.id,host(j.target_ip) AS target_ip,j.kind
+                    FROM bp_release_jobs j WHERE j.status='queued'
+                    AND (j.kind='pre_release_query' OR NOT EXISTS (
+                        SELECT 1 FROM bp_release_jobs previous
+                        WHERE previous.target_ip=j.target_ip AND previous.id<>j.id
+                        AND previous.kind='release'
+                        AND previous.status IN ('running','needs_manual_confirmation')
+                    ))
+                    ORDER BY j.created_at FOR UPDATE OF j SKIP LOCKED LIMIT 1""")
+            if row is None:
+                return None
+            if row["kind"] == "release":
+                # Serialize this address through the *recheck*, not merely through
+                # the claim's initial MVCC snapshot. An expired lease may become
+                # uncertain while another claimant waits for this lock.
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+                    row["target_ip"],
+                )
+                blocked = await conn.fetchval(
+                    """SELECT EXISTS(SELECT 1 FROM bp_release_jobs
+                       WHERE target_ip=$1 AND id<>$2 AND kind='release'
+                       AND status IN ('running','needs_manual_confirmation'))""",
+                    row["target_ip"],
+                    row["id"],
+                )
+                if blocked:
+                    return None
+            return await conn.fetchrow(
+                """UPDATE bp_release_jobs SET status='running',phase='connecting',
+                    started_at=now(),updated_at=now(),lease_token=gen_random_uuid(),
+                    lease_until=now()+interval '90 seconds' WHERE id=$1
+                    RETURNING id,lease_token,kind,host(target_ip) AS target_ip,force,
+                        switch_id,command_profile_id""",
+                row["id"],
+            )
+    except asyncpg.UniqueViolationError:
+        # Another claimant won the partial unique index race for this IP.
+        return None
 
 
 async def checkpoint(pool, job, *, phase, status="running", message=None, **changes):
@@ -125,7 +154,8 @@ def legacy_encrypted_secret(value):
 async def load_dependencies(pool, job):
     async with pool.acquire() as conn:
         return await conn.fetchrow(
-            """SELECT s.management_ip::text,s.is_enabled,c.username,c.encrypted_password,
+            """SELECT host(s.management_ip) AS management_ip,s.is_enabled,
+            c.username,c.encrypted_password,
             c.encrypted_secret,c.is_active AS credential_active,p.is_active AS profile_active,
             p.login_prompt_patterns,p.command_templates,p.prompt_patterns,p.pagination_rules,
             p.success_patterns,p.error_patterns,p.parser_rules
@@ -190,7 +220,14 @@ def device_task(job, dep, checkpoint_sync):
             )
             return
         if job["kind"] == "pre_release_query":
-            if before.entry_type == ArpEntryType.MISSING and not job["force"]:
+            if before.entry_type == ArpEntryType.DYNAMIC:
+                checkpoint_sync(
+                    phase="finished",
+                    status="cancelled",
+                    message="Dynamic entry is not a static binding",
+                    result={"preparation_status": "stopped_dynamic_record"},
+                )
+            elif before.entry_type == ArpEntryType.MISSING and not job["force"]:
                 checkpoint_sync(
                     phase="finished",
                     status="cancelled",
@@ -204,6 +241,13 @@ def device_task(job, dep, checkpoint_sync):
                     message="Pre-query ready for confirmation",
                     result={"preparation_status": "ready"},
                 )
+            return
+        if before.entry_type == ArpEntryType.DYNAMIC:
+            checkpoint_sync(
+                phase="finished",
+                status="cancelled",
+                message="Dynamic entry is not a static binding",
+            )
             return
         if before.entry_type == ArpEntryType.MISSING and not job["force"]:
             checkpoint_sync(

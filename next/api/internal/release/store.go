@@ -97,7 +97,7 @@ func (s *SQLStore) Confirm(ctx context.Context, input ConfirmInput) (Job, error)
 	var owner, ip, kind, reason, status, switchID, profileID, entry string
 	var preparedForce bool
 	var before []byte
-	err = tx.QueryRowContext(ctx, `SELECT actor_id::text,target_ip::text,kind,reason,status,force,switch_id::text,command_profile_id::text,before_state FROM bp_release_jobs WHERE id=$1 FOR UPDATE`, input.PreparationJobID).Scan(&owner, &ip, &kind, &reason, &status, &preparedForce, &switchID, &profileID, &before)
+	err = tx.QueryRowContext(ctx, `SELECT actor_id::text,host(target_ip),kind,reason,status,force,switch_id::text,command_profile_id::text,before_state FROM bp_release_jobs WHERE id=$1 FOR UPDATE`, input.PreparationJobID).Scan(&owner, &ip, &kind, &reason, &status, &preparedForce, &switchID, &profileID, &before)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNotFound
 	}
@@ -135,6 +135,13 @@ func (s *SQLStore) Confirm(ctx context.Context, input ConfirmInput) (Job, error)
 	if err != sql.ErrNoRows {
 		return Job{}, err
 	}
+	var blocked bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bp_release_jobs WHERE target_ip=$1 AND kind='release' AND status IN ('running','needs_manual_confirmation'))`, ip).Scan(&blocked); err != nil {
+		return Job{}, err
+	}
+	if blocked {
+		return Job{}, ErrConflict
+	}
 	var id string
 	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,switch_id,command_profile_id,preparation_job_id,before_state)
  SELECT target_ip,'release',reason,$1,'queued','queued',actor_id,actor_email,switch_id,command_profile_id,id,before_state FROM bp_release_jobs WHERE id=$2 RETURNING id::text`, input.Force, input.PreparationJobID).Scan(&id)
@@ -158,7 +165,7 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	var rawBefore, rawRelease, rawAfter, errMessage, retryOf, preparationID sql.NullString
 	var created time.Time
 	var started, finished sql.NullTime
-	err := s.DB.QueryRowContext(ctx, `SELECT id::text,target_ip::text,switch_id::text,kind,status,phase,reason,force,before_state,after_state,result,raw_before_output,raw_release_output,raw_after_output,error_message,actor_email,retry_of_id::text,preparation_job_id::text,created_at,started_at,finished_at FROM bp_release_jobs WHERE id=$1 AND ($2 OR actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorEmail, &retryOf, &preparationID, &created, &started, &finished)
+	err := s.DB.QueryRowContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,command_profile_id::text,kind,status,phase,reason,force,before_state,after_state,result,raw_before_output,raw_release_output,raw_after_output,error_message,actor_email,retry_of_id::text,preparation_job_id::text,created_at,started_at,finished_at FROM bp_release_jobs WHERE id=$1 AND ($2 OR actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.CommandProfileID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorEmail, &retryOf, &preparationID, &created, &started, &finished)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNotFound
 	}
@@ -216,7 +223,7 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	return job, nil
 }
 func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool) ([]Job, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id::text,target_ip::text,switch_id::text,kind,status,phase,reason,force FROM bp_release_jobs WHERE ($1 OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`, admin, actor)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,kind,status,phase,reason,force FROM bp_release_jobs WHERE ($1 OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`, admin, actor)
 	if err != nil {
 		return nil, err
 	}
