@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-ssr
+.git
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+*.tgz
+playwright-report
+test-results

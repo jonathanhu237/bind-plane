@@ -1,0 +1,1 @@
+Generated once from jonathanhu237/temvia commit `65c5125f08b1178a5677165115342f288b5586ca` with module `github.com/jonathanhu237/bind-plane/next/api`. This is an independent source copy, not a continuously-updated dependency. Preserve template MIT license and third-party notices. The legacy application remains at repository root until explicit cutover.

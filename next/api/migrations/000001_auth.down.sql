@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS auth_users;
+DROP TABLE IF EXISTS auth_setup;
