@@ -1,7 +1,10 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from worker.main import device_task
+import pytest
+from worker.main import dependency_problem, device_task, execute
+
+PINNED = {"switch_version": 1, "command_profile_version": 1}
 
 
 def dependency():
@@ -9,6 +12,8 @@ def dependency():
         "is_enabled": True,
         "credential_active": True,
         "profile_active": True,
+        "switch_version": 1,
+        "profile_version": 1,
         "management_ip": "192.0.2.1",
         "username": "test",
         "encrypted_password": "unused",
@@ -58,7 +63,7 @@ def test_release_after_dynamic_entry_is_success():
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
-            {"target_ip": "10.1.2.3", "kind": "release", "force": False},
+            {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED},
             dependency(),
             lambda **data: events.append(data),
         )
@@ -80,7 +85,7 @@ def test_dynamic_record_never_sends_release_command():
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
-            {"target_ip": "10.1.2.3", "kind": "release", "force": False},
+            {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED},
             dependency(),
             lambda **data: events.append(data),
         )
@@ -97,9 +102,66 @@ def test_prequery_never_sends_release_command():
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
-            {"target_ip": "10.1.2.3", "kind": "pre_release_query", "force": False},
+            {"target_ip": "10.1.2.3", "kind": "pre_release_query", "force": False, **PINNED},
             dependency(),
             lambda **data: events.append(data),
         )
     assert instance.release_calls == 0
     assert events[-1]["status"] == "waiting_confirmation"
+
+
+def test_changed_revision_never_reaches_the_switch():
+    job = {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED}
+    edited = {**dependency(), "switch_version": 2}
+    assert dependency_problem(job, edited).startswith("Switch configuration changed")
+    assert dependency_problem(job, {**dependency(), "profile_version": 3}) is not None
+    assert dependency_problem(job, {**dependency(), "is_enabled": False}) is not None
+    assert dependency_problem(job, dependency()) is None
+    with patch("worker.main.NetmikoSwitchSession") as session, pytest.raises(ValueError):
+        device_task(job, edited, lambda **data: None)
+    session.assert_not_called()
+
+
+def test_unusable_configuration_is_a_definite_failure():
+    events = []
+    with (
+        patch("worker.main.NetmikoSwitchSession") as session,
+        patch("worker.main.legacy_encrypted_secret", side_effect=ValueError("bad key")),
+    ):
+        device_task(
+            {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED},
+            dependency(),
+            lambda **data: events.append(data),
+        )
+    session.assert_not_called()
+    assert events[-1]["status"] == "failed"
+    assert "bad key" not in events[-1]["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_precondition_failure_does_not_block_the_address():
+    job = {"id": "job", "target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED}
+    saved = AsyncMock()
+    edited = AsyncMock(return_value={**dependency(), "switch_version": 2})
+    with (
+        patch("worker.main.heartbeat", AsyncMock()),
+        patch("worker.main.checkpoint", saved),
+        patch("worker.main.load_dependencies", edited),
+        patch("worker.main.device_task") as device,
+    ):
+        await execute(None, job)
+    device.assert_not_called()
+    assert saved.await_args.kwargs["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_dependency_load_failure_is_not_uncertain():
+    job = {"id": "job", "target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED}
+    saved = AsyncMock()
+    with (
+        patch("worker.main.heartbeat", AsyncMock()),
+        patch("worker.main.checkpoint", saved),
+        patch("worker.main.load_dependencies", AsyncMock(side_effect=OSError("db"))),
+    ):
+        await execute(None, job)
+    assert saved.await_args.kwargs["status"] == "failed"

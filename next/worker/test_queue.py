@@ -7,6 +7,26 @@ from bind_plane.security.credentials import decrypt_secret
 from worker.main import checkpoint, claim, legacy_encrypted_secret, load_dependencies, sweep_expired
 
 
+async def queue_job(conn, actor, switch_id, ip, *, kind="release", status="queued", phase="queued"):
+    """Insert a job pinned to the switch's current revision, as the API does."""
+    return await conn.fetchval(
+        """INSERT INTO bp_release_jobs
+        (target_ip,kind,reason,status,phase,actor_id,actor_email,switch_id,command_profile_id,
+         switch_version,command_profile_version,switch_name,switch_management_ip)
+        SELECT $1::inet,$2::text,'temporary_test',$3::text,$4::text,$5::uuid,
+         'operator@test.invalid',s.id,s.command_profile_id,s.version,p.version,s.name,
+         s.management_ip
+        FROM bp_switches s JOIN bp_command_profiles p ON p.id=s.command_profile_id
+        WHERE s.id=$6 RETURNING id""",
+        ip,
+        kind,
+        status,
+        phase,
+        actor,
+        switch_id,
+    )
+
+
 @pytest.mark.asyncio
 async def test_go_encrypted_credential_is_readable_only_with_worker_key():
     dsn = os.getenv("EXECUTOR_TEST_DATABASE_URL")
@@ -19,7 +39,9 @@ async def test_go_encrypted_credential_is_readable_only_with_worker_key():
         )
         assert encrypted.startswith("v1:")
         assert decrypt_secret(legacy_encrypted_secret(encrypted)) == "unique-switch-secret"
-        switch = await conn.fetchrow("SELECT id,command_profile_id FROM bp_switches LIMIT 1")
+        switch = await conn.fetchrow(
+            "SELECT id,command_profile_id FROM bp_switches WHERE management_ip='192.0.2.1'"
+        )
         pool = await asyncpg.create_pool(dsn, min_size=1, max_size=1)
         try:
             dependencies = await load_dependencies(
@@ -27,6 +49,7 @@ async def test_go_encrypted_credential_is_readable_only_with_worker_key():
                 {"switch_id": switch["id"], "command_profile_id": switch["command_profile_id"]},
             )
             assert dependencies["management_ip"] == "192.0.2.1"
+            assert dependencies["switch_version"] >= 1
         finally:
             await pool.close()
     finally:
@@ -49,18 +72,7 @@ async def test_release_for_same_ip_waits_for_running_and_uncertain_command():
             assert actor is not None and switch is not None
             ids = []
             for _ in range(2):
-                ids.append(
-                    await conn.fetchval(
-                        """INSERT INTO bp_release_jobs
-                    (target_ip,kind,reason,status,phase,actor_id,actor_email,
-                     switch_id,command_profile_id)
-                    VALUES('10.8.8.8','release','temporary_test','queued','queued',
-                           $1,'operator@test.invalid',$2,$3) RETURNING id""",
-                        actor,
-                        switch["id"],
-                        switch["command_profile_id"],
-                    )
-                )
+                ids.append(await queue_job(conn, actor, switch["id"], "10.8.8.8"))
         first = await claim(pool)
         assert first["id"] == ids[0]
         assert await claim(pool) is None
@@ -96,28 +108,19 @@ async def test_claim_rechecks_manual_barrier_after_waiting_for_ip_lock():
             actor = await conn.fetchval("SELECT id FROM auth_users LIMIT 1")
             switch = await conn.fetchrow("SELECT id,command_profile_id FROM bp_switches LIMIT 1")
             assert actor is not None and switch is not None
-            queued = await conn.fetchval(
-                """INSERT INTO bp_release_jobs
-                   (target_ip,kind,reason,status,phase,actor_id,actor_email,switch_id,command_profile_id)
-                   VALUES('10.8.8.9','release','temporary_test','queued','queued',
-                   $1,'operator@test.invalid',$2,$3) RETURNING id""",
-                actor,
-                switch["id"],
-                switch["command_profile_id"],
-            )
+            queued = await queue_job(conn, actor, switch["id"], "10.8.8.9")
             async with conn.transaction():
                 await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended('10.8.8.9',0))")
                 pending = asyncio.create_task(claim(pool))
                 await asyncio.sleep(0.1)
                 assert not pending.done()
-                await conn.execute(
-                    """INSERT INTO bp_release_jobs
-                       (target_ip,kind,reason,status,phase,actor_id,actor_email,switch_id,command_profile_id)
-                       VALUES('10.8.8.9','release','temporary_test',
-                       'needs_manual_confirmation','finished',$1,'operator@test.invalid',$2,$3)""",
+                await queue_job(
+                    conn,
                     actor,
                     switch["id"],
-                    switch["command_profile_id"],
+                    "10.8.8.9",
+                    status="needs_manual_confirmation",
+                    phase="finished",
                 )
         assert await asyncio.wait_for(pending, timeout=3) is None
         async with pool.acquire() as conn:
@@ -143,15 +146,7 @@ async def test_claim_checkpoint_and_expired_lease_never_requeue():
             actor = await conn.fetchval("SELECT id FROM auth_users LIMIT 1")
             switch = await conn.fetchrow("SELECT id,command_profile_id FROM bp_switches LIMIT 1")
             assert actor is not None and switch is not None
-            id_ = await conn.fetchval(
-                """INSERT INTO bp_release_jobs
-                (target_ip,kind,reason,status,phase,actor_id,actor_email,switch_id,command_profile_id)
-                VALUES('10.2.2.2','pre_release_query','temporary_test','queued','queued',$1,
-                'operator@test.invalid',$2,$3) RETURNING id""",
-                actor,
-                switch["id"],
-                switch["command_profile_id"],
-            )
+            id_ = await queue_job(conn, actor, switch["id"], "10.2.2.2", kind="pre_release_query")
         job = await claim(pool)
         assert job["id"] == id_ and job["kind"] == "pre_release_query"
         assert job["target_ip"] == "10.2.2.2"

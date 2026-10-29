@@ -1,8 +1,10 @@
 # Bind Plane · Temvia migration preview
 
-This preview is not production-ready: switch end-to-end tests, asset edits/imports, and complete audit browsing are pending. Keep the legacy application running until explicit cutover. Never point this preview at production switches.
+This preview is not production-ready: switch end-to-end tests, asset imports, and complete audit browsing are pending. Keep the legacy application running until explicit cutover. Never point this preview at production switches.
 
 Safety boundary: a dynamic pre-query record is not a static binding and cannot be released. An expired release-command lease becomes `needs_manual_confirmation`; new queries may be recorded, but further release commands for that IP are blocked. No automatic replay or in-app clearance is provided. Before any future manual reconciliation, an administrator must stop the old executor, verify its switch session is gone, inspect independent job evidence and switch state, and arrange a separately audited resolution. Do not just reset the job status to requeue it.
+
+Asset edits are versioned. A job pins the switch and command-profile revision its pre-query observed: confirming after either changed, or after an auto-resolved address moved to another switch, is refused, and a queued job whose pinned revision no longer applies fails without contacting the switch. Operators query again. A failure before any switch connection (disabled or edited assets, unusable credentials or profile) is a definite `failed`, never `needs_manual_confirmation`, so it does not block later releases. Asset changes record which fields changed; secrets are recorded only as replaced or removed.
 
 English | [简体中文](README.zh-CN.md)
 

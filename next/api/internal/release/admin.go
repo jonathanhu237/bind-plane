@@ -38,6 +38,10 @@ func NewAdminHandler(db *sql.DB, identity Identity, cookie, origin string) (http
 	mux.HandleFunc("POST /api/releases/admin/profiles", a.profile)
 	mux.HandleFunc("POST /api/releases/admin/switches", a.switchAsset)
 	mux.HandleFunc("POST /api/releases/admin/networks", a.network)
+	mux.HandleFunc("PATCH /api/releases/admin/credentials/{id}", a.editCredential)
+	mux.HandleFunc("PATCH /api/releases/admin/profiles/{id}", a.editProfile)
+	mux.HandleFunc("PATCH /api/releases/admin/switches/{id}", a.editSwitch)
+	mux.HandleFunc("PATCH /api/releases/admin/networks/{id}", a.editNetwork)
 	return mux, nil
 }
 func (a *AdminHandler) authorize(w http.ResponseWriter, r *http.Request, mutate bool) (domain.Principal, bool) {
@@ -220,11 +224,17 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := map[string]any{}
+	// Secrets are never listed, only whether an optional privilege secret is stored.
 	queries := map[string]string{
-		"credentials": `SELECT id::text,name,username,is_active FROM bp_credentials ORDER BY name`,
-		"profiles":    `SELECT id::text,name,is_active FROM bp_command_profiles ORDER BY name`,
-		"switches":    `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled FROM bp_switches ORDER BY name`,
-		"networks":    `SELECT id::text,switch_id::text,cidr::text,is_enabled,is_validated FROM bp_networks ORDER BY cidr`,
+		"credentials": `SELECT id::text,name,username,description,is_active,encrypted_secret IS NOT NULL,version FROM bp_credentials ORDER BY name`,
+		"profiles":    `SELECT id::text,name,is_active,version,login_prompt_patterns::text,command_templates::text,prompt_patterns::text,pagination_rules::text,success_patterns::text,error_patterns::text,parser_rules::text FROM bp_command_profiles ORDER BY name`,
+		"switches":    `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled,version FROM bp_switches ORDER BY name`,
+		"networks":    `SELECT id::text,switch_id::text,cidr::text,is_enabled,is_validated,vlan,description,version FROM bp_networks ORDER BY cidr`,
+	}
+	// Profile rules are read as text and passed through as the JSON they are.
+	jsonColumns := map[string]bool{}
+	for _, field := range profileFields.fields {
+		jsonColumns[field.column] = field.json
 	}
 	for category, query := range queries {
 		rows, err := a.db.QueryContext(r.Context(), query)
@@ -233,7 +243,12 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items := []map[string]any{}
-		names := map[string][]string{"credentials": {"id", "name", "username", "is_active"}, "profiles": {"id", "name", "is_active"}, "switches": {"id", "name", "management_ip", "credential_id", "command_profile_id", "is_enabled"}, "networks": {"id", "switch_id", "cidr", "is_enabled", "is_validated"}}[category]
+		names := map[string][]string{
+			"credentials": {"id", "name", "username", "description", "is_active", "has_secret", "version"},
+			"profiles":    {"id", "name", "is_active", "version", "login_prompt_patterns", "command_templates", "prompt_patterns", "pagination_rules", "success_patterns", "error_patterns", "parser_rules"},
+			"switches":    {"id", "name", "management_ip", "credential_id", "command_profile_id", "is_enabled", "version"},
+			"networks":    {"id", "switch_id", "cidr", "is_enabled", "is_validated", "vlan", "description", "version"},
+		}[category]
 		for rows.Next() {
 			values := make([]any, len(names))
 			ptrs := make([]any, len(names))
@@ -246,6 +261,9 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 			item := map[string]any{}
 			for i, key := range names {
 				item[key] = values[i]
+				if text, ok := values[i].(string); ok && category == "profiles" && jsonColumns[key] {
+					item[key] = json.RawMessage(text)
+				}
 			}
 			items = append(items, item)
 		}

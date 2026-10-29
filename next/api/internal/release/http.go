@@ -42,30 +42,32 @@ type JobEvent struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type Job struct {
-	ID               string     `json:"id,omitempty"`
-	JobID            string     `json:"job_id,omitempty"`
-	TargetIP         string     `json:"target_ip,omitempty"`
-	SwitchID         string     `json:"switch_id,omitempty"`
-	CommandProfileID string     `json:"command_profile_id,omitempty"`
-	ActorEmail       string     `json:"actor_email,omitempty"`
-	RetryOfID        *string    `json:"retry_of_id,omitempty"`
-	PreparationJobID *string    `json:"preparation_job_id,omitempty"`
-	CreatedAt        *time.Time `json:"created_at,omitempty"`
-	StartedAt        *time.Time `json:"started_at,omitempty"`
-	FinishedAt       *time.Time `json:"finished_at,omitempty"`
-	Events           []JobEvent `json:"events,omitempty"`
-	Kind             string     `json:"kind,omitempty"`
-	Status           string     `json:"status"`
-	Phase            string     `json:"phase,omitempty"`
-	Reason           string     `json:"reason,omitempty"`
-	Force            bool       `json:"force"`
-	BeforeState      any        `json:"before_state,omitempty"`
-	AfterState       any        `json:"after_state,omitempty"`
-	Result           any        `json:"result,omitempty"`
-	RawBeforeOutput  *string    `json:"raw_before_output,omitempty"`
-	RawReleaseOutput *string    `json:"raw_release_output,omitempty"`
-	RawAfterOutput   *string    `json:"raw_after_output,omitempty"`
-	ErrorMessage     *string    `json:"error_message,omitempty"`
+	ID                 string     `json:"id,omitempty"`
+	JobID              string     `json:"job_id,omitempty"`
+	TargetIP           string     `json:"target_ip,omitempty"`
+	SwitchID           string     `json:"switch_id,omitempty"`
+	SwitchName         string     `json:"switch_name,omitempty"`
+	SwitchManagementIP string     `json:"switch_management_ip,omitempty"`
+	CommandProfileID   string     `json:"command_profile_id,omitempty"`
+	ActorEmail         string     `json:"actor_email,omitempty"`
+	RetryOfID          *string    `json:"retry_of_id,omitempty"`
+	PreparationJobID   *string    `json:"preparation_job_id,omitempty"`
+	CreatedAt          *time.Time `json:"created_at,omitempty"`
+	StartedAt          *time.Time `json:"started_at,omitempty"`
+	FinishedAt         *time.Time `json:"finished_at,omitempty"`
+	Events             []JobEvent `json:"events,omitempty"`
+	Kind               string     `json:"kind,omitempty"`
+	Status             string     `json:"status"`
+	Phase              string     `json:"phase,omitempty"`
+	Reason             string     `json:"reason,omitempty"`
+	Force              bool       `json:"force"`
+	BeforeState        any        `json:"before_state,omitempty"`
+	AfterState         any        `json:"after_state,omitempty"`
+	Result             any        `json:"result,omitempty"`
+	RawBeforeOutput    *string    `json:"raw_before_output,omitempty"`
+	RawReleaseOutput   *string    `json:"raw_release_output,omitempty"`
+	RawAfterOutput     *string    `json:"raw_after_output,omitempty"`
+	ErrorMessage       *string    `json:"error_message,omitempty"`
 }
 
 type Store interface {
@@ -245,7 +247,7 @@ var ErrConflict = errors.New("conflict")
 
 func storeError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, ErrNoSwitch), errors.Is(err, ErrAmbiguous), errors.Is(err, ErrConflict):
+	case errors.Is(err, ErrNoSwitch), errors.Is(err, ErrAmbiguous), errors.Is(err, ErrConflict), errors.Is(err, ErrAssetChanged):
 		fail(w, 409, err.Error())
 	case errors.Is(err, ErrNotFound):
 		fail(w, 404, err.Error())

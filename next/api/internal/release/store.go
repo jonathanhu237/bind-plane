@@ -4,13 +4,74 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
+	"errors"
 	"time"
+
+	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
 )
 
 type SQLStore struct{ DB *sql.DB }
 
+type querier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+// ErrAssetChanged means the switch a pre-query observed is no longer the switch a release would use.
+var ErrAssetChanged = errors.New("switch configuration changed since the pre-query; query again")
+
+// Jobs copy the switch revision (pinnedColumns) so the worker can refuse an edited asset.
+const (
+	pinnedColumns = `s.id,s.command_profile_id,s.version,p.version,s.name,s.management_ip`
+	usableSwitch  = `bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id`
+	switchUsable  = `s.is_enabled AND c.is_active AND p.is_active`
+)
+
 func NewSQLStore(db *sql.DB) *SQLStore { return &SQLStore{DB: db} }
+
+func activeNetworks(ctx context.Context, q querier) ([]Network, error) {
+	rows, err := q.QueryContext(ctx, `SELECT n.id::text,s.id::text,n.cidr::text,n.is_enabled,n.is_validated,s.is_enabled
+ FROM bp_networks n JOIN bp_switches s ON s.id=n.switch_id
+ JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
+ WHERE c.is_active AND p.is_active`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var networks []Network
+	for rows.Next() {
+		var n Network
+		if err = rows.Scan(&n.ID, &n.SwitchID, &n.CIDR, &n.Enabled, &n.Validated, &n.SwitchEnabled); err != nil {
+			return nil, err
+		}
+		networks = append(networks, n)
+	}
+	return networks, rows.Err()
+}
+
+// pinnedSwitchCurrent re-checks, inside the caller's transaction, that a job's pinned revision still applies.
+func pinnedSwitchCurrent(ctx context.Context, q querier, ip, switchID, profileID string, switchVersion, profileVersion int, resolvedNetwork sql.NullString) error {
+	var current bool
+	err := q.QueryRowContext(ctx, `SELECT s.version=$3 AND p.version=$4 AND `+switchUsable+`
+ FROM `+usableSwitch+` WHERE s.id=$1 AND p.id=$2`, switchID, profileID, switchVersion, profileVersion).Scan(&current)
+	if err == sql.ErrNoRows || err == nil && !current {
+		return ErrAssetChanged
+	}
+	if err != nil || !resolvedNetwork.Valid {
+		// An admin's explicit switch selection is not re-resolved.
+		return err
+	}
+	networks, err := activeNetworks(ctx, q)
+	if err != nil {
+		return err
+	}
+	selected, err := ResolveNetwork(ip, networks)
+	if err == ErrNoSwitch || err == ErrAmbiguous || err == nil && selected.SwitchID != switchID {
+		return ErrAssetChanged
+	}
+	return err
+}
+
 func (s *SQLStore) Prepare(ctx context.Context, input PrepareInput) (Preparation, error) {
 	if !ValidReason(input.Reason) {
 		return Preparation{}, ErrConflict
@@ -18,25 +79,7 @@ func (s *SQLStore) Prepare(ctx context.Context, input PrepareInput) (Preparation
 	if _, err := ResolveNetwork(input.TargetIP, nil); err == ErrInvalidIP {
 		return Preparation{}, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT n.id::text,s.id::text,n.cidr::text,n.is_enabled,n.is_validated,s.is_enabled
- FROM bp_networks n JOIN bp_switches s ON s.id=n.switch_id
- JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
- WHERE c.is_active AND p.is_active`)
-	if err != nil {
-		return Preparation{}, err
-	}
-	var networks []Network
-	for rows.Next() {
-		var n Network
-		if err = rows.Scan(&n.ID, &n.SwitchID, &n.CIDR, &n.Enabled, &n.Validated, &n.SwitchEnabled); err != nil {
-			break
-		}
-		networks = append(networks, n)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	_ = rows.Close()
+	networks, err := activeNetworks(ctx, s.DB)
 	if err != nil {
 		return Preparation{}, err
 	}
@@ -66,10 +109,16 @@ func (s *SQLStore) Prepare(ctx context.Context, input PrepareInput) (Preparation
 		return Preparation{}, err
 	}
 	defer tx.Rollback()
-	var id string
-	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,switch_id,command_profile_id,result)
- SELECT $1,'pre_release_query',$2,$3,'queued','queued',$4,$5,s.id,s.command_profile_id,$6::jsonb
- FROM bp_switches s WHERE s.id=$7 RETURNING id::text`, input.TargetIP, input.Reason, input.Force, input.ActorID, input.ActorEmail, selectionJSON(selected), selected.SwitchID).Scan(&id)
+	var id, switchName, managementIP string
+	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,result,resolved_network_id,
+ switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
+ SELECT $1,'pre_release_query',$2,$3,'queued','queued',$4,$5,$6::jsonb,NULLIF($7,'')::uuid,`+pinnedColumns+`
+ FROM `+usableSwitch+` WHERE `+switchUsable+` AND s.id=$8
+ RETURNING id::text,switch_name,host(switch_management_ip)`, input.TargetIP, input.Reason, input.Force, input.ActorID, input.ActorEmail, selectionJSON(selected), selected.ID, selected.SwitchID).Scan(&id, &switchName, &managementIP)
+	if err == sql.ErrNoRows {
+		// The switch was disabled between resolution and insertion.
+		return Preparation{}, ErrAssetChanged
+	}
 	if err != nil {
 		return Preparation{}, err
 	}
@@ -79,7 +128,7 @@ func (s *SQLStore) Prepare(ctx context.Context, input PrepareInput) (Preparation
 	if err = tx.Commit(); err != nil {
 		return Preparation{}, err
 	}
-	return Preparation{PreparationJobID: id, Status: "query_queued", TargetIP: input.TargetIP, ResolvedSwitch: map[string]string{"switch_id": selected.SwitchID, "network_id": selected.ID, "cidr": selected.CIDR}, Force: input.Force, Reason: input.Reason}, nil
+	return Preparation{PreparationJobID: id, Status: "query_queued", TargetIP: input.TargetIP, ResolvedSwitch: map[string]string{"switch_id": selected.SwitchID, "network_id": selected.ID, "cidr": selected.CIDR, "name": switchName, "management_ip": managementIP}, Force: input.Force, Reason: input.Reason}, nil
 }
 func selectionJSON(n Network) string {
 	b, _ := json.Marshal(map[string]string{"network_id": n.ID, "cidr": n.CIDR})
@@ -97,7 +146,9 @@ func (s *SQLStore) Confirm(ctx context.Context, input ConfirmInput) (Job, error)
 	var owner, ip, kind, reason, status, switchID, profileID, entry string
 	var preparedForce bool
 	var before []byte
-	err = tx.QueryRowContext(ctx, `SELECT actor_id::text,host(target_ip),kind,reason,status,force,switch_id::text,command_profile_id::text,before_state FROM bp_release_jobs WHERE id=$1 FOR UPDATE`, input.PreparationJobID).Scan(&owner, &ip, &kind, &reason, &status, &preparedForce, &switchID, &profileID, &before)
+	var switchVersion, profileVersion int
+	var resolvedNetwork sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT actor_id::text,host(target_ip),kind,reason,status,force,switch_id::text,command_profile_id::text,before_state,switch_version,command_profile_version,resolved_network_id::text FROM bp_release_jobs WHERE id=$1 FOR UPDATE`, input.PreparationJobID).Scan(&owner, &ip, &kind, &reason, &status, &preparedForce, &switchID, &profileID, &before, &switchVersion, &profileVersion, &resolvedNetwork)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNotFound
 	}
@@ -142,9 +193,14 @@ func (s *SQLStore) Confirm(ctx context.Context, input ConfirmInput) (Job, error)
 	if blocked {
 		return Job{}, ErrConflict
 	}
+	if err = pinnedSwitchCurrent(ctx, tx, ip, switchID, profileID, switchVersion, profileVersion, resolvedNetwork); err != nil {
+		return Job{}, err
+	}
 	var id string
-	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,switch_id,command_profile_id,preparation_job_id,before_state)
- SELECT target_ip,'release',reason,$1,'queued','queued',actor_id,actor_email,switch_id,command_profile_id,id,before_state FROM bp_release_jobs WHERE id=$2 RETURNING id::text`, input.Force, input.PreparationJobID).Scan(&id)
+	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,preparation_job_id,before_state,resolved_network_id,
+ switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
+ SELECT target_ip,'release',reason,$1,'queued','queued',actor_id,actor_email,id,before_state,resolved_network_id,
+ switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip FROM bp_release_jobs WHERE id=$2 RETURNING id::text`, input.Force, input.PreparationJobID).Scan(&id)
 	if err != nil {
 		return Job{}, err
 	}
@@ -165,7 +221,7 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	var rawBefore, rawRelease, rawAfter, errMessage, retryOf, preparationID sql.NullString
 	var created time.Time
 	var started, finished sql.NullTime
-	err := s.DB.QueryRowContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,command_profile_id::text,kind,status,phase,reason,force,before_state,after_state,result,raw_before_output,raw_release_output,raw_after_output,error_message,actor_email,retry_of_id::text,preparation_job_id::text,created_at,started_at,finished_at FROM bp_release_jobs WHERE id=$1 AND ($2 OR actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.CommandProfileID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorEmail, &retryOf, &preparationID, &created, &started, &finished)
+	err := s.DB.QueryRowContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,switch_name,host(switch_management_ip),command_profile_id::text,kind,status,phase,reason,force,before_state,after_state,result,raw_before_output,raw_release_output,raw_after_output,error_message,actor_email,retry_of_id::text,preparation_job_id::text,created_at,started_at,finished_at FROM bp_release_jobs WHERE id=$1 AND ($2 OR actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.CommandProfileID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorEmail, &retryOf, &preparationID, &created, &started, &finished)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNotFound
 	}
@@ -223,7 +279,7 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	return job, nil
 }
 func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool) ([]Job, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,kind,status,phase,reason,force FROM bp_release_jobs WHERE ($1 OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`, admin, actor)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,switch_name,kind,status,phase,reason,force FROM bp_release_jobs WHERE ($1 OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`, admin, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +287,7 @@ func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool) ([]Job, e
 	result := []Job{}
 	for rows.Next() {
 		var job Job
-		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force); err != nil {
+		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force); err != nil {
 			return nil, err
 		}
 		result = append(result, job)

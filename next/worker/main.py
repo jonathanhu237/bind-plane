@@ -77,7 +77,7 @@ async def claim(pool):
                     started_at=now(),updated_at=now(),lease_token=gen_random_uuid(),
                     lease_until=now()+interval '90 seconds' WHERE id=$1
                     RETURNING id,lease_token,kind,host(target_ip) AS target_ip,force,
-                        switch_id,command_profile_id""",
+                        switch_id,command_profile_id,switch_version,command_profile_version""",
                 row["id"],
             )
     except asyncpg.UniqueViolationError:
@@ -155,6 +155,7 @@ async def load_dependencies(pool, job):
     async with pool.acquire() as conn:
         return await conn.fetchrow(
             """SELECT host(s.management_ip) AS management_ip,s.is_enabled,
+            s.version AS switch_version,p.version AS profile_version,
             c.username,c.encrypted_password,
             c.encrypted_secret,c.is_active AS credential_active,p.is_active AS profile_active,
             p.login_prompt_patterns,p.command_templates,p.prompt_patterns,p.pagination_rules,
@@ -167,38 +168,63 @@ async def load_dependencies(pool, job):
         )
 
 
+def dependency_problem(job, dep):
+    """Why a job must not reach its switch at all, decided before any connection."""
+    if not dep or not (dep["is_enabled"] and dep["credential_active"] and dep["profile_active"]):
+        return "Switch, credential or command profile unavailable"
+    # The pre-query and its confirmation were made against the pinned revision only.
+    if (
+        dep["switch_version"] != job["switch_version"]
+        or dep["profile_version"] != job["command_profile_version"]
+    ):
+        return "Switch configuration changed after the pre-query; query again"
+    return None
+
+
 def device_task(job, dep, checkpoint_sync):
     """Run all Netmiko operations in one dedicated thread; checkpoints are durable."""
     target = IPv4Address(job["target_ip"])
-    if not dep or not (dep["is_enabled"] and dep["credential_active"] and dep["profile_active"]):
-        raise ValueError("switch, credential or profile unavailable")
-    profile = SimpleNamespace(
-        **{
-            k: json.loads(dep[k]) if isinstance(dep[k], str) else dep[k]
-            for k in (
-                "login_prompt_patterns",
-                "command_templates",
-                "prompt_patterns",
-                "pagination_rules",
-                "success_patterns",
-                "error_patterns",
-                "parser_rules",
-            )
-        }
-    )
-    switch = SimpleNamespace(management_ip=dep["management_ip"])
-    credential = SimpleNamespace(
-        username=dep["username"],
-        encrypted_password=legacy_encrypted_secret(dep["encrypted_password"]),
-        encrypted_secret=legacy_encrypted_secret(dep["encrypted_secret"]),
-    )
-    settings = build_connection_settings_for_switch(
-        switch=switch, credential=credential, profile=profile
-    )
-    commands = render_commands(
-        profile.command_templates, target, pagination_rules=profile.pagination_rules
-    )
-    session = NetmikoSwitchSession(settings)
+    problem = dependency_problem(job, dep)
+    if problem:
+        raise ValueError(problem)
+    try:
+        profile = SimpleNamespace(
+            **{
+                k: json.loads(dep[k]) if isinstance(dep[k], str) else dep[k]
+                for k in (
+                    "login_prompt_patterns",
+                    "command_templates",
+                    "prompt_patterns",
+                    "pagination_rules",
+                    "success_patterns",
+                    "error_patterns",
+                    "parser_rules",
+                )
+            }
+        )
+        switch = SimpleNamespace(management_ip=dep["management_ip"])
+        credential = SimpleNamespace(
+            username=dep["username"],
+            encrypted_password=legacy_encrypted_secret(dep["encrypted_password"]),
+            encrypted_secret=legacy_encrypted_secret(dep["encrypted_secret"]),
+        )
+        settings = build_connection_settings_for_switch(
+            switch=switch, credential=credential, profile=profile
+        )
+        commands = render_commands(
+            profile.command_templates, target, pagination_rules=profile.pagination_rules
+        )
+        session = NetmikoSwitchSession(settings)
+    except Exception as exc:
+        # Nothing has reached the switch yet: an unusable credential or profile is a
+        # definite failure and must not block later releases as an uncertain one.
+        checkpoint_sync(
+            phase="finished",
+            status="failed",
+            message="Switch configuration could not be used",
+            error_message=f"Switch configuration: {exc.__class__.__name__}",
+        )
+        return
     command_may_have_run = False
     try:
         session.connect()
@@ -312,18 +338,38 @@ async def execute(pool, job):
         future = asyncio.run_coroutine_threadsafe(checkpoint(pool, job, **kwargs), loop)
         future.result(timeout=20)
 
+    device_started = False
     try:
         dep = await load_dependencies(pool, job)
+        problem = dependency_problem(job, dep)
+        if problem:
+            # No switch session was opened, so this is a definite failure. Marking it
+            # uncertain would block every later release for this address.
+            await checkpoint(
+                pool,
+                job,
+                phase="finished",
+                status="failed",
+                message=problem,
+                error_message=problem,
+            )
+            return
+        device_started = True
         await asyncio.to_thread(device_task, job, dep, save)
     except Exception:
         logger.exception("executor failed for job %s", job["id"])
+        status, message = (
+            ("needs_manual_confirmation", "Executor failure; switch state uncertain")
+            if device_started
+            else ("failed", "Executor failure before switch connection")
+        )
         try:
             await checkpoint(
                 pool,
                 job,
                 phase="finished",
-                status="needs_manual_confirmation",
-                message="Executor failure; switch state uncertain",
+                status=status,
+                message=message,
             )
         except Exception:
             logger.exception("could not finalize job %s", job["id"])

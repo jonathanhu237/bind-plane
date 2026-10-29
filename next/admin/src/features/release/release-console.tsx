@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import type { User } from '@/shared/api/contracts'
 
 type Job = {
-  id: string; job_id?: string; target_ip: string; switch_id: string; command_profile_id?: string; status: string; phase: string; kind: string; reason: string; force: boolean
+  id: string; job_id?: string; target_ip: string; switch_id: string; switch_name?: string; switch_management_ip?: string; command_profile_id?: string; status: string; phase: string; kind: string; reason: string; force: boolean
   before_state?: { entry_type?: string; mac?: string }; after_state?: { entry_type?: string }
   result?: { message?: string; preparation_status?: string }; error_message?: string
   raw_before_output?: string; raw_release_output?: string; raw_after_output?: string
@@ -15,6 +15,14 @@ type Job = {
   events?: { phase: string; status: string; message?: string; created_at: string }[]
 }
 type Preparation = { preparation_job_id?: string; status: string; target_ip: string; reason: string; force: boolean; resolved_switch?: { switch_id: string; network_id: string; cidr: string } }
+
+// The confirmation the operator saw no longer describes the switch a release would reach.
+const assetChanged = 'switch configuration changed since the pre-query; query again'
+
+function SwitchName({ job }: { job: Pick<Job, 'switch_id' | 'switch_name' | 'switch_management_ip'> }) {
+  if (!job.switch_name) return <span className="break-all font-mono">{job.switch_id || '—'}</span>
+  return <>{job.switch_name}{job.switch_management_ip ? <span className="ml-2 font-mono text-muted-foreground">{job.switch_management_ip}</span> : null}</>
+}
 
 const reasons = ['temporary_test', 'user_report', 'ip_mac_change', 'wrong_binding_fix', 'security_response', 'other'] as const
 const zhReasons = ['临时测试', '用户反馈', 'IP / MAC 变更', '纠正错误绑定', '安全处置', '其他']
@@ -63,19 +71,22 @@ export function ReleaseConsole({ user }: { user: User }) {
     reason: '释放原因', prepare: '查询绑定状态', preparing: '正在查询交换机…', confirm: '确认释放静态绑定',
     force: '管理员强制释放（查询无记录）', empty: '暂无释放记录', history: '最近任务', switch: '交换机',
     noAccess: '需要操作员或管理员角色才能使用释放控制台。', error: '操作失败', state: '当前状态',
+    assetChanged: '查询之后交换机配置已变更。请重新查询绑定状态后再释放。',
   } : {
     title: 'Static binding release', intro: 'Enter one IPv4 address. The switch and binding are queried before confirmation.', ip: 'IPv4 address',
     reason: 'Reason', prepare: 'Query binding', preparing: 'Querying switch…', confirm: 'Confirm static binding release',
     force: 'Admin force release (no record found)', empty: 'No release jobs yet', history: 'Recent jobs', switch: 'Switch',
     noAccess: 'An Operator or Admin role is required to use the release console.', error: 'Request failed', state: 'Current state',
+    assetChanged: 'The switch configuration changed after this query. Query the binding again before releasing.',
   }
+  const errorText = (cause: unknown) => !(cause instanceof Error) ? labels.error : cause.message === assetChanged ? labels.assetChanged : cause.message
 
   async function prepare(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(''); setPreparation(null); setJobID(null); setResultID(null); setForce(false)
     try {
       const data = await request<Preparation>('/api/releases/prepare', { target_ip: ip.trim(), reason, force: admin && force, ...(admin && force && selectedSwitchID ? { selected_switch_id: selectedSwitchID } : {}) })
       setPreparation(data); setJobID(data.preparation_job_id ?? null)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : labels.error) }
+    } catch (cause) { setError(errorText(cause)) }
     finally { setBusy(false) }
   }
   async function retry(id: string) {
@@ -85,7 +96,7 @@ export function ReleaseConsole({ user }: { user: User }) {
       setPreparation({ preparation_job_id: next.job_id || next.id, status: 'query_queued', target_ip: next.target_ip, reason: next.reason, force: next.force, resolved_switch: { switch_id: next.switch_id, network_id: '', cidr: '' } })
       setJobID(next.job_id || next.id); setIP(next.target_ip); setReason(next.reason); setForce(false)
       await historyQuery.refetch()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : labels.error) }
+    } catch (cause) { setError(errorText(cause)) }
     finally { setBusy(false) }
   }
   async function confirm() {
@@ -94,7 +105,7 @@ export function ReleaseConsole({ user }: { user: User }) {
     try {
       const data = await request<{ job_id: string }>('/api/releases', { preparation_job_id: preparation.preparation_job_id, force })
       setResultID(data.job_id); await historyQuery.refetch()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : labels.error) }
+    } catch (cause) { setError(errorText(cause)) }
     finally { setBusy(false) }
   }
 
@@ -113,12 +124,12 @@ export function ReleaseConsole({ user }: { user: User }) {
       {preparation && !jobID ? <p role="status" className="text-sm text-muted-foreground">{preparation.status.replaceAll('_', ' ')}</p> : null}
       {observed ? <section aria-label={labels.state} className="space-y-4 rounded-xl border bg-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-medium">{labels.state}</h2><span className="rounded-full bg-muted px-3 py-1 text-xs font-medium">{observed.status.replaceAll('_', ' ')}</span></div>
-        <dl className="grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">IP</dt><dd className="font-mono">{observed.target_ip}</dd></div><div><dt className="text-muted-foreground">{labels.switch}</dt><dd className="font-mono break-all">{observed.switch_id ?? '—'}</dd></div><div><dt className="text-muted-foreground">MAC</dt><dd className="font-mono">{observed.before_state?.mac ?? '—'}</dd></div><div><dt className="text-muted-foreground">{labels.reason}</dt><dd>{observed.reason.replaceAll('_', ' ')}</dd></div><div><dt className="text-muted-foreground">{zh ? '绑定类型' : 'Entry type'}</dt><dd>{entry ?? '—'}</dd></div></dl>
+        <dl className="grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">IP</dt><dd className="font-mono">{observed.target_ip}</dd></div><div><dt className="text-muted-foreground">{labels.switch}</dt><dd><SwitchName job={observed} /></dd></div><div><dt className="text-muted-foreground">MAC</dt><dd className="font-mono">{observed.before_state?.mac ?? '—'}</dd></div><div><dt className="text-muted-foreground">{labels.reason}</dt><dd>{observed.reason.replaceAll('_', ' ')}</dd></div><div><dt className="text-muted-foreground">{zh ? '绑定类型' : 'Entry type'}</dt><dd>{entry ?? '—'}</dd></div></dl>
         {(stoppedNoRecord || observed.status === 'waiting_confirmation' && entry === 'missing') && admin ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} />{labels.force}</label> : null}
         {ready ? <Button type="button" disabled={busy} onClick={() => void confirm()}>{labels.confirm}</Button> : null}
       </section> : null}
-      {resultQuery.data ? <section aria-live="polite" className="space-y-4 rounded-xl border bg-card p-5"><h2 className="text-lg font-medium">{resultQuery.data.status.replaceAll('_', ' ')} · {resultQuery.data.target_ip}</h2><p className="text-sm text-muted-foreground">{resultQuery.data.result?.message || resultQuery.data.error_message || resultQuery.data.phase}</p>{resultQuery.data.status === 'needs_manual_confirmation' && resultQuery.data.kind === 'release' ? <p role="alert" className="rounded-md border border-amber-400/50 p-3 text-sm">{zh ? '结果不确定。同一 IP 的后续释放已暂停；管理员必须先核实原执行器已停止及交换机现状，不要重复发出释放命令。' : 'Outcome uncertain. Further releases for this IP are blocked. An admin must verify the old executor has stopped and inspect the switch before any new command.'}</p> : null}<dl className="grid gap-2 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">{zh ? '执行人' : 'Actor'}</dt><dd>{resultQuery.data.actor_email ?? '—'}</dd></div><div><dt className="text-muted-foreground">{zh ? '交换机' : 'Switch'}</dt><dd className="font-mono">{resultQuery.data.switch_id}</dd></div><div><dt className="text-muted-foreground">{zh ? '原因' : 'Reason'}</dt><dd>{resultQuery.data.reason.replaceAll('_', ' ')}</dd></div><div><dt className="text-muted-foreground">{zh ? '命令配置' : 'Command profile'}</dt><dd className="break-all font-mono">{resultQuery.data.command_profile_id ?? '—'}</dd></div><div><dt className="text-muted-foreground">{zh ? '最终状态' : 'Final state'}</dt><dd>{resultQuery.data.after_state?.entry_type ?? '—'}</dd></div><div><dt className="text-muted-foreground">{zh ? '强制释放' : 'Forced'}</dt><dd>{resultQuery.data.force ? (zh ? '是' : 'Yes') : (zh ? '否' : 'No')}</dd></div><div><dt className="text-muted-foreground">{zh ? '关联重试' : 'Retry of'}</dt><dd className="break-all font-mono">{resultQuery.data.retry_of_id ?? '—'}</dd></div></dl><ol className="space-y-1 text-xs text-muted-foreground">{resultQuery.data.events?.map((event, index) => <li key={`${event.created_at}-${index}`}><time>{new Date(event.created_at).toLocaleString()}</time> · {event.phase.replaceAll('_', ' ')} · {event.status.replaceAll('_', ' ')} {event.message ?? ''}</li>)}</ol>{(['raw_before_output', 'raw_release_output', 'raw_after_output'] as const).map((key) => resultQuery.data?.[key] ? <details key={key} className="text-sm"><summary className="cursor-pointer">{key.replaceAll('_', ' ')}</summary><pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 text-xs">{resultQuery.data[key]}</pre></details> : null)}</section> : null}
-      <section className="space-y-3"><h2 className="text-lg font-medium">{labels.history}</h2>{historyQuery.data?.length ? <ul className="divide-y rounded-xl border">{historyQuery.data.map((job) => <li key={job.id} className="flex flex-wrap justify-between gap-3 px-4 py-3 text-sm"><button type="button" className="font-mono text-left underline-offset-4 hover:underline focus-visible:underline" onClick={() => setResultID(job.id)}>{job.target_ip}</button><span className="flex items-center gap-3">{job.status.replaceAll('_', ' ')}{['failed', 'timeout', 'needs_manual_confirmation'].includes(job.status) && (!job.force || admin) ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void retry(job.id)}>{zh ? '重新查询' : 'Retry query'}</Button> : null}</span></li>)}</ul> : <p className="text-sm text-muted-foreground">{labels.empty}</p>}</section>
+      {resultQuery.data ? <section aria-live="polite" className="space-y-4 rounded-xl border bg-card p-5"><h2 className="text-lg font-medium">{resultQuery.data.status.replaceAll('_', ' ')} · {resultQuery.data.target_ip}</h2><p className="text-sm text-muted-foreground">{resultQuery.data.result?.message || resultQuery.data.error_message || resultQuery.data.phase}</p>{resultQuery.data.status === 'needs_manual_confirmation' && resultQuery.data.kind === 'release' ? <p role="alert" className="rounded-md border border-amber-400/50 p-3 text-sm">{zh ? '结果不确定。同一 IP 的后续释放已暂停；管理员必须先核实原执行器已停止及交换机现状，不要重复发出释放命令。' : 'Outcome uncertain. Further releases for this IP are blocked. An admin must verify the old executor has stopped and inspect the switch before any new command.'}</p> : null}<dl className="grid gap-2 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">{zh ? '执行人' : 'Actor'}</dt><dd>{resultQuery.data.actor_email ?? '—'}</dd></div><div><dt className="text-muted-foreground">{zh ? '交换机' : 'Switch'}</dt><dd><SwitchName job={resultQuery.data} /></dd></div><div><dt className="text-muted-foreground">{zh ? '原因' : 'Reason'}</dt><dd>{resultQuery.data.reason.replaceAll('_', ' ')}</dd></div><div><dt className="text-muted-foreground">{zh ? '命令配置' : 'Command profile'}</dt><dd className="break-all font-mono">{resultQuery.data.command_profile_id ?? '—'}</dd></div><div><dt className="text-muted-foreground">{zh ? '最终状态' : 'Final state'}</dt><dd>{resultQuery.data.after_state?.entry_type ?? '—'}</dd></div><div><dt className="text-muted-foreground">{zh ? '强制释放' : 'Forced'}</dt><dd>{resultQuery.data.force ? (zh ? '是' : 'Yes') : (zh ? '否' : 'No')}</dd></div><div><dt className="text-muted-foreground">{zh ? '关联重试' : 'Retry of'}</dt><dd className="break-all font-mono">{resultQuery.data.retry_of_id ?? '—'}</dd></div></dl><ol className="space-y-1 text-xs text-muted-foreground">{resultQuery.data.events?.map((event, index) => <li key={`${event.created_at}-${index}`}><time>{new Date(event.created_at).toLocaleString()}</time> · {event.phase.replaceAll('_', ' ')} · {event.status.replaceAll('_', ' ')} {event.message ?? ''}</li>)}</ol>{(['raw_before_output', 'raw_release_output', 'raw_after_output'] as const).map((key) => resultQuery.data?.[key] ? <details key={key} className="text-sm"><summary className="cursor-pointer">{key.replaceAll('_', ' ')}</summary><pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 text-xs">{resultQuery.data[key]}</pre></details> : null)}</section> : null}
+      <section className="space-y-3"><h2 className="text-lg font-medium">{labels.history}</h2>{historyQuery.data?.length ? <ul className="divide-y rounded-xl border">{historyQuery.data.map((job) => <li key={job.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"><span className="flex min-w-0 items-baseline gap-3"><button type="button" className="font-mono text-left underline-offset-4 hover:underline focus-visible:underline" onClick={() => setResultID(job.id)}>{job.target_ip}</button>{job.switch_name ? <span className="truncate text-muted-foreground">{job.switch_name}</span> : null}</span><span className="flex items-center gap-3">{job.status.replaceAll('_', ' ')}{['failed', 'timeout', 'needs_manual_confirmation'].includes(job.status) && (!job.force || admin) ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void retry(job.id)}>{zh ? '重新查询' : 'Retry query'}</Button> : null}</span></li>)}</ul> : <p className="text-sm text-muted-foreground">{labels.empty}</p>}</section>
     </>}
   </div>
 }
