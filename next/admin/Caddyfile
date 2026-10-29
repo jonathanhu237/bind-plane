@@ -6,7 +6,8 @@
 		reverse_proxy api:8080
 	}
 
-	@assets path /assets /assets/*
+	# Only build files: the /assets page itself is an SPA route.
+	@assets path /assets/*
 	handle @assets {
 		root * /srv
 		header Cache-Control "public, max-age=31536000, immutable"
