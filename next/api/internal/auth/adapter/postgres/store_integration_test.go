@@ -216,7 +216,9 @@ func resetAuthState(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `DELETE FROM auth_users`); err != nil {
 		return err
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM auth_roles WHERE system_key IS NULL`); err != nil {
+	// The bind-plane business roles come from a migration, not from a test fixture,
+	// and a trigger refuses to change them; keep them like the system roles.
+	if _, err := db.ExecContext(ctx, `DELETE FROM auth_roles WHERE system_key IS NULL AND name_canonical NOT IN ('operator', 'admin')`); err != nil {
 		return err
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE auth_operation_log_settings SET retention_days = 180, revision = 1 WHERE singleton = true`); err != nil {
