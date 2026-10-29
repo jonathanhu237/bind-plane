@@ -9,6 +9,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata" // schedule time zones work in minimal containers without zoneinfo
 
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/adapter/httpapi"
 	mailadapter "github.com/jonathanhu237/bind-plane/next/api/internal/auth/adapter/mail"
@@ -19,6 +20,13 @@ import (
 	"github.com/jonathanhu237/bind-plane/next/api/internal/config"
 	"github.com/jonathanhu237/bind-plane/next/api/internal/release"
 )
+
+func envOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
 
 func healthHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -233,7 +241,16 @@ func run() int {
 	if err != nil {
 		log.Fatalf("release credential configuration: %v", err)
 	}
+	scheduleZone, err := time.LoadLocation(envOr("BIND_PLANE_TIMEZONE", "Asia/Shanghai"))
+	if err != nil {
+		log.Fatalf("BIND_PLANE_TIMEZONE: %v", err)
+	}
+	opsHandler, err := release.NewOpsHandler(db, businessAuth, cfg.CookieName, cfg.Origin, scheduleZone)
+	if err != nil {
+		log.Fatalf("device operations configuration: %v", err)
+	}
 	mux := http.NewServeMux()
+	mux.Handle("/api/ops/", opsHandler)
 	mux.Handle("/api/releases/admin/", assetsHandler)
 	mux.Handle("/api/releases", businessHandler)
 	mux.Handle("/api/releases/", businessHandler)
@@ -249,7 +266,15 @@ func run() int {
 	dispatcherContext, cancelDispatcher := context.WithCancel(context.Background())
 	cleanupContext, cancelCleanup := context.WithCancel(context.Background())
 	var backgroundWorkers sync.WaitGroup
-	backgroundWorkers.Add(3)
+	backgroundWorkers.Add(5)
+	go func() {
+		defer backgroundWorkers.Done()
+		opsHandler.RunScheduler(cleanupContext)
+	}()
+	go func() {
+		defer backgroundWorkers.Done()
+		opsHandler.RunComplianceEvaluator(cleanupContext)
+	}()
 	go func() {
 		defer backgroundWorkers.Done()
 		dispatcher.Run(dispatcherContext)

@@ -23,15 +23,22 @@ const arrayRules: ReadonlySet<string> = new Set(['success_patterns', 'error_patt
 
 export type Credential = { id: string; name: string; username: string; description: string | null; is_active: boolean; has_secret: boolean; version: number }
 export type Profile = { id: string; name: string; is_active: boolean; version: number } & Record<RuleKey, unknown>
-export type SwitchAsset = { id: string; name: string; management_ip: string; credential_id: string; command_profile_id: string; is_enabled: boolean; version: number }
+export type Vendor = 'huawei' | 'h3c' | 'ruijie' | 'cisco' | 'other'
+export type SwitchAsset = {
+  id: string; name: string; management_ip: string; credential_id: string; command_profile_id: string; is_enabled: boolean; version: number
+  vendor: Vendor; model: string | null; site: string | null; description: string | null; group_id: string | null; protocol: 'telnet' | 'ssh'; port: number | null
+}
+export type GroupAsset = { id: string; name: string; description: string | null; version: number }
 export type NetworkAsset = { id: string; switch_id: string; cidr: string; is_enabled: boolean; is_validated: boolean; vlan: string | null; description: string | null; version: number }
-export type Inventory = { credentials: Credential[]; profiles: Profile[]; switches: SwitchAsset[]; networks: NetworkAsset[] }
-export type AssetKind = 'credentials' | 'profiles' | 'switches' | 'networks'
+export type Inventory = { credentials: Credential[]; profiles: Profile[]; switches: SwitchAsset[]; networks: NetworkAsset[]; groups: GroupAsset[] }
+export type AssetKind = 'credentials' | 'profiles' | 'switches' | 'networks' | 'groups'
+export const vendors: Vendor[] = ['huawei', 'h3c', 'ruijie', 'cisco', 'other']
 export type EditTarget =
   | { kind: 'credentials'; item: Credential }
   | { kind: 'profiles'; item: Profile }
   | { kind: 'switches'; item: SwitchAsset }
   | { kind: 'networks'; item: NetworkAsset }
+  | { kind: 'groups'; item: GroupAsset }
 
 export const selectClass = 'w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50'
 const ruleClass = 'w-full rounded-md border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -74,6 +81,7 @@ export function assetErrorText(error: unknown, zh: boolean): string {
 }
 
 export function isOn(target: EditTarget): boolean {
+  if (target.kind === 'groups') return true
   return target.kind === 'credentials' || target.kind === 'profiles' ? target.item.is_active : target.item.is_enabled
 }
 
@@ -84,6 +92,9 @@ export function statusBody(target: EditTarget, on: boolean): Record<string, unkn
 export function assetName(target: EditTarget): string {
   return target.kind === 'networks' ? target.item.cidr : target.item.name
 }
+
+export const vendorName = (vendor: string, zh: boolean) =>
+  ({ huawei: zh ? '华为' : 'Huawei', h3c: 'H3C', ruijie: zh ? '锐捷' : 'Ruijie', cisco: 'Cisco', other: zh ? '其他' : 'Other' })[vendor] ?? vendor
 
 export function switchesUsing(target: EditTarget, inventory?: Inventory): number {
   if (target.kind === 'credentials') return inventory?.switches.filter((item) => item.credential_id === target.item.id).length ?? 0
@@ -100,7 +111,13 @@ function initialForm(target: EditTarget): Form {
     case 'profiles':
       return { name: target.item.name, ...Object.fromEntries(profileRuleKeys.map((key) => [key, JSON.stringify(target.item[key] ?? (arrayRules.has(key) ? [] : {}), null, 2)])) }
     case 'switches':
-      return { name: target.item.name, management_ip: target.item.management_ip, credential_id: target.item.credential_id, command_profile_id: target.item.command_profile_id }
+      return {
+        name: target.item.name, management_ip: target.item.management_ip, credential_id: target.item.credential_id, command_profile_id: target.item.command_profile_id,
+        vendor: target.item.vendor ?? 'other', model: target.item.model ?? '', site: target.item.site ?? '', description: target.item.description ?? '',
+        group_id: target.item.group_id ?? '', protocol: target.item.protocol ?? 'telnet', port: target.item.port ? String(target.item.port) : '',
+      }
+    case 'groups':
+      return { name: target.item.name, description: target.item.description ?? '' }
     case 'networks':
       return { switch_id: target.item.switch_id, cidr: target.item.cidr, vlan: target.item.vlan ?? '', description: target.item.description ?? '', is_validated: target.item.is_validated }
   }
@@ -138,8 +155,20 @@ export function editRequest(target: EditTarget, form: Form): EditRequest {
       }
       return { path, body }
     }
-    case 'switches':
-      return { path, body: { version, name: text('name'), management_ip: text('management_ip').trim(), credential_id: text('credential_id'), command_profile_id: text('command_profile_id') } }
+    case 'switches': {
+      // An empty port restores the protocol default (22 for SSH, 23 for Telnet).
+      const port = text('port').trim()
+      if (port && !/^\d+$/.test(port)) return { invalidRule: 'port' }
+      return {
+        path,
+        body: {
+          version, name: text('name'), management_ip: text('management_ip').trim(), credential_id: text('credential_id'), command_profile_id: text('command_profile_id'),
+          vendor: text('vendor'), model: text('model'), site: text('site'), description: text('description'), group_id: text('group_id'), protocol: text('protocol'), port: port ? Number(port) : 0,
+        },
+      }
+    }
+    case 'groups':
+      return { path, body: { version, name: text('name'), description: text('description') } }
     case 'networks':
       return { path, body: { version, switch_id: text('switch_id'), cidr: text('cidr').trim(), vlan: text('vlan'), description: text('description'), is_validated: Boolean(form.is_validated) } }
   }
@@ -147,8 +176,8 @@ export function editRequest(target: EditTarget, form: Form): EditRequest {
 
 export function editorLabels(zh: boolean) {
   const noun: Record<AssetKind, string> = zh
-    ? { credentials: '凭据', profiles: '命令模板', switches: '交换机', networks: '网段' }
-    : { credentials: 'credential', profiles: 'command profile', switches: 'switch', networks: 'network' }
+    ? { credentials: '凭据', profiles: '命令模板', switches: '交换机', networks: '网段', groups: '分组' }
+    : { credentials: 'credential', profiles: 'command profile', switches: 'switch', networks: 'network', groups: 'group' }
   const switchCount = (count: number) => zh ? `${count} 台交换机` : `${count} switch${count === 1 ? '' : 'es'}`
   return zh ? {
     edit: '编辑', enable: '启用', disable: '停用', disabled: '已停用', unvalidated: '未验证', cancel: '取消', close: '关闭',
@@ -156,14 +185,17 @@ export function editorLabels(zh: boolean) {
     name: '名称', username: '设备用户名', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
     keep: '留空则保留现有值', clearSecret: '删除已保存的特权密码', managementIP: '管理 IPv4', credential: '凭据', profile: '命令模板',
     switch: '所属交换机', cidr: 'IPv4 CIDR', vlan: 'VLAN（可选）', validated: '已人工验证网段归属', inactive: '（已停用）',
+    vendor: '厂商', model: '型号（可选）', site: '站点或校区（可选）', group: '分组', noGroup: '不分组', protocol: '登录协议', port: '端口（可选）',
+    portHint: '留空则使用协议默认端口（SSH 22，Telnet 23）', invalidPort: '端口必须是 1–65535 之间的数字。',
     editTitle: (kind: AssetKind) => `编辑${noun[kind]}`,
     hint: {
       credentials: '密码不会回显。两个密码框留空即保留现有值。',
       profiles: '保存会改变此模板发送的命令。使用它的交换机上等待确认的查询需要重新执行。',
       switches: '保存后，此交换机上等待确认的查询会失效，操作员需重新查询后才能释放。',
       networks: '只有已启用且已验证的网段参与交换机解析。若修改使某个地址改由其他交换机负责，其等待确认的查询需要重新执行。',
+      groups: '分组用于筛选设备、限定计划任务和合规规则的范围。',
     } satisfies Record<AssetKind, string>,
-    invalidRule: (key: string) => `${key} 必须是合法的 JSON ${arrayRules.has(key) ? '数组' : '对象'}。`,
+    invalidRule: (key: string) => key === 'port' ? '端口必须是 1–65535 之间的数字。' : `${key} 必须是合法的 JSON ${arrayRules.has(key) ? '数组' : '对象'}。`,
     usedBy: (count: number) => count ? `${switchCount(count)}在用` : '暂无交换机使用',
     ownedBy: (name: string) => `交换机 ${name}`,
     disableTitle: (target: EditTarget) => `停用${noun[target.kind]}「${assetName(target)}」？`,
@@ -177,6 +209,8 @@ export function editorLabels(zh: boolean) {
           return '其网段内的地址将不再解析到此交换机，等待确认的查询需要重新执行。排队中的任务会直接失败，不会连接交换机。'
         case 'networks':
           return `${target.item.cidr} 内的地址将不再解析到${switchName ? `交换机 ${switchName}` : '该交换机'}。依赖此网段且等待确认的查询需要重新执行。`
+        case 'groups':
+          return ''
       }
     },
     statusChanged: (target: EditTarget, on: boolean) => `${noun[target.kind]}「${assetName(target)}」已${on ? '启用' : '停用'}。`,
@@ -185,6 +219,7 @@ export function editorLabels(zh: boolean) {
       profiles: '还没有命令模板。添加交换机之前需要先保存模板。',
       switches: '还没有交换机。',
       networks: '还没有网段。只有已验证的网段才会参与解析。',
+      groups: '还没有分组。导入交换机时也会自动创建分组。',
     } satisfies Record<AssetKind, string>,
   } : {
     edit: 'Edit', enable: 'Enable', disable: 'Disable', disabled: 'Disabled', unvalidated: 'Unvalidated', cancel: 'Cancel', close: 'Close',
@@ -192,14 +227,17 @@ export function editorLabels(zh: boolean) {
     name: 'Name', username: 'Device username', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
     keep: 'Leave empty to keep the stored value', clearSecret: 'Remove the stored privilege secret', managementIP: 'Management IPv4', credential: 'Credential', profile: 'Command profile',
     switch: 'Switch', cidr: 'IPv4 CIDR', vlan: 'VLAN (optional)', validated: 'Network ownership manually validated', inactive: ' (disabled)',
+    vendor: 'Vendor', model: 'Model (optional)', site: 'Site or campus (optional)', group: 'Group', noGroup: 'No group', protocol: 'Login protocol', port: 'Port (optional)',
+    portHint: 'Leave empty for the protocol default (SSH 22, Telnet 23).', invalidPort: 'Port must be a number from 1 to 65535.',
     editTitle: (kind: AssetKind) => `Edit ${noun[kind]}`,
     hint: {
       credentials: 'Stored passwords are never shown. Leave both password fields empty to keep them.',
       profiles: 'Saving changes the commands this profile sends. Pre-queries waiting for confirmation on its switches must be run again.',
       switches: 'Saving invalidates pre-queries waiting for confirmation on this switch. Operators query again before releasing.',
       networks: 'Only enabled, validated networks take part in switch resolution. If this moves an address to another switch, its waiting pre-query must be run again.',
+      groups: 'Groups filter devices and scope schedules and compliance rules.',
     } satisfies Record<AssetKind, string>,
-    invalidRule: (key: string) => `${key} must be a valid JSON ${arrayRules.has(key) ? 'array' : 'object'}.`,
+    invalidRule: (key: string) => key === 'port' ? 'Port must be a number from 1 to 65535.' : `${key} must be a valid JSON ${arrayRules.has(key) ? 'array' : 'object'}.`,
     usedBy: (count: number) => count ? `Used by ${switchCount(count)}` : 'Not used by any switch',
     ownedBy: (name: string) => `Switch ${name}`,
     disableTitle: (target: EditTarget) => `Disable ${noun[target.kind]} “${assetName(target)}”?`,
@@ -213,6 +251,8 @@ export function editorLabels(zh: boolean) {
           return 'Addresses in its networks stop resolving to it, and pre-queries waiting for confirmation must be run again. Its queued jobs fail without contacting the switch.'
         case 'networks':
           return `Addresses in ${target.item.cidr} stop resolving to ${switchName ? `switch ${switchName}` : 'its switch'}. Waiting pre-queries that relied on it must be run again.`
+        case 'groups':
+          return ''
       }
     },
     statusChanged: (target: EditTarget, on: boolean) => `${noun[target.kind][0].toUpperCase()}${noun[target.kind].slice(1)} “${assetName(target)}” ${on ? 'enabled' : 'disabled'}.`,
@@ -221,6 +261,7 @@ export function editorLabels(zh: boolean) {
       profiles: 'No command profiles yet. Switches need one before they can be added.',
       switches: 'No switches yet.',
       networks: 'No networks yet. Only validated networks take part in resolution.',
+      groups: 'No groups yet. Importing switches creates their groups too.',
     } satisfies Record<AssetKind, string>,
   }
 }
@@ -228,7 +269,7 @@ export type EditorLabels = ReturnType<typeof editorLabels>
 
 export function AssetRow({ title, detail, on, flag, mono = false, busy, labels, onEdit, onToggle }: {
   title: string; detail?: React.ReactNode; on: boolean; flag?: React.ReactNode; mono?: boolean; busy: boolean
-  labels: EditorLabels; onEdit: () => void; onToggle: () => void
+  labels: EditorLabels; onEdit: () => void; onToggle?: () => void
 }) {
   // The 12rem basis lets the actions wrap below the text on narrow screens instead of squeezing it.
   return <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
@@ -242,9 +283,9 @@ export function AssetRow({ title, detail, on, flag, mono = false, busy, labels, 
     </div>
     <div className="ml-auto flex shrink-0 items-center gap-1">
       <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onEdit} aria-label={`${labels.edit} ${title}`}><Pencil aria-hidden="true" />{labels.edit}</Button>
-      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onToggle} aria-label={`${on ? labels.disable : labels.enable} ${title}`}>
+      {onToggle ? <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onToggle} aria-label={`${on ? labels.disable : labels.enable} ${title}`}>
         {on ? <PowerOff aria-hidden="true" /> : <Power aria-hidden="true" />}{on ? labels.disable : labels.enable}
-      </Button>
+      </Button> : null}
     </div>
   </li>
 }
@@ -311,6 +352,27 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
       {text('edit-management-ip', 'management_ip', labels.managementIP, { required: true, mono: true, inputMode: 'decimal' })}
       {select('edit-credential', 'credential_id', labels.credential, (inventory?.credentials ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
       {select('edit-profile', 'command_profile_id', labels.profile, (inventory?.profiles ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field id="edit-vendor" label={labels.vendor}><select id="edit-vendor" className={selectClass} value={String(form.vendor)} onChange={(event) => set('vendor', event.target.value)}>
+          {vendors.map((vendor) => <option key={vendor} value={vendor}>{vendorName(vendor, zh)}</option>)}
+        </select></Field>
+        {text('edit-model', 'model', labels.model)}
+        <Field id="edit-protocol" label={labels.protocol}><select id="edit-protocol" className={selectClass} value={String(form.protocol)} onChange={(event) => set('protocol', event.target.value)}>
+          <option value="ssh">SSH</option><option value="telnet">Telnet</option>
+        </select></Field>
+        <Field id="edit-port" label={labels.port}><Input id="edit-port" inputMode="numeric" placeholder={form.protocol === 'ssh' ? '22' : '23'} aria-describedby="edit-port-hint" value={String(form.port)} onChange={(event) => set('port', event.target.value)} className={cn('font-mono', invalidRule === 'port' && 'border-destructive')} /></Field>
+      </div>
+      <p id="edit-port-hint" className="-mt-2 text-xs text-muted-foreground">{labels.portHint}</p>
+      <Field id="edit-group" label={labels.group}><select id="edit-group" className={selectClass} value={String(form.group_id)} onChange={(event) => set('group_id', event.target.value)}>
+        <option value="">{labels.noGroup}</option>
+        {(inventory?.groups ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+      </select></Field>
+      {text('edit-site', 'site', labels.site)}
+      {text('edit-description', 'description', labels.description)}
+    </> : null}
+    {target.kind === 'groups' ? <>
+      {text('edit-name', 'name', labels.name, { required: true })}
+      {text('edit-description', 'description', labels.description)}
     </> : null}
     {target.kind === 'networks' ? <>
       {select('edit-switch', 'switch_id', labels.switch, (inventory?.switches ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_enabled })))}
@@ -362,6 +424,9 @@ const fieldNames: Record<string, [string, string]> = {
   encrypted_password: ['password', '密码'], encrypted_secret: ['privilege secret', '特权密码'],
   management_ip: ['management IP', '管理 IP'], credential_id: ['credential', '凭据'], command_profile_id: ['command profile', '命令模板'],
   switch_id: ['switch', '所属交换机'], cidr: ['CIDR', '网段'], vlan: ['VLAN', 'VLAN'], is_validated: ['validation', '验证状态'],
+  vendor: ['vendor', '厂商'], model: ['model', '型号'], site: ['site', '站点'], protocol: ['protocol', '协议'], port: ['port', '端口'],
+  group_id: ['group', '分组'], kind: ['task type', '任务类型'], cron: ['schedule', '执行时间'], scope: ['scope', '范围'],
+  pattern: ['pattern', '匹配规则'], mode: ['mode', '判定方式'], severity: ['severity', '严重级别'],
 }
 
 // describeChanges summarizes an audit record without repeating any stored value.
@@ -384,6 +449,12 @@ const actionNames: Record<string, [string, string]> = {
   'profile.create': ['Profile created', '新建命令模板'], 'profile.update': ['Profile changed', '修改命令模板'],
   'switch.create': ['Switch created', '新建交换机'], 'switch.update': ['Switch changed', '修改交换机'],
   'network.create': ['Network created', '新建网段'], 'network.update': ['Network changed', '修改网段'],
+  'switch.import': ['Switch imported', '导入交换机'], 'network.import': ['Network imported', '导入网段'],
+  'group.create': ['Group created', '新建分组'], 'group.update': ['Group changed', '修改分组'],
+  'schedule.create': ['Schedule created', '新建计划任务'], 'schedule.update': ['Schedule changed', '修改计划任务'], 'schedule.run': ['Schedule run manually', '手动执行计划'],
+  'rule.create': ['Compliance rule created', '新建合规规则'], 'rule.update': ['Compliance rule changed', '修改合规规则'],
+  'task.run': ['Task started', '发起任务'], 'config.view': ['Configuration viewed', '查看配置'], 'config.diff': ['Configurations compared', '对比配置'],
+  'alert.acknowledge': ['Alert acknowledged', '确认告警'],
 }
 
 export function actionName(action: string, zh: boolean): string {

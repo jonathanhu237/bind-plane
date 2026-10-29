@@ -11,8 +11,14 @@ const profile: Profile = {
   id: 'p1', name: 'vendor-a', is_active: true, version: 1, command_templates: { single_arp_query: 'show arp $ip' }, parser_rules: {},
   login_prompt_patterns: {}, prompt_patterns: {}, pagination_rules: {}, success_patterns: [], error_patterns: [],
 }
-const edge: SwitchAsset = { id: 's1', name: 'edge-1', management_ip: '192.0.2.10', credential_id: 'c1', command_profile_id: 'p1', is_enabled: true, version: 3 }
-const inventory: Inventory = { credentials: [credential], profiles: [profile], switches: [edge, { ...edge, id: 's2', name: 'edge-2', management_ip: '192.0.2.11' }], networks: [] }
+const edge: SwitchAsset = {
+  id: 's1', name: 'edge-1', management_ip: '192.0.2.10', credential_id: 'c1', command_profile_id: 'p1', is_enabled: true, version: 3,
+  vendor: 'huawei', model: 'S5720', site: null, description: null, group_id: 'g1', protocol: 'ssh', port: null,
+}
+const inventory: Inventory = {
+  credentials: [credential], profiles: [profile], switches: [edge, { ...edge, id: 's2', name: 'edge-2', management_ip: '192.0.2.11' }], networks: [],
+  groups: [{ id: 'g1', name: 'Core', description: null, version: 1 }],
+}
 
 describe('asset edit requests', () => {
   it('keeps stored secrets unless they are replaced or removed', () => {
@@ -32,6 +38,11 @@ describe('asset edit requests', () => {
     expect(editRequest({ kind: 'profiles', item: profile }, rules)).toMatchObject({ path: 'profiles/p1', body: { version: 1, success_patterns: [] } })
   })
 
+  it('rejects a port that is not a number', () => {
+    const form = { name: 'edge-1', management_ip: '192.0.2.10', credential_id: 'c1', command_profile_id: 'p1', vendor: 'huawei', model: '', site: '', description: '', group_id: '', protocol: 'ssh', port: '22a' }
+    expect(editRequest({ kind: 'switches', item: edge }, form)).toEqual({ invalidRule: 'port' })
+  })
+
   it('summarizes audit changes without repeating values', () => {
     expect(describeChanges({ management_ip: { from: '192.0.2.10', to: '192.0.2.12' }, encrypted_password: 'replaced', is_enabled: { from: true, to: false } }, false))
       .toBe('management IP, password replaced, disabled')
@@ -48,7 +59,10 @@ describe('asset editors', () => {
     await user.clear(address)
     await user.type(address, '192.0.2.12 ')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
-    expect(onSave).toHaveBeenCalledWith('switches/s1', { version: 3, name: 'edge-1', management_ip: '192.0.2.12', credential_id: 'c1', command_profile_id: 'p1' })
+    expect(onSave).toHaveBeenCalledWith('switches/s1', {
+      version: 3, name: 'edge-1', management_ip: '192.0.2.12', credential_id: 'c1', command_profile_id: 'p1',
+      vendor: 'huawei', model: 'S5720', site: '', description: '', group_id: 'g1', protocol: 'ssh', port: 0,
+    })
   })
 
   it('keeps the editor open with an actionable message when the asset changed elsewhere', async () => {

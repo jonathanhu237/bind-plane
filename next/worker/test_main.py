@@ -12,6 +12,9 @@ def dependency():
         "is_enabled": True,
         "credential_active": True,
         "profile_active": True,
+        "vendor": "huawei",
+        "protocol": "telnet",
+        "port": None,
         "switch_version": 1,
         "profile_version": 1,
         "management_ip": "192.0.2.1",
@@ -59,7 +62,7 @@ def test_release_after_dynamic_entry_is_success():
     instance = Device(None)
     with (
         patch("worker.main.NetmikoSwitchSession", return_value=instance),
-        patch("worker.main.build_connection_settings_for_switch", return_value=SimpleNamespace()),
+        patch("worker.main.connection_settings", return_value=SimpleNamespace()),
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
@@ -81,7 +84,7 @@ def test_dynamic_record_never_sends_release_command():
     instance = DynamicDevice(None)
     with (
         patch("worker.main.NetmikoSwitchSession", return_value=instance),
-        patch("worker.main.build_connection_settings_for_switch", return_value=SimpleNamespace()),
+        patch("worker.main.connection_settings", return_value=SimpleNamespace()),
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
@@ -98,7 +101,7 @@ def test_prequery_never_sends_release_command():
     instance = Device(None)
     with (
         patch("worker.main.NetmikoSwitchSession", return_value=instance),
-        patch("worker.main.build_connection_settings_for_switch", return_value=SimpleNamespace()),
+        patch("worker.main.connection_settings", return_value=SimpleNamespace()),
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(

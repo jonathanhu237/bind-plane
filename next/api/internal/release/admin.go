@@ -23,14 +23,29 @@ type AdminHandler struct {
 	key []byte
 }
 
-// NewAdminHandler fails closed when credential encryption is not configured.
-func NewAdminHandler(db *sql.DB, identity Identity, cookie, origin string) (http.Handler, error) {
-	encoded := os.Getenv("BIND_PLANE_CREDENTIAL_ENCRYPTION_KEY")
-	key, err := base64.RawURLEncoding.DecodeString(encoded)
+// credentialKey fails closed when credential encryption is not configured. The same
+// key seals configuration backups, under a separate AEAD label.
+func credentialKey() ([]byte, error) {
+	key, err := base64.RawURLEncoding.DecodeString(os.Getenv("BIND_PLANE_CREDENTIAL_ENCRYPTION_KEY"))
 	if err != nil || len(key) != 32 {
 		return nil, errors.New("BIND_PLANE_CREDENTIAL_ENCRYPTION_KEY must be a 32-byte URL-safe key")
 	}
-	a := &AdminHandler{handler: handler{identity: identity, cookie: cookie, origin: origin}, db: db, key: key}
+	return key, nil
+}
+
+func newAdminCore(db *sql.DB, identity Identity, cookie, origin string) (*AdminHandler, error) {
+	key, err := credentialKey()
+	if err != nil {
+		return nil, err
+	}
+	return &AdminHandler{handler: handler{identity: identity, cookie: cookie, origin: origin}, db: db, key: key}, nil
+}
+
+func NewAdminHandler(db *sql.DB, identity Identity, cookie, origin string) (http.Handler, error) {
+	a, err := newAdminCore(db, identity, cookie, origin)
+	if err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/releases/admin/assets", a.list)
 	mux.HandleFunc("GET /api/releases/admin/audit", a.audit)
@@ -42,6 +57,9 @@ func NewAdminHandler(db *sql.DB, identity Identity, cookie, origin string) (http
 	mux.HandleFunc("PATCH /api/releases/admin/profiles/{id}", a.editProfile)
 	mux.HandleFunc("PATCH /api/releases/admin/switches/{id}", a.editSwitch)
 	mux.HandleFunc("PATCH /api/releases/admin/networks/{id}", a.editNetwork)
+	mux.HandleFunc("POST /api/releases/admin/groups", a.group)
+	mux.HandleFunc("PATCH /api/releases/admin/groups/{id}", a.editGroup)
+	mux.HandleFunc("POST /api/releases/admin/import", a.importAssets)
 	return mux, nil
 }
 func (a *AdminHandler) authorize(w http.ResponseWriter, r *http.Request, mutate bool) (domain.Principal, bool) {
@@ -173,13 +191,24 @@ func (a *AdminHandler) switchAsset(w http.ResponseWriter, r *http.Request) {
 		ManagementIP     string `json:"management_ip"`
 		CredentialID     string `json:"credential_id"`
 		CommandProfileID string `json:"command_profile_id"`
+		Vendor           string `json:"vendor"`
+		Model            string `json:"model"`
+		Site             string `json:"site"`
+		Description      string `json:"description"`
+		GroupID          string `json:"group_id"`
+		Protocol         string `json:"protocol"`
+		Port             *int   `json:"port"`
 	}
-	if err := decode(r, &input); err != nil || strings.TrimSpace(input.Name) == "" || !validIPv4(input.ManagementIP) || !validID(input.CredentialID) || !validID(input.CommandProfileID) {
+	err := decode(r, &input)
+	input.Name, input.Vendor, input.Protocol = strings.TrimSpace(input.Name), defaultString(input.Vendor, "other"), defaultString(input.Protocol, "telnet")
+	if err != nil || input.Name == "" || !validIPv4(input.ManagementIP) || !validID(input.CredentialID) || !validID(input.CommandProfileID) || !validSwitchMeta(input.Vendor, input.Protocol, input.Port, input.GroupID) {
 		fail(w, 422, "invalid switch asset")
 		return
 	}
 	id, err := a.createAudited(r.Context(), actor, "switch.create", input.Name,
-		`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id) VALUES($1,$2,$3,$4) RETURNING id::text`, input.Name, input.ManagementIP, input.CredentialID, input.CommandProfileID)
+		`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port)
+ VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11) RETURNING id::text`,
+		input.Name, input.ManagementIP, input.CredentialID, input.CommandProfileID, input.Vendor, strings.TrimSpace(input.Model), strings.TrimSpace(input.Site), strings.TrimSpace(input.Description), input.GroupID, input.Protocol, input.Port)
 	if err != nil {
 		fail(w, 409, "switch could not be saved")
 		return
@@ -191,6 +220,43 @@ func validIPv4(value string) bool {
 	return err == nil && ip.Is4() && ip.String() == value
 }
 func validID(value string) bool { return len(value) == 36 && strings.Count(value, "-") == 4 }
+
+var switchVendors = map[string]bool{"huawei": true, "h3c": true, "ruijie": true, "cisco": true, "other": true}
+
+func validSwitchMeta(vendor, protocol string, port *int, groupID string) bool {
+	return switchVendors[vendor] && (protocol == "telnet" || protocol == "ssh") &&
+		(port == nil || *port >= 1 && *port <= 65535) && (groupID == "" || domain.IsCanonicalUUID(groupID))
+}
+
+func defaultString(value, fallback string) string {
+	if value = strings.TrimSpace(value); value == "" {
+		return fallback
+	}
+	return value
+}
+
+func (a *AdminHandler) group(w http.ResponseWriter, r *http.Request) {
+	actor, ok := a.authorize(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := decode(r, &input); err != nil || strings.TrimSpace(input.Name) == "" {
+		fail(w, 422, "group name required")
+		return
+	}
+	name := strings.TrimSpace(input.Name)
+	id, err := a.createAudited(r.Context(), actor, "group.create", name,
+		`INSERT INTO bp_switch_groups(name,description) VALUES($1,NULLIF($2,'')) RETURNING id::text`, name, strings.TrimSpace(input.Description))
+	if err != nil {
+		fail(w, 409, "group could not be saved")
+		return
+	}
+	write(w, 201, map[string]string{"id": id, "name": name})
+}
 func (a *AdminHandler) network(w http.ResponseWriter, r *http.Request) {
 	actor, ok := a.authorize(w, r, true)
 	if !ok {
@@ -228,8 +294,9 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 	queries := map[string]string{
 		"credentials": `SELECT id::text,name,username,description,is_active,encrypted_secret IS NOT NULL,version FROM bp_credentials ORDER BY name`,
 		"profiles":    `SELECT id::text,name,is_active,version,login_prompt_patterns::text,command_templates::text,prompt_patterns::text,pagination_rules::text,success_patterns::text,error_patterns::text,parser_rules::text FROM bp_command_profiles ORDER BY name`,
-		"switches":    `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled,version FROM bp_switches ORDER BY name`,
+		"switches":    `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled,version,vendor,model,site,description,group_id::text,protocol,port FROM bp_switches ORDER BY name`,
 		"networks":    `SELECT id::text,switch_id::text,cidr::text,is_enabled,is_validated,vlan,description,version FROM bp_networks ORDER BY cidr`,
+		"groups":      `SELECT id::text,name,description,version FROM bp_switch_groups ORDER BY name`,
 	}
 	// Profile rules are read as text and passed through as the JSON they are.
 	jsonColumns := map[string]bool{}
@@ -246,8 +313,9 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 		names := map[string][]string{
 			"credentials": {"id", "name", "username", "description", "is_active", "has_secret", "version"},
 			"profiles":    {"id", "name", "is_active", "version", "login_prompt_patterns", "command_templates", "prompt_patterns", "pagination_rules", "success_patterns", "error_patterns", "parser_rules"},
-			"switches":    {"id", "name", "management_ip", "credential_id", "command_profile_id", "is_enabled", "version"},
+			"switches":    {"id", "name", "management_ip", "credential_id", "command_profile_id", "is_enabled", "version", "vendor", "model", "site", "description", "group_id", "protocol", "port"},
 			"networks":    {"id", "switch_id", "cidr", "is_enabled", "is_validated", "vlan", "description", "version"},
+			"groups":      {"id", "name", "description", "version"},
 		}[category]
 		for rows.Next() {
 			values := make([]any, len(names))

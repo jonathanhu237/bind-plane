@@ -16,13 +16,19 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedAlertsRouteImport } from './routes/_authenticated/alerts'
 import { Route as AuthenticatedAssetsRouteImport } from './routes/_authenticated/assets'
+import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
+import { Route as AuthenticatedComplianceRouteImport } from './routes/_authenticated/compliance'
+import { Route as AuthenticatedDevicesRouteImport } from './routes/_authenticated/devices'
 import { Route as AuthenticatedEmailTasksRouteImport } from './routes/_authenticated/email-tasks'
 import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
 import { Route as AuthenticatedOnlineUsersRouteImport } from './routes/_authenticated/online-users'
 import { Route as AuthenticatedOperationLogsRouteImport } from './routes/_authenticated/operation-logs'
+import { Route as AuthenticatedOpsRouteImport } from './routes/_authenticated/ops'
 import { Route as AuthenticatedPersonalSettingsRouteImport } from './routes/_authenticated/personal-settings'
 import { Route as AuthenticatedRolesRouteImport } from './routes/_authenticated/roles'
+import { Route as AuthenticatedSchedulesRouteImport } from './routes/_authenticated/schedules'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated/users'
 
@@ -60,9 +66,29 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAlertsRoute = AuthenticatedAlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAssetsRoute = AuthenticatedAssetsRouteImport.update({
   id: '/assets',
   path: '/assets',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedComplianceRoute = AuthenticatedComplianceRouteImport.update({
+  id: '/compliance',
+  path: '/compliance',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedDevicesRoute = AuthenticatedDevicesRouteImport.update({
+  id: '/devices',
+  path: '/devices',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedEmailTasksRoute = AuthenticatedEmailTasksRouteImport.update({
@@ -88,6 +114,11 @@ const AuthenticatedOperationLogsRoute =
     path: '/operation-logs',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedOpsRoute = AuthenticatedOpsRouteImport.update({
+  id: '/ops',
+  path: '/ops',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedPersonalSettingsRoute =
   AuthenticatedPersonalSettingsRouteImport.update({
     id: '/personal-settings',
@@ -97,6 +128,11 @@ const AuthenticatedPersonalSettingsRoute =
 const AuthenticatedRolesRoute = AuthenticatedRolesRouteImport.update({
   id: '/roles',
   path: '/roles',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSchedulesRoute = AuthenticatedSchedulesRouteImport.update({
+  id: '/schedules',
+  path: '/schedules',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
@@ -117,13 +153,19 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/setup': typeof SetupRoute
+  '/alerts': typeof AuthenticatedAlertsRoute
   '/assets': typeof AuthenticatedAssetsRoute
+  '/audit': typeof AuthenticatedAuditRoute
+  '/compliance': typeof AuthenticatedComplianceRoute
+  '/devices': typeof AuthenticatedDevicesRoute
   '/email-tasks': typeof AuthenticatedEmailTasksRoute
   '/invitations': typeof AuthenticatedInvitationsRoute
   '/online-users': typeof AuthenticatedOnlineUsersRoute
   '/operation-logs': typeof AuthenticatedOperationLogsRoute
+  '/ops': typeof AuthenticatedOpsRoute
   '/personal-settings': typeof AuthenticatedPersonalSettingsRoute
   '/roles': typeof AuthenticatedRolesRoute
+  '/schedules': typeof AuthenticatedSchedulesRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/users': typeof AuthenticatedUsersRoute
 }
@@ -133,13 +175,19 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/setup': typeof SetupRoute
+  '/alerts': typeof AuthenticatedAlertsRoute
   '/assets': typeof AuthenticatedAssetsRoute
+  '/audit': typeof AuthenticatedAuditRoute
+  '/compliance': typeof AuthenticatedComplianceRoute
+  '/devices': typeof AuthenticatedDevicesRoute
   '/email-tasks': typeof AuthenticatedEmailTasksRoute
   '/invitations': typeof AuthenticatedInvitationsRoute
   '/online-users': typeof AuthenticatedOnlineUsersRoute
   '/operation-logs': typeof AuthenticatedOperationLogsRoute
+  '/ops': typeof AuthenticatedOpsRoute
   '/personal-settings': typeof AuthenticatedPersonalSettingsRoute
   '/roles': typeof AuthenticatedRolesRoute
+  '/schedules': typeof AuthenticatedSchedulesRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/users': typeof AuthenticatedUsersRoute
   '/': typeof AuthenticatedIndexRoute
@@ -152,13 +200,19 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/setup': typeof SetupRoute
+  '/_authenticated/alerts': typeof AuthenticatedAlertsRoute
   '/_authenticated/assets': typeof AuthenticatedAssetsRoute
+  '/_authenticated/audit': typeof AuthenticatedAuditRoute
+  '/_authenticated/compliance': typeof AuthenticatedComplianceRoute
+  '/_authenticated/devices': typeof AuthenticatedDevicesRoute
   '/_authenticated/email-tasks': typeof AuthenticatedEmailTasksRoute
   '/_authenticated/invitations': typeof AuthenticatedInvitationsRoute
   '/_authenticated/online-users': typeof AuthenticatedOnlineUsersRoute
   '/_authenticated/operation-logs': typeof AuthenticatedOperationLogsRoute
+  '/_authenticated/ops': typeof AuthenticatedOpsRoute
   '/_authenticated/personal-settings': typeof AuthenticatedPersonalSettingsRoute
   '/_authenticated/roles': typeof AuthenticatedRolesRoute
+  '/_authenticated/schedules': typeof AuthenticatedSchedulesRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
@@ -172,13 +226,19 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/alerts'
     | '/assets'
+    | '/audit'
+    | '/compliance'
+    | '/devices'
     | '/email-tasks'
     | '/invitations'
     | '/online-users'
     | '/operation-logs'
+    | '/ops'
     | '/personal-settings'
     | '/roles'
+    | '/schedules'
     | '/settings'
     | '/users'
   fileRoutesByTo: FileRoutesByTo
@@ -188,13 +248,19 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/alerts'
     | '/assets'
+    | '/audit'
+    | '/compliance'
+    | '/devices'
     | '/email-tasks'
     | '/invitations'
     | '/online-users'
     | '/operation-logs'
+    | '/ops'
     | '/personal-settings'
     | '/roles'
+    | '/schedules'
     | '/settings'
     | '/users'
     | '/'
@@ -206,13 +272,19 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/_authenticated/alerts'
     | '/_authenticated/assets'
+    | '/_authenticated/audit'
+    | '/_authenticated/compliance'
+    | '/_authenticated/devices'
     | '/_authenticated/email-tasks'
     | '/_authenticated/invitations'
     | '/_authenticated/online-users'
     | '/_authenticated/operation-logs'
+    | '/_authenticated/ops'
     | '/_authenticated/personal-settings'
     | '/_authenticated/roles'
+    | '/_authenticated/schedules'
     | '/_authenticated/settings'
     | '/_authenticated/users'
     | '/_authenticated/'
@@ -278,11 +350,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/alerts': {
+      id: '/_authenticated/alerts'
+      path: '/alerts'
+      fullPath: '/alerts'
+      preLoaderRoute: typeof AuthenticatedAlertsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/assets': {
       id: '/_authenticated/assets'
       path: '/assets'
       fullPath: '/assets'
       preLoaderRoute: typeof AuthenticatedAssetsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/audit': {
+      id: '/_authenticated/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuthenticatedAuditRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/compliance': {
+      id: '/_authenticated/compliance'
+      path: '/compliance'
+      fullPath: '/compliance'
+      preLoaderRoute: typeof AuthenticatedComplianceRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/devices': {
+      id: '/_authenticated/devices'
+      path: '/devices'
+      fullPath: '/devices'
+      preLoaderRoute: typeof AuthenticatedDevicesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/email-tasks': {
@@ -313,6 +413,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOperationLogsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/ops': {
+      id: '/_authenticated/ops'
+      path: '/ops'
+      fullPath: '/ops'
+      preLoaderRoute: typeof AuthenticatedOpsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/personal-settings': {
       id: '/_authenticated/personal-settings'
       path: '/personal-settings'
@@ -325,6 +432,13 @@ declare module '@tanstack/react-router' {
       path: '/roles'
       fullPath: '/roles'
       preLoaderRoute: typeof AuthenticatedRolesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/schedules': {
+      id: '/_authenticated/schedules'
+      path: '/schedules'
+      fullPath: '/schedules'
+      preLoaderRoute: typeof AuthenticatedSchedulesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/settings': {
@@ -345,26 +459,38 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedAlertsRoute: typeof AuthenticatedAlertsRoute
   AuthenticatedAssetsRoute: typeof AuthenticatedAssetsRoute
+  AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
+  AuthenticatedComplianceRoute: typeof AuthenticatedComplianceRoute
+  AuthenticatedDevicesRoute: typeof AuthenticatedDevicesRoute
   AuthenticatedEmailTasksRoute: typeof AuthenticatedEmailTasksRoute
   AuthenticatedInvitationsRoute: typeof AuthenticatedInvitationsRoute
   AuthenticatedOnlineUsersRoute: typeof AuthenticatedOnlineUsersRoute
   AuthenticatedOperationLogsRoute: typeof AuthenticatedOperationLogsRoute
+  AuthenticatedOpsRoute: typeof AuthenticatedOpsRoute
   AuthenticatedPersonalSettingsRoute: typeof AuthenticatedPersonalSettingsRoute
   AuthenticatedRolesRoute: typeof AuthenticatedRolesRoute
+  AuthenticatedSchedulesRoute: typeof AuthenticatedSchedulesRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAlertsRoute: AuthenticatedAlertsRoute,
   AuthenticatedAssetsRoute: AuthenticatedAssetsRoute,
+  AuthenticatedAuditRoute: AuthenticatedAuditRoute,
+  AuthenticatedComplianceRoute: AuthenticatedComplianceRoute,
+  AuthenticatedDevicesRoute: AuthenticatedDevicesRoute,
   AuthenticatedEmailTasksRoute: AuthenticatedEmailTasksRoute,
   AuthenticatedInvitationsRoute: AuthenticatedInvitationsRoute,
   AuthenticatedOnlineUsersRoute: AuthenticatedOnlineUsersRoute,
   AuthenticatedOperationLogsRoute: AuthenticatedOperationLogsRoute,
+  AuthenticatedOpsRoute: AuthenticatedOpsRoute,
   AuthenticatedPersonalSettingsRoute: AuthenticatedPersonalSettingsRoute,
   AuthenticatedRolesRoute: AuthenticatedRolesRoute,
+  AuthenticatedSchedulesRoute: AuthenticatedSchedulesRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,

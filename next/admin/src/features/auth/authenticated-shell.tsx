@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Check, ChevronDown, History, House, LogOut, Mail, Monitor, Network, Settings, ShieldCheck, UserCog, UserRound, Users } from 'lucide-react'
+import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, History, House, LayoutDashboard, LogOut, Mail, Monitor, Network, ScrollText, Server, Settings, ShieldCheck, UserCog, UserRound, Users, Wrench } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -100,6 +100,20 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
   const monitoringMenuActive = location.pathname.startsWith('/online-users') || location.pathname.startsWith('/operation-logs') || location.pathname.startsWith('/email-tasks')
   const [accessMenuOpen, setAccessMenuOpen] = useState(true)
   const [monitoringMenuOpen, setMonitoringMenuOpen] = useState(true)
+  const [opsMenuOpen, setOpsMenuOpen] = useState(true)
+  const zhShell = user.locale === 'zh-CN'
+  const isBindPlaneAdmin = Boolean(user.superAdmin || user.roles?.some((role) => role.name === 'Admin'))
+  const opsPages = [
+    { to: '/ops', icon: LayoutDashboard, label: zhShell ? '运维概览' : 'Overview' },
+    { to: '/devices', icon: Server, label: zhShell ? '设备' : 'Devices' },
+    { to: '/schedules', icon: CalendarClock, label: zhShell ? '计划任务' : 'Schedules' },
+    { to: '/compliance', icon: ClipboardCheck, label: zhShell ? '合规检查' : 'Compliance' },
+    { to: '/alerts', icon: BellRing, label: zhShell ? '告警' : 'Alerts' },
+    { to: '/audit', icon: ScrollText, label: zhShell ? '审计日志' : 'Audit log' },
+    { to: '/assets', icon: Network, label: zhShell ? '资产配置' : 'Asset settings' },
+  ] as const
+  const opsPage = opsPages.find((page) => location.pathname.startsWith(page.to))
+  const opsMenuExpanded = opsMenuOpen || Boolean(opsPage)
   const accessMenuExpanded = accessMenuOpen || accessMenuActive
   const monitoringMenuExpanded = monitoringMenuOpen || monitoringMenuActive
   useEffect(() => {
@@ -161,7 +175,18 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                {(user.superAdmin || user.roles?.some((role) => role.name === 'Admin')) ? <SidebarMenuItem><SidebarMenuButton asChild isActive={location.pathname === '/assets'} tooltip={user.locale === 'zh-CN' ? '交换机资产' : 'Switch assets'}><Link to="/assets" aria-current={location.pathname === '/assets' ? 'page' : undefined}><Network aria-hidden="true" data-icon="inline-start" /><span>{user.locale === 'zh-CN' ? '交换机资产' : 'Switch assets'}</span></Link></SidebarMenuButton></SidebarMenuItem> : null}
+                {isBindPlaneAdmin ? (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton type="button" isActive={Boolean(opsPage)} tooltip={zhShell ? '设备运维' : 'Device operations'} aria-expanded={opsMenuExpanded} onClick={() => setOpsMenuOpen((open) => !open)}>
+                      <Wrench aria-hidden="true" data-icon="inline-start" />
+                      <span>{zhShell ? '设备运维' : 'Device operations'}</span>
+                      <ChevronDown aria-hidden="true" className="ml-auto transition-transform data-[open=false]:-rotate-90 group-data-[collapsible=icon]:hidden" data-open={opsMenuExpanded} />
+                    </SidebarMenuButton>
+                    {opsMenuExpanded ? <SidebarMenuSub>
+                      {opsPages.map((page) => <SidebarMenuSubItem key={page.to}><SidebarMenuSubButton asChild isActive={opsPage?.to === page.to}><Link to={page.to} aria-current={opsPage?.to === page.to ? 'page' : undefined}><page.icon aria-hidden="true" /><span>{page.label}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem>)}
+                    </SidebarMenuSub> : null}
+                  </SidebarMenuItem>
+                ) : null}
                 {hasAccessMenu ? (
                   <SidebarMenuItem>
                     <SidebarMenuButton type="button" isActive={accessMenuActive} tooltip={t('access:usersAccess')} aria-expanded={accessMenuExpanded} onClick={() => setAccessMenuOpen((open) => !open)}>
@@ -205,7 +230,7 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <SidebarTrigger aria-label={t('menu')} />
             <div className="h-4 w-px bg-border" aria-hidden="true" />
-            <p className="truncate text-sm font-medium text-muted-foreground">{location.pathname.startsWith('/personal-settings') ? t('personalSettings') : location.pathname.startsWith('/online-users') ? t('onlineUsers:title') : location.pathname.startsWith('/users') ? t('access:users') : location.pathname.startsWith('/invitations') ? t('access:invitations') : location.pathname.startsWith('/roles') ? t('access:roles') : location.pathname.startsWith('/settings') ? t('settings') : location.pathname.startsWith('/operation-logs') ? t('operationLog:title') : location.pathname.startsWith('/email-tasks') ? t('emailTasks:title') : location.pathname.startsWith('/assets') ? (user.locale === 'zh-CN' ? '交换机资产' : 'Switch assets') : user.locale === 'zh-CN' ? '释放控制台' : 'Release console'}</p>
+            <p className="truncate text-sm font-medium text-muted-foreground">{location.pathname.startsWith('/personal-settings') ? t('personalSettings') : location.pathname.startsWith('/online-users') ? t('onlineUsers:title') : location.pathname.startsWith('/users') ? t('access:users') : location.pathname.startsWith('/invitations') ? t('access:invitations') : location.pathname.startsWith('/roles') ? t('access:roles') : location.pathname.startsWith('/settings') ? t('settings') : location.pathname.startsWith('/operation-logs') ? t('operationLog:title') : location.pathname.startsWith('/email-tasks') ? t('emailTasks:title') : opsPage ? opsPage.label : user.locale === 'zh-CN' ? '释放控制台' : 'Release console'}</p>
           </div>
         </header>
         <div className="flex min-h-[calc(100dvh-3.5rem)] flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">

@@ -105,11 +105,13 @@ func write(w http.ResponseWriter, code int, body any) {
 func fail(w http.ResponseWriter, code int, message string) {
 	write(w, code, map[string]string{"detail": message})
 }
-func decode(r *http.Request, into any) error {
+func decode(r *http.Request, into any) error { return decodeLimit(r, into, 1<<16) }
+
+func decodeLimit(r *http.Request, into any, limit int64) error {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		return errors.New("JSON required")
 	}
-	d := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<16))
+	d := json.NewDecoder(http.MaxBytesReader(nil, r.Body, limit))
 	d.DisallowUnknownFields()
 	if err := d.Decode(into); err != nil {
 		return err

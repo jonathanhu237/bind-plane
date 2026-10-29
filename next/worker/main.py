@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import dataclasses
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ from bind_plane.services.command_profiles import (
 from bind_plane.worker.release_executor import build_connection_settings_for_switch
 from bind_plane.worker.sessions import NetmikoSwitchSession, SwitchConnectionTimeoutError
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from worker.devices import device_loop, resolve_transport
 
 logger = logging.getLogger("bind_plane.worker")
 
@@ -155,7 +157,7 @@ async def load_dependencies(pool, job):
     async with pool.acquire() as conn:
         return await conn.fetchrow(
             """SELECT host(s.management_ip) AS management_ip,s.is_enabled,
-            s.version AS switch_version,p.version AS profile_version,
+            s.version AS switch_version,p.version AS profile_version,s.vendor,s.protocol,s.port,
             c.username,c.encrypted_password,
             c.encrypted_secret,c.is_active AS credential_active,p.is_active AS profile_active,
             p.login_prompt_patterns,p.command_templates,p.prompt_patterns,p.pagination_rules,
@@ -166,6 +168,22 @@ async def load_dependencies(pool, job):
             job["switch_id"],
             job["command_profile_id"],
         )
+
+
+def connection_settings(dep, profile):
+    """Netmiko settings for a switch: the profile's login rules, the switch's protocol and port."""
+    credential = SimpleNamespace(
+        username=dep["username"],
+        encrypted_password=legacy_encrypted_secret(dep["encrypted_password"]),
+        encrypted_secret=legacy_encrypted_secret(dep["encrypted_secret"]),
+    )
+    settings = build_connection_settings_for_switch(
+        switch=SimpleNamespace(management_ip=dep["management_ip"]),
+        credential=credential,
+        profile=profile,
+    )
+    device_type, port = resolve_transport(dep, profile.prompt_patterns)
+    return dataclasses.replace(settings, device_type=device_type, port=port)
 
 
 def dependency_problem(job, dep):
@@ -202,15 +220,7 @@ def device_task(job, dep, checkpoint_sync):
                 )
             }
         )
-        switch = SimpleNamespace(management_ip=dep["management_ip"])
-        credential = SimpleNamespace(
-            username=dep["username"],
-            encrypted_password=legacy_encrypted_secret(dep["encrypted_password"]),
-            encrypted_secret=legacy_encrypted_secret(dep["encrypted_secret"]),
-        )
-        settings = build_connection_settings_for_switch(
-            switch=switch, credential=credential, profile=profile
-        )
+        settings = connection_settings(dep, profile)
         commands = render_commands(
             profile.command_templates, target, pagination_rules=profile.pagination_rules
         )
@@ -379,17 +389,32 @@ async def execute(pool, job):
             await keepalive
 
 
-async def main():
-    logging.basicConfig(level=logging.INFO)
-    pool = await asyncpg.create_pool(os.environ["EXECUTOR_DATABASE_URL"], min_size=1, max_size=4)
-    try:
-        while True:
+async def release_loop(pool):
+    while True:
+        try:
             await sweep_expired(pool)
             job = await claim(pool)
-            if job is None:
-                await asyncio.sleep(1)
-            else:
-                await execute(pool, job)
+        except Exception:
+            logger.exception("release queue unavailable")
+            await asyncio.sleep(5)
+            continue
+        if job is None:
+            await asyncio.sleep(1)
+        else:
+            await execute(pool, job)
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    concurrency = max(1, int(os.environ.get("BIND_PLANE_DEVICE_CONCURRENCY", "8")))
+    pool = await asyncpg.create_pool(
+        os.environ["EXECUTOR_DATABASE_URL"], min_size=1, max_size=concurrency + 4
+    )
+    try:
+        # Release jobs keep their own loop so a long backup run never delays a release.
+        await asyncio.gather(
+            release_loop(pool), device_loop(pool, concurrency, connection_settings)
+        )
     finally:
         await pool.close()
 
