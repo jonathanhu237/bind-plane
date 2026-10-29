@@ -1,0 +1,13 @@
+# Test-only overlay: a fake Huawei-style Telnet switch for end-to-end checks.
+# Never deploy it; use with: docker compose -f compose.yaml -f compose.e2e.yaml ...
+services:
+  fake-switch:
+    image: bind-plane-worker:${BIND_PLANE_TAG:?set BIND_PLANE_TAG in .env}
+    command: [python, -m, worker.fake_switch]
+    environment:
+      FAKE_SWITCH_PASSWORD: ${FAKE_SWITCH_PASSWORD:?set FAKE_SWITCH_PASSWORD}
+      FAKE_SWITCH_STATIC_ARP: 10.20.30.40=00e0-fc12-3456
+      FAKE_SWITCH_CONFIG_FILE: /tmp/running.cfg
+    networks:
+      backend:
+        ipv4_address: ${FAKE_SWITCH_IP:?set FAKE_SWITCH_IP inside BIND_PLANE_SUBNET}

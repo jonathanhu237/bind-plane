@@ -1,8 +1,21 @@
 # Bind Plane · Temvia migration preview
 
-This preview is not production-ready: switch end-to-end tests, asset imports, and complete audit browsing are pending. Keep the legacy application running until explicit cutover. Never point this preview at production switches.
+Releases and device operations are verified end to end against a simulated Telnet switch, not yet against a real one: validate on a lab switch before relying on it. Keep the legacy application running until explicit cutover. Docker deployment is described in [deploy/README.md](deploy/README.md).
 
 Safety boundary: a dynamic pre-query record is not a static binding and cannot be released. An expired release-command lease becomes `needs_manual_confirmation`; new queries may be recorded, but further release commands for that IP are blocked. No automatic replay or in-app clearance is provided. Before any future manual reconciliation, an administrator must stop the old executor, verify its switch session is gone, inspect independent job evidence and switch state, and arrange a separately audited resolution. Do not just reset the job status to requeue it.
+
+## Device operations
+
+Admins (never Operators) manage the switch inventory and its operations:
+
+- **Devices**: inventory with vendor, model, group, site, protocol (SSH or Telnet) and port; CSV import with a full dry run, which also accepts the Chinese headings of other inventory exports; reachability (a TCP connect to the management port) and backup status per switch.
+- **Configuration backups**: the worker signs in, reads the running configuration and stores a new version only when it changed (volatile timestamp lines are ignored). Versions are sealed with AES-GCM under the credential key with a separate label, opened only by the API, and every view or diff is written to the audit log.
+- **Schedules**: cron schedules (in `BIND_PLANE_TIMEZONE`, default Asia/Shanghai) for backups or reachability checks over all switches or one group; manual runs from the Devices page. A switch never has two pending operations of one kind. Runs are kept 30 days.
+- **Compliance**: baseline rules (`must_contain` / `must_not_contain`, RE2 patterns, scoped by vendor or group) evaluated on each switch's latest backup whenever a backup or rule changes. RE2 runs in linear time, so no pattern can stall the evaluator.
+- **Alerts**: unreachable switches, failed backups and critical compliance failures. They resolve themselves when the cause clears; acknowledging records who is handling it. Resolved alerts are kept 180 days.
+- **Audit log**: every asset change, import, schedule or rule edit, manual run, configuration read and alert acknowledgement, kept indefinitely.
+
+Device operations only read from switches, so a worker that dies mid-operation fails the item and the next run retries. Release jobs run in their own worker loop and are never delayed by a long backup run.
 
 Asset edits are versioned. A job pins the switch and command-profile revision its pre-query observed: confirming after either changed, or after an auto-resolved address moved to another switch, is refused, and a queued job whose pinned revision no longer applies fails without contacting the switch. Operators query again. A failure before any switch connection (disabled or edited assets, unusable credentials or profile) is a definite `failed`, never `needs_manual_confirmation`, so it does not block later releases. Asset changes record which fields changed; secrets are recorded only as replaced or removed.
 
