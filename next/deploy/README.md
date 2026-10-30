@@ -1,8 +1,8 @@
 # Deploying Bind Plane with Docker
 
 One host runs PostgreSQL, the API, the worker and the admin gateway (Caddy).
-Only the gateway is published: HTTPS on `BIND_PLANE_HTTPS_PORT` (8443 by default).
-PostgreSQL and the API stay on a private Docker network. The worker connects
+Only the gateway is published, on `BIND_PLANE_PORT`, over plain HTTP or HTTPS as
+`APP_PUBLIC_URL` says. PostgreSQL and the API stay on a private Docker network. The worker connects
 out to the switches, so the host must be able to reach their management
 addresses.
 
@@ -40,21 +40,31 @@ becomes Super Admin; invite operators and admins from Users & Access, and give
 them the bind-plane **Operator** or **Admin** role. Only Admin (and Super Admin)
 can use device operations; Operators see the release console and nothing else.
 
-## The certificate
+## HTTP or HTTPS
 
-Caddy issues the certificate from its own CA, so browsers warn until that CA
-is trusted. `BIND_PLANE_TLS_HOST` must equal the host in `APP_PUBLIC_URL`:
-browsers send no SNI to an IP address, and behind Docker's port mapping Caddy
-would otherwise not know which certificate to present. Export the CA and
-install it on the admin workstations:
+The scheme of `APP_PUBLIC_URL` decides how the gateway serves, on the port in
+that URL; set the same port as `BIND_PLANE_PORT`.
 
-```sh
-docker compose cp admin:/data/caddy/pki/authorities/local/root.crt ./bind-plane-root.crt
-```
+- `http://…` serves plain HTTP, for networks without TLS. The API refuses to
+  start that way unless `APP_ALLOW_PLAIN_HTTP=true`, and warns on every start:
+  passwords, setup links and session cookies cross the network unencrypted, so
+  anyone on the path can take over a session. Keep the port reachable only from
+  the operators' networks.
+- `https://…` gets a certificate from Caddy's own CA, so browsers warn until
+  that CA is trusted. `BIND_PLANE_TLS_HOST` must equal the host in
+  `APP_PUBLIC_URL`: browsers send no SNI to an IP address, and behind Docker's
+  port mapping Caddy would otherwise not know which certificate to present.
+  Export the CA and install it on the admin workstations:
 
-The CA lives in the `caddy-data` volume; keep the volume and the certificate
-stays the same. To use a real certificate, replace `tls internal` in the
-Caddyfile, then add HSTS.
+  ```sh
+  docker compose cp admin:/data/caddy/pki/authorities/local/root.crt ./bind-plane-root.crt
+  ```
+
+  The CA lives in the `caddy-data` volume; keep the volume and the certificate
+  stays the same. To use a real certificate, add a `tls` directive to the site
+  in the Caddyfile, then add HSTS.
+
+Switching between them changes the session cookie, so everyone signs in again.
 
 ## Backups
 
@@ -77,6 +87,8 @@ docker compose up -d
 ```
 
 Remove images of older tags with `docker image rm` once the new one runs.
+`.env` files written before plain HTTP was supported name the port
+`BIND_PLANE_HTTPS_PORT`; rename it to `BIND_PLANE_PORT`.
 
 ## Testing against a simulated switch
 

@@ -1,7 +1,9 @@
 {
 	admin off
-	# The certificate comes from Caddy's own CA; never touch the host trust store,
-	# and never listen on port 80 (another service owns it on shared hosts).
+	# An https:// site gets its certificate from Caddy's own CA; an http:// site
+	# needs none. Never touch the host trust store, and never listen on port 80
+	# (another service owns it on shared hosts).
+	local_certs
 	skip_install_trust
 	auto_https disable_redirects
 	# Browsers send no SNI to an IP address, and behind Docker's port mapping the
@@ -9,10 +11,10 @@
 	default_sni {$BIND_PLANE_TLS_HOST}
 }
 
-# BIND_PLANE_SITE is APP_PUBLIC_URL, for example https://222.200.161.40:8443.
-# Replace `tls internal` with a real certificate before adding HSTS.
+# BIND_PLANE_SITE is APP_PUBLIC_URL, for example http://222.200.161.40:8080 or
+# https://222.200.161.40:8443. For a real certificate add a tls directive here,
+# then HSTS.
 {$BIND_PLANE_SITE} {
-	tls internal
 	encode zstd gzip
 	header {
 		Referrer-Policy "no-referrer"

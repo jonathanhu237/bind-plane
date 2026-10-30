@@ -18,6 +18,10 @@ type Config struct {
 	PublicURL   string
 	Origin      string
 	HTTPAddr    string
+	// AllowPlainHTTP lets production serve an http:// APP_PUBLIC_URL, for
+	// networks without TLS. It must be chosen explicitly so a mistyped URL
+	// never downgrades a deployment.
+	AllowPlainHTTP bool
 	// TrustedProxyCIDRs controls which immediate peers may supply
 	// X-Forwarded-For for operation-log source attribution. It is empty by
 	// default so a direct client cannot spoof its source address.
@@ -188,6 +192,13 @@ func Load(get Lookup) (Config, error) {
 		// key directly for a different credential authority.
 		c.EmailChangeCodeKey = derivePurposeKey(c.PasswordResetTokenKey, "temvia-email-change-code-key-v1")
 	}
+	switch get("APP_ALLOW_PLAIN_HTTP") {
+	case "", "false":
+	case "true":
+		c.AllowPlainHTTP = true
+	default:
+		return Config{}, fmt.Errorf("APP_ALLOW_PLAIN_HTTP must be true or false")
+	}
 
 	if err := c.validate(); err != nil {
 		return Config{}, err
@@ -261,8 +272,8 @@ func (c *Config) validate() error {
 	if public.Scheme != "http" && public.Scheme != "https" {
 		return fmt.Errorf("APP_PUBLIC_URL must use http or https")
 	}
-	if c.Environment == "production" && public.Scheme != "https" {
-		return fmt.Errorf("APP_PUBLIC_URL must use https in production")
+	if c.Environment == "production" && public.Scheme != "https" && !c.AllowPlainHTTP {
+		return fmt.Errorf("APP_PUBLIC_URL must use https in production; set APP_ALLOW_PLAIN_HTTP=true to serve plain HTTP deliberately")
 	}
 	origin, err := canonicalOrigin(public)
 	if err != nil {
@@ -270,7 +281,7 @@ func (c *Config) validate() error {
 	}
 	c.Origin = origin
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
-	c.WarnInsecurePublicURL = c.Environment == "development" && public.Scheme == "http" && !isLoopbackHost(public.Hostname())
+	c.WarnInsecurePublicURL = public.Scheme == "http" && !isLoopbackHost(public.Hostname())
 	if c.PublicURL == "" {
 		return fmt.Errorf("APP_PUBLIC_URL must not be empty")
 	}

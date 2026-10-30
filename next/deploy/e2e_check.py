@@ -1,6 +1,7 @@
 """End-to-end check of a running stack started with the fake switch overlay.
 
     python3 e2e_check.py https://127.0.0.1:18443 root.crt
+    python3 e2e_check.py http://127.0.0.1:18080
 
 Reads SETUP_TOKEN, ADMIN_PASSWORD, FAKE_SWITCH_PASSWORD, FAKE_SWITCH_IP and COMPOSE
 (the docker compose command for the stack) from the environment. It creates
@@ -19,12 +20,13 @@ import time
 import urllib.error
 import urllib.request
 
-BASE, CA = sys.argv[1], sys.argv[2]
+BASE = sys.argv[1]
+CA = sys.argv[2] if len(sys.argv) > 2 else None  # Caddy's root certificate, for https only
 jar = http.cookiejar.MozillaCookieJar(os.environ.get("COOKIE_JAR", "cookies.txt"))
-opener = urllib.request.build_opener(
-    urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=CA)),
-    urllib.request.HTTPCookieProcessor(jar),
-)
+handlers = [urllib.request.HTTPCookieProcessor(jar)]
+if CA:
+    handlers.append(urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=CA)))
+opener = urllib.request.build_opener(*handlers)
 PROFILE = {
     "name": "E2E Huawei Telnet",
     "command_templates": {
@@ -111,7 +113,7 @@ call("POST", "/api/setup", {"token": os.environ["SETUP_TOKEN"], "name": "E2E Adm
                             "password": os.environ["ADMIN_PASSWORD"], "locale": "zh-CN"}, 201)
 call("POST", "/api/auth/login", {"email": "e2e-admin@example.test", "password": os.environ["ADMIN_PASSWORD"]})
 jar.save(ignore_discard=True, ignore_expires=True)
-ok("setup and login over TLS verified against Caddy's root CA")
+ok("setup and login verified " + ("over TLS against Caddy's root CA" if CA else "over plain HTTP"))
 
 admin = "/api/releases/admin"
 credential = call("POST", f"{admin}/credentials", {"Name": "E2E credential", "Username": "netops", "Password": os.environ["FAKE_SWITCH_PASSWORD"]}, 201)["id"]

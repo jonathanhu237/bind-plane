@@ -196,6 +196,8 @@ preview 只检查本地构建，生产由 Caddy 提供 `/api` 代理与 SPA 路�
 ## 生产部署与升级
 
 使用 `APP_ENV=production`，`APP_PUBLIC_URL` 设置为公开 HTTPS origin。
+没有 TLS 的网络中，只有设置 `APP_ALLOW_PLAIN_HTTP=true` 才接受 `http://` origin，
+API 启动时会警告：密码和会话 Cookie 将以明文在网络中传输。
 通过外部 ingress 或自定义 Caddy 提供 TLS；默认 Compose 网关只绑定本机 HTTP，
 不自动配置公网 DNS 或 TLS。后端和数据库端口保持私有。
 Nginx 可替代 Caddy，但必须保留相同的 API 代理及 SPA 回退行为。

@@ -51,6 +51,19 @@ func TestLoadDefaultsAndModes(t *testing.T) {
 	if c.CookieName != "__Host-temvia_session" || !c.SecureCookie {
 		t.Fatalf("production cookie config = %#v", c)
 	}
+	values["APP_ALLOW_PLAIN_HTTP"] = "true"
+	c, err = Load(env(values))
+	if err != nil || !c.SecureCookie || c.WarnInsecurePublicURL {
+		t.Fatalf("the plain-HTTP allowance must not weaken an https deployment: %#v, %v", c, err)
+	}
+	values["APP_PUBLIC_URL"] = "http://192.0.2.10:8080"
+	c, err = Load(env(values))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.CookieName != "temvia_session" || c.SecureCookie || !c.WarnInsecurePublicURL || c.Origin != "http://192.0.2.10:8080" {
+		t.Fatalf("deliberate plain-HTTP production config = %#v", c)
+	}
 }
 
 func TestLoadEmailChangeSettings(t *testing.T) {
@@ -87,6 +100,8 @@ func TestLoadRejectsInvalidConfiguration(t *testing.T) {
 		"missing postgres secret":      func(v map[string]string) { delete(v, "POSTGRES_PASSWORD") },
 		"missing invitation secret":    func(v map[string]string) { delete(v, "INVITATION_TOKEN_KEY") },
 		"production http":              func(v map[string]string) { v["APP_ENV"] = "production" },
+		"production http, not allowed": func(v map[string]string) { v["APP_ENV"] = "production"; v["APP_ALLOW_PLAIN_HTTP"] = "false" },
+		"unclear plain-HTTP allowance": func(v map[string]string) { v["APP_ALLOW_PLAIN_HTTP"] = "yes" },
 		"bad duration":                 func(v map[string]string) { v["SETUP_LINK_TTL"] = "nope" },
 		"bad shutdown duration":        func(v map[string]string) { v["SHUTDOWN_TIMEOUT"] = "nope" },
 		"zero shutdown duration":       func(v map[string]string) { v["SHUTDOWN_TIMEOUT"] = "0s" },

@@ -385,6 +385,9 @@ request and returns 204. Session credentials are never exposed in these APIs.
 ## Production deployment
 
 Use `APP_ENV=production` and set `APP_PUBLIC_URL` to the public HTTPS origin.
+On a network without TLS, an `http://` origin is accepted only with
+`APP_ALLOW_PLAIN_HTTP=true`, and the API warns at startup that passwords and
+session cookies then cross the network unencrypted.
 Provide TLS through an ingress or a customized Caddy configuration; the supplied
 Compose gateway only listens on loopback HTTP. Keep backend and database ports
 private. Run `make build`, `make migrate-up`, then

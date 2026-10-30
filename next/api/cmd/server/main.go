@@ -153,7 +153,7 @@ func run() int {
 		log.Fatalf("configuration error: %v", err)
 	}
 	if cfg.WarnInsecurePublicURL {
-		log.Printf("WARNING: development APP_PUBLIC_URL uses HTTP on a non-loopback host; setup and session credentials can be exposed in transit")
+		log.Printf("WARNING: APP_PUBLIC_URL uses HTTP on a non-loopback host; passwords, setup links and session cookies cross the network unencrypted")
 	}
 	startupContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
