@@ -7,7 +7,7 @@ describe('server texts', () => {
     expect(serverText('switch could not be saved', false)).toBe('The switch could not be saved; its name or management IP may already be in use.')
     expect(serverText('a switch with this management IP already exists', true)).toBe('已存在相同管理 IP 的交换机。')
     expect(serverText('Timed out', true)).toBe('超时')
-    expect(serverText('Static binding is not present after release', true)).toBe('释放后静态绑定已不存在')
+    expect(serverText('Static binding is not present after release', true)).toBe('解绑后静态绑定已不存在')
   })
 
   it('translates texts that carry values, including the server text inside them', () => {

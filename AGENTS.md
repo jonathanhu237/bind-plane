@@ -159,6 +159,8 @@ Navigation stays small:
 - Device operations (admins): devices, schedules, compliance, alerts, audit log, asset settings (credentials, command profiles, switches, networks)
 - User and system administration
 
+The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar and on the home page, 解绑控制台, 解绑记录, 确认解绑, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
+
 Build a clear, restrained operator-focused tool. Do not block the main release workflow on a polished full admin system.
 
 ## Preferred Stack

@@ -75,13 +75,13 @@ const assetChanged = 'switch configuration changed since the pre-query; query ag
 
 // Refusals whose meaning is specific to releases; everything else goes through serverText.
 const releaseErrors: Record<string, Words> = {
-  [assetChanged]: ['The switch configuration changed after this query. Query the binding again before releasing.', '查询之后交换机配置已变更。请重新查询绑定状态后再释放。'],
+  [assetChanged]: ['The switch configuration changed after this query. Query the binding again before releasing.', '查询之后交换机配置已变更。请重新查询绑定状态后再解绑。'],
   'one IPv4 address is required': ['Enter one IPv4 address, for example 10.0.0.42.', '请输入一个 IPv4 地址，例如 10.0.0.42。'],
   'no enabled validated switch owns this IP': noSwitch,
   'multiple equally specific switches own this IP': ambiguousSwitch,
   conflict: [
     'This release cannot go ahead: the query is out of date, or another release of this address is still running or awaiting manual confirmation. Query again.',
-    '这次释放无法继续：查询结果已过期，或同一地址的另一次释放仍在执行或等待人工确认。请重新查询。',
+    '这次解绑无法继续：查询结果已过期，或同一地址的另一次解绑仍在执行或等待人工确认。请重新查询。',
   ],
   'not found': ['This job no longer exists, or it belongs to someone else.', '任务不存在，或不属于你。'],
 }
@@ -109,8 +109,8 @@ const statuses: Record<string, Words> = {
   stopped_no_switch: ['No switch matched', '未匹配到交换机'], stopped_ambiguous_switch: ['Several switches matched', '匹配到多台交换机'],
 }
 const phases: Record<string, Words> = {
-  queued: ['Queued', '排队中'], connecting: ['Connecting to the switch', '正在连接交换机'], querying_before: ['Querying before release', '正在查询释放前状态'],
-  waiting_confirmation: ['Waiting for confirmation', '等待确认'], releasing: ['Releasing', '正在释放'], querying_after: ['Querying after release', '正在查询释放后状态'],
+  queued: ['Queued', '排队中'], connecting: ['Connecting to the switch', '正在连接交换机'], querying_before: ['Querying before release', '正在查询解绑前状态'],
+  waiting_confirmation: ['Waiting for confirmation', '等待确认'], releasing: ['Releasing', '正在解绑'], querying_after: ['Querying after release', '正在查询解绑后状态'],
   classifying: ['Judging the result', '正在判定结果'], finished: ['Finished', '已结束'],
 }
 const entryTypes: Record<string, Words> = { static: ['Static binding', '静态绑定'], dynamic: ['Dynamic entry', '动态记录'], missing: ['No record', '无记录'], unknown: ['Unclear', '无法判断'] }
@@ -121,7 +121,7 @@ const reasonWords: Record<(typeof reasons)[number], Words> = {
 }
 export const rawOutputs = ['raw_before_output', 'raw_release_output', 'raw_after_output'] as const
 const rawOutputWords: Record<(typeof rawOutputs)[number], Words> = {
-  raw_before_output: ['Raw output before release', '释放前原始输出'], raw_release_output: ['Raw release command output', '释放命令原始输出'], raw_after_output: ['Raw output after release', '释放后原始输出'],
+  raw_before_output: ['Raw output before release', '解绑前原始输出'], raw_release_output: ['Raw release command output', '解绑命令原始输出'], raw_after_output: ['Raw output after release', '解绑后原始输出'],
 }
 // A query that stops before any job exists explains what to do next.
 const stops: Record<string, Words> = { stopped_no_switch: noSwitch, stopped_ambiguous_switch: ambiguousSwitch }
@@ -131,7 +131,7 @@ export const phaseLabel = (phase: string, zh: boolean) => say(phases[phase], zh,
 export const entryLabel = (entry: string | undefined, zh: boolean) => (entry ? say(entryTypes[entry], zh, entry) : '—')
 export const reasonLabel = (reason: string, zh: boolean) => say(reasonWords[reason as (typeof reasons)[number]], zh, reason.replaceAll('_', ' '))
 export const rawOutputLabel = (key: (typeof rawOutputs)[number], zh: boolean) => say(rawOutputWords[key], zh, key)
-export const jobKindLabel = (kind: string, zh: boolean) => (kind === 'release' ? (zh ? '释放' : 'Release') : zh ? '查询' : 'Query')
+export const jobKindLabel = (kind: string, zh: boolean) => (kind === 'release' ? (zh ? '解绑' : 'Release') : zh ? '查询' : 'Query')
 /** Why a query stopped before a job existed; empty for every other status. */
 export const stopText = (status: string, zh: boolean) => say(stops[status], zh, '')
 

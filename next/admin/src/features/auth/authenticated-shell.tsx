@@ -106,8 +106,8 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
   const zhShell = user.locale === 'zh-CN'
   const isBindPlaneAdmin = Boolean(user.superAdmin || user.roles?.some((role) => role.name === 'Admin'))
   const releasePages = [
-    { to: '/release', icon: SquareTerminal, label: zhShell ? '释放控制台' : 'Release console' },
-    { to: '/releases', icon: ListChecks, label: zhShell ? '释放记录' : 'Release history' },
+    { to: '/release', icon: SquareTerminal, label: zhShell ? '解绑控制台' : 'Release console' },
+    { to: '/releases', icon: ListChecks, label: zhShell ? '解绑记录' : 'Release history' },
   ] as const
   const releasePage = releasePages.find((page) => location.pathname === page.to)
   const releaseMenuExpanded = releaseMenuOpen || Boolean(releasePage)
@@ -184,9 +184,9 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
                 </SidebarMenuItem>
                 {canRelease(user) ? (
                   <SidebarMenuItem>
-                    <SidebarMenuButton type="button" isActive={Boolean(releasePage)} tooltip={zhShell ? '释放' : 'Release'} aria-expanded={releaseMenuExpanded} onClick={() => setReleaseMenuOpen((open) => !open)}>
+                    <SidebarMenuButton type="button" isActive={Boolean(releasePage)} tooltip={zhShell ? '解绑 IP' : 'Release'} aria-expanded={releaseMenuExpanded} onClick={() => setReleaseMenuOpen((open) => !open)}>
                       <Unlink aria-hidden="true" data-icon="inline-start" />
-                      <span>{zhShell ? '释放' : 'Release'}</span>
+                      <span>{zhShell ? '解绑 IP' : 'Release'}</span>
                       <ChevronDown aria-hidden="true" className="ml-auto transition-transform data-[open=false]:-rotate-90 group-data-[collapsible=icon]:hidden" data-open={releaseMenuExpanded} />
                     </SidebarMenuButton>
                     {releaseMenuExpanded ? <SidebarMenuSub>

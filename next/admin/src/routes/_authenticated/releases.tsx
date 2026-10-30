@@ -61,7 +61,7 @@ function ReleaseHistoryPage() {
     } catch (cause) { setError(releaseErrorText(cause, zh)) }
     finally { setBusy(false) }
   }
-  if (!allowed) return <Alert><Lock aria-hidden="true" /><AlertDescription>{pick(zh, '需要操作员或管理员角色才能查看释放记录。', 'An Operator or Admin role is required to see the release history.')}</AlertDescription></Alert>
+  if (!allowed) return <Alert><Lock aria-hidden="true" /><AlertDescription>{pick(zh, '需要操作员或管理员角色才能查看解绑记录。', 'An Operator or Admin role is required to see the release history.')}</AlertDescription></Alert>
   const filterSelect = (key: 'kind' | 'status', label: string, options: [string, string][]) =>
     <Select value={search[key] ?? ANY} onValueChange={(value) => filter({ [key]: value === ANY ? undefined : value })}>
       <SelectTrigger aria-label={label} className="w-auto min-w-36"><SelectValue /></SelectTrigger>
@@ -72,10 +72,10 @@ function ReleaseHistoryPage() {
     </Select>
   const filtered = filterKeys.some((key) => search[key])
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-    <PageHeader title={pick(zh, '释放记录', 'Release history')} description={admin
-      ? pick(zh, '所有人的查询与释放任务，最新的在前。点击 IP 查看详情和原始输出。', 'Every query and release job, newest first. Select an IP for its details and raw output.')
-      : pick(zh, '你的查询与释放任务，最新的在前。点击 IP 查看详情和原始输出。', 'Your query and release jobs, newest first. Select an IP for its details and raw output.')}>
-      <Button asChild><Link to="/release"><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '新的释放', 'New release')}</Link></Button>
+    <PageHeader title={pick(zh, '解绑记录', 'Release history')} description={admin
+      ? pick(zh, '所有人的查询与解绑任务，最新的在前。点击 IP 查看详情和原始输出。', 'Every query and release job, newest first. Select an IP for its details and raw output.')
+      : pick(zh, '你的查询与解绑任务，最新的在前。点击 IP 查看详情和原始输出。', 'Your query and release jobs, newest first. Select an IP for its details and raw output.')}>
+      <Button asChild><Link to="/release"><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '发起解绑', 'New release')}</Link></Button>
     </PageHeader>
     <div className="flex flex-wrap items-center gap-2">
       <Input aria-label={pick(zh, '搜索 IP 或交换机', 'Search IP or switch')} placeholder={pick(zh, '搜索 IP 或交换机', 'Search IP or switch')} value={text} onChange={(event) => setText(event.target.value)} className="w-full sm:w-64" />
@@ -87,7 +87,7 @@ function ReleaseHistoryPage() {
     {list.data
       ? list.data.items.length
         ? <JobTable jobs={list.data.items} zh={zh} admin={admin} busy={busy} onRetry={(job) => void retry(job)} />
-        : <Empty>{filtered ? pick(zh, '没有符合筛选条件的任务。', 'No job matches these filters.') : pick(zh, '还没有释放任务。', 'No release jobs yet.')}</Empty>
+        : <Empty>{filtered ? pick(zh, '没有符合筛选条件的任务。', 'No job matches these filters.') : pick(zh, '还没有解绑任务。', 'No release jobs yet.')}</Empty>
       : list.isPending ? <Skeleton className="h-64 rounded-xl" /> : null}
     {list.data ? <Pager page={page} total={list.data.total} pageSize={list.data.page_size} zh={zh} onPage={(next) => void navigate({ search: (previous) => ({ ...previous, page: next > 1 ? next : undefined }) })} /> : null}
   </main>

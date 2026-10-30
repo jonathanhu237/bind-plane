@@ -52,10 +52,10 @@ export function RecentJobs({ zh, admin }: { zh: boolean; admin: boolean }) {
   const recent = useQuery({ queryKey: [jobListKey, 'recent'], queryFn: () => request<JobPage>(jobsPath({ pageSize: 8 })), refetchInterval: 15_000 })
   return <Section
     title={admin ? pick(zh, '最近任务', 'Recent jobs') : pick(zh, '我的最近任务', 'My recent jobs')}
-    actions={<Link to="/releases" className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">{pick(zh, '全部释放记录', 'All release history')}</Link>}>
+    actions={<Link to="/releases" className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">{pick(zh, '全部解绑记录', 'All release history')}</Link>}>
     <ErrorNote error={recent.error} zh={zh} />
     {recent.data
-      ? recent.data.items.length ? <JobTable jobs={recent.data.items} zh={zh} admin={admin} /> : <Empty>{pick(zh, '还没有释放任务。在上方输入 IP 地址，开始第一次释放。', 'No release jobs yet. Enter an IP address above to start your first release.')}</Empty>
+      ? recent.data.items.length ? <JobTable jobs={recent.data.items} zh={zh} admin={admin} /> : <Empty>{pick(zh, '还没有解绑任务。在上方输入 IP 地址，开始第一次解绑。', 'No release jobs yet. Enter an IP address above to start your first release.')}</Empty>
       : recent.isPending ? <Skeleton className="h-40 rounded-xl" /> : null}
   </Section>
 }
@@ -70,11 +70,11 @@ export function UncertainReleases({ zh, admin }: { zh: boolean; admin: boolean }
   const count = page.total
   return <Alert variant="warning">
     <TriangleAlert aria-hidden="true" />
-    <AlertTitle>{pick(zh, `${count} 次释放结果不确定`, `${count} release${count === 1 ? ' has' : 's have'} an uncertain outcome`)}</AlertTitle>
+    <AlertTitle>{pick(zh, `${count} 次解绑结果不确定`, `${count} release${count === 1 ? ' has' : 's have'} an uncertain outcome`)}</AlertTitle>
     <AlertDescription className="flex flex-col gap-2">
       <p>{admin
-        ? pick(zh, '无法自动判断这些释放是否生效，对应 IP 的后续释放已暂停。请登录交换机核实绑定现状。', 'Whether these releases took effect could not be determined, so further releases of these IPs are paused. Check the bindings on the switch.')
-        : pick(zh, '无法自动判断这些释放是否生效，对应 IP 的后续释放已暂停，需要管理员核实。', 'Whether these releases took effect could not be determined, so further releases of these IPs are paused until an admin checks the switch.')}</p>
+        ? pick(zh, '无法自动判断这些解绑是否生效，对应 IP 的后续解绑已暂停。请登录交换机核实绑定现状。', 'Whether these releases took effect could not be determined, so further releases of these IPs are paused. Check the bindings on the switch.')
+        : pick(zh, '无法自动判断这些解绑是否生效，对应 IP 的后续解绑已暂停，需要管理员核实。', 'Whether these releases took effect could not be determined, so further releases of these IPs are paused until an admin checks the switch.')}</p>
       <ul className="flex flex-col gap-1">{page.items.map((job) => <li key={job.id} className="flex flex-wrap items-baseline gap-x-2">
         <Link to="/release" search={{ job: job.id }} className="font-mono font-medium underline underline-offset-4">{job.target_ip}</Link>
         <span>{job.switch_name}</span>

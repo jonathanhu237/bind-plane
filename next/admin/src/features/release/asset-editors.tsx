@@ -33,7 +33,7 @@ const ruleText: Record<RuleKey, { label: [string, string]; hint: [string, string
     label: ['Commands', '命令'],
     hint: [
       'JSON object: single_arp_query and arp_release for releases ($ip is the address), optional config and exit_config, and config_backup for backups.',
-      'JSON 对象：single_arp_query 和 arp_release 用于释放（$ip 代表目标地址），config、exit_config 可选，config_backup 用于配置备份。',
+      'JSON 对象：single_arp_query 和 arp_release 用于解绑（$ip 代表目标地址），config、exit_config 可选，config_backup 用于配置备份。',
     ],
   },
   parser_rules: {
@@ -49,7 +49,7 @@ const ruleText: Record<RuleKey, { label: [string, string]; hint: [string, string
     label: ['Paging', '分页处理'],
     hint: ['JSON object; disable_paging_command turns paging off, such as "screen-length 0 temporary". {} for none.', 'JSON 对象；disable_paging_command 用于关闭分页，例如 "screen-length 0 temporary"。{} 表示不处理。'],
   },
-  success_patterns: { label: ['Success patterns', '成功匹配'], hint: ['JSON array of regular expressions; release output matching one counts as success.', 'JSON 数组，释放输出命中其中任一正则即视为成功。'] },
+  success_patterns: { label: ['Success patterns', '成功匹配'], hint: ['JSON array of regular expressions; release output matching one counts as success.', 'JSON 数组，解绑输出命中其中任一正则即视为成功。'] },
   error_patterns: { label: ['Error patterns', '错误匹配'], hint: ['JSON array of regular expressions; command output matching one counts as an error.', 'JSON 数组，命令输出命中其中任一正则即视为出错。'] },
 }
 export const ruleLabel = (key: string, zh: boolean) => ruleText[key as RuleKey]?.label[zh ? 1 : 0] ?? key
@@ -208,7 +208,7 @@ export function editorLabels(zh: boolean) {
     hint: {
       credentials: '密码不会回显。两个密码框留空即保留现有值。',
       profiles: '保存会改变此模板发送的命令。使用它的交换机上等待确认的查询需要重新执行。',
-      switches: '保存后，此交换机上等待确认的查询会失效，操作员需重新查询后才能释放。',
+      switches: '保存后，此交换机上等待确认的查询会失效，操作员需重新查询后才能解绑。',
       networks: '只有已启用且已验证的网段参与交换机解析。若修改使某个地址改由其他交换机负责，其等待确认的查询需要重新执行。',
       groups: '分组用于筛选设备、限定计划任务和合规规则的范围。',
     } satisfies Record<AssetKind, string>,

@@ -43,8 +43,8 @@ export function ReleaseQueryForm({ admin, zh, allowForce = false, title, descrip
   const forcing = allowForce && admin && force
   const options = useQuery({ queryKey: [assetOptionsKey], queryFn: () => request<AssetOptions>('/api/releases/admin/assets'), enabled: forcing, staleTime: 60_000 })
   const labels = zh ? {
-    ip: 'IPv4 地址', reason: '释放原因', prepare: '查询绑定状态', preparing: '正在查询交换机…',
-    force: '管理员强制释放（查询无记录）', forceSwitch: '执行强制释放的交换机', auto: '自动解析交换机',
+    ip: 'IPv4 地址', reason: '解绑原因', prepare: '查询绑定状态', preparing: '正在查询交换机…',
+    force: '管理员强制解绑（查询无记录）', forceSwitch: '执行强制解绑的交换机', auto: '自动解析交换机',
   } : {
     ip: 'IPv4 address', reason: 'Reason', prepare: 'Query binding', preparing: 'Querying switch…',
     force: 'Admin force release (no record found)', forceSwitch: 'Switch to force the release on', auto: 'Resolve the switch automatically',

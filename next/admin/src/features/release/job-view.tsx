@@ -35,12 +35,12 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
   // A forced query that found no record arrives with the force switch already on.
   useEffect(() => { if (settled) setForce(entry === 'missing' && Boolean(data?.force)) }, [settled, entry, data?.force])
   const labels = zh ? {
-    state: '当前状态', release: '释放', check: '核对以下信息后确认释放。', switch: '交换机', reason: '释放原因', entryType: '绑定类型', queriedAt: '查询时间',
-    confirm: '确认释放静态绑定', retry: '重新查询', force: '管理员强制释放（查询无记录）', confirmed: '这次查询已确认释放。', viewRelease: '查看释放结果',
-    noRecord: '交换机上没有这个 IP 的记录，释放已停止。确需强制释放时请联系管理员。',
-    actor: '执行人', profile: '命令模板', before: '释放前', finalState: '最终状态', forced: '强制释放', finishedAt: '完成时间', yes: '是', no: '否',
+    state: '当前状态', release: '解绑', check: '核对以下信息后确认解绑。', switch: '交换机', reason: '解绑原因', entryType: '绑定类型', queriedAt: '查询时间',
+    confirm: '确认解绑', retry: '重新查询', force: '管理员强制解绑（查询无记录）', confirmed: '这次查询已确认解绑。', viewRelease: '查看解绑结果',
+    noRecord: '交换机上没有这个 IP 的记录，解绑已停止。确需强制解绑时请联系管理员。',
+    actor: '执行人', profile: '命令模板', before: '解绑前', finalState: '最终状态', forced: '强制解绑', finishedAt: '完成时间', yes: '是', no: '否',
     retryOf: '重试自', original: '查看原任务', events: '执行过程',
-    uncertain: '结果不确定。同一 IP 的后续释放已暂停；管理员必须先核实原执行器已停止及交换机现状，不要重复发出释放命令。',
+    uncertain: '结果不确定。同一 IP 的后续解绑已暂停；管理员必须先核实原执行器已停止及交换机现状，不要重复发出解绑命令。',
   } : {
     state: 'Current state', release: 'Release', check: 'Check the details below, then confirm the release.', switch: 'Switch', reason: 'Reason', entryType: 'Entry type', queriedAt: 'Queried',
     confirm: 'Confirm static binding release', retry: 'Retry query', force: 'Admin force release (no record found)', confirmed: 'This query was confirmed for release.', viewRelease: 'View the release',
