@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { entryLabel, phaseLabel, reasonLabel, releaseErrorText, statusLabel, targetIPProblem } from './release-console'
+import { canRelease, canRetry, entryLabel, jobsPath, phaseLabel, reasonLabel, releaseErrorText, shownStatus, statusLabel, stopText, targetIPProblem } from './jobs'
+import type { User } from '@/shared/api/contracts'
 
-describe('release console messages', () => {
+describe('release job messages', () => {
   it('checks the typed address before asking a switch', () => {
     expect(targetIPProblem('', true)).toBe('请输入要查询的 IPv4 地址。')
     expect(targetIPProblem('   ', false)).toBe('Enter the IPv4 address to query.')
@@ -19,6 +20,8 @@ describe('release console messages', () => {
     expect(releaseErrorText(new Error('operator role required'), true)).toBe('需要操作员或管理员角色。')
     expect(releaseErrorText(new Error('an unexpected detail'), true)).toBe('an unexpected detail')
     expect(releaseErrorText('not an error', true)).toBe('操作失败，请重试。')
+    expect(stopText('stopped_ambiguous_switch', true)).toBe('有多台交换机的网段同样精确地包含该地址，需要管理员先修正网段数据。')
+    expect(stopText('query_queued', true)).toBe('')
   })
 
   it('names job states, phases, bindings and reasons instead of showing their codes', () => {
@@ -30,5 +33,35 @@ describe('release console messages', () => {
     expect(entryLabel(undefined, true)).toBe('—')
     expect(reasonLabel('temporary_test', true)).toBe('临时测试')
     expect(reasonLabel('temporary_test', false)).toBe('Temporary test')
+  })
+})
+
+describe('release jobs', () => {
+  it('shows a query that was released as confirmed', () => {
+    expect(shownStatus({ kind: 'pre_release_query', status: 'waiting_confirmation', release_job_id: 'r1' })).toBe('confirmed')
+    expect(shownStatus({ kind: 'pre_release_query', status: 'waiting_confirmation' })).toBe('waiting_confirmation')
+    expect(shownStatus({ kind: 'release', status: 'succeeded' })).toBe('succeeded')
+  })
+
+  it('offers a fresh query only after a failed, timed-out or uncertain job', () => {
+    expect(canRetry({ status: 'failed', force: false }, false)).toBe(true)
+    expect(canRetry({ status: 'needs_manual_confirmation', force: false }, false)).toBe(true)
+    expect(canRetry({ status: 'succeeded', force: false }, true)).toBe(false)
+    expect(canRetry({ status: 'timeout', force: true }, false)).toBe(false)
+    expect(canRetry({ status: 'timeout', force: true }, true)).toBe(true)
+  })
+
+  it('asks the history for one page and leaves empty filters out', () => {
+    expect(jobsPath({})).toBe('/api/releases/jobs')
+    expect(jobsPath({ q: ' 10.0. ', kind: 'release', status: '', page: 1, pageSize: 8 })).toBe('/api/releases/jobs?q=10.0.&kind=release&page_size=8')
+    expect(jobsPath({ status: 'needs_manual_confirmation', page: 3 })).toBe('/api/releases/jobs?status=needs_manual_confirmation&page=3')
+  })
+
+  it('lets operators and admins release, and nobody else', () => {
+    const user = (roles: string[], superAdmin = false) => ({ superAdmin, roles: roles.map((name) => ({ name })) }) as unknown as User
+    expect(canRelease(user(['Operator']))).toBe(true)
+    expect(canRelease(user(['Admin']))).toBe(true)
+    expect(canRelease(user([], true))).toBe(true)
+    expect(canRelease(user(['Auditor']))).toBe(false)
   })
 })

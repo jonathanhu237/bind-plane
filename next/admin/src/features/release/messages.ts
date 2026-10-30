@@ -13,6 +13,7 @@ const tooShort: Words = ['The backup output is too short to be a configuration.'
 const fixed: Record<string, Words> = {
   // API refusals.
   'invalid request': unreadable, 'JSON required': unreadable, 'exactly one JSON object required': unreadable,
+  'invalid filter': ['These filters cannot be used. Clear them and try again.', '筛选条件无效，请清除后重试。'],
   'login required': ['Your session has ended. Sign in again.', '登录已失效，请重新登录。'],
   'invalid origin': ['The request was refused because it came from another site.', '请求来源不受信任，已被拒绝。'],
   'admin role required': ['This needs the Admin role.', '需要管理员角色。'],

@@ -144,17 +144,20 @@ Never log plaintext credentials, decrypted passwords, sensitive environment vari
 
 ## UI Direction
 
-The default operator screen is the release console, not a marketing page or generic dashboard.
+Everyone lands on the home page after login. It is not a marketing page or a generic dashboard:
 
-Initial navigation should stay small:
+- Its first element is a quick release form (IPv4 address, reason, query), so the release workflow stays one step away.
+- Below it come releases whose outcome needs manual confirmation, then recent jobs (the operator's own; everyone's for admins).
+- Admins also see the device operations summary there; there is no separate overview page.
 
-- Release console
-- Job history
-- User management
-- Credential management
-- Switch/network imports
-- Command profiles
-- Audit logs
+The release console is a focused page for one job at a time: query, confirm, result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Admin force release lives here, not on the home page. Release history is its own page, with filters and pagination.
+
+Navigation stays small:
+
+- Home
+- Release: release console, release history
+- Device operations (admins): devices, schedules, compliance, alerts, audit log, asset settings (credentials, command profiles, switches, networks)
+- User and system administration
 
 Build a clear, restrained operator-focused tool. Do not block the main release workflow on a polished full admin system.
 

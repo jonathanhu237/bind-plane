@@ -25,8 +25,9 @@ import { Route as AuthenticatedEmailTasksRouteImport } from './routes/_authentic
 import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
 import { Route as AuthenticatedOnlineUsersRouteImport } from './routes/_authenticated/online-users'
 import { Route as AuthenticatedOperationLogsRouteImport } from './routes/_authenticated/operation-logs'
-import { Route as AuthenticatedOpsRouteImport } from './routes/_authenticated/ops'
 import { Route as AuthenticatedPersonalSettingsRouteImport } from './routes/_authenticated/personal-settings'
+import { Route as AuthenticatedReleaseRouteImport } from './routes/_authenticated/release'
+import { Route as AuthenticatedReleasesRouteImport } from './routes/_authenticated/releases'
 import { Route as AuthenticatedRolesRouteImport } from './routes/_authenticated/roles'
 import { Route as AuthenticatedSchedulesRouteImport } from './routes/_authenticated/schedules'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
@@ -114,17 +115,22 @@ const AuthenticatedOperationLogsRoute =
     path: '/operation-logs',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedOpsRoute = AuthenticatedOpsRouteImport.update({
-  id: '/ops',
-  path: '/ops',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const AuthenticatedPersonalSettingsRoute =
   AuthenticatedPersonalSettingsRouteImport.update({
     id: '/personal-settings',
     path: '/personal-settings',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedReleaseRoute = AuthenticatedReleaseRouteImport.update({
+  id: '/release',
+  path: '/release',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedReleasesRoute = AuthenticatedReleasesRouteImport.update({
+  id: '/releases',
+  path: '/releases',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedRolesRoute = AuthenticatedRolesRouteImport.update({
   id: '/roles',
   path: '/roles',
@@ -162,8 +168,9 @@ export interface FileRoutesByFullPath {
   '/invitations': typeof AuthenticatedInvitationsRoute
   '/online-users': typeof AuthenticatedOnlineUsersRoute
   '/operation-logs': typeof AuthenticatedOperationLogsRoute
-  '/ops': typeof AuthenticatedOpsRoute
   '/personal-settings': typeof AuthenticatedPersonalSettingsRoute
+  '/release': typeof AuthenticatedReleaseRoute
+  '/releases': typeof AuthenticatedReleasesRoute
   '/roles': typeof AuthenticatedRolesRoute
   '/schedules': typeof AuthenticatedSchedulesRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -184,8 +191,9 @@ export interface FileRoutesByTo {
   '/invitations': typeof AuthenticatedInvitationsRoute
   '/online-users': typeof AuthenticatedOnlineUsersRoute
   '/operation-logs': typeof AuthenticatedOperationLogsRoute
-  '/ops': typeof AuthenticatedOpsRoute
   '/personal-settings': typeof AuthenticatedPersonalSettingsRoute
+  '/release': typeof AuthenticatedReleaseRoute
+  '/releases': typeof AuthenticatedReleasesRoute
   '/roles': typeof AuthenticatedRolesRoute
   '/schedules': typeof AuthenticatedSchedulesRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -209,8 +217,9 @@ export interface FileRoutesById {
   '/_authenticated/invitations': typeof AuthenticatedInvitationsRoute
   '/_authenticated/online-users': typeof AuthenticatedOnlineUsersRoute
   '/_authenticated/operation-logs': typeof AuthenticatedOperationLogsRoute
-  '/_authenticated/ops': typeof AuthenticatedOpsRoute
   '/_authenticated/personal-settings': typeof AuthenticatedPersonalSettingsRoute
+  '/_authenticated/release': typeof AuthenticatedReleaseRoute
+  '/_authenticated/releases': typeof AuthenticatedReleasesRoute
   '/_authenticated/roles': typeof AuthenticatedRolesRoute
   '/_authenticated/schedules': typeof AuthenticatedSchedulesRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
@@ -235,8 +244,9 @@ export interface FileRouteTypes {
     | '/invitations'
     | '/online-users'
     | '/operation-logs'
-    | '/ops'
     | '/personal-settings'
+    | '/release'
+    | '/releases'
     | '/roles'
     | '/schedules'
     | '/settings'
@@ -257,8 +267,9 @@ export interface FileRouteTypes {
     | '/invitations'
     | '/online-users'
     | '/operation-logs'
-    | '/ops'
     | '/personal-settings'
+    | '/release'
+    | '/releases'
     | '/roles'
     | '/schedules'
     | '/settings'
@@ -281,8 +292,9 @@ export interface FileRouteTypes {
     | '/_authenticated/invitations'
     | '/_authenticated/online-users'
     | '/_authenticated/operation-logs'
-    | '/_authenticated/ops'
     | '/_authenticated/personal-settings'
+    | '/_authenticated/release'
+    | '/_authenticated/releases'
     | '/_authenticated/roles'
     | '/_authenticated/schedules'
     | '/_authenticated/settings'
@@ -413,18 +425,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOperationLogsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/ops': {
-      id: '/_authenticated/ops'
-      path: '/ops'
-      fullPath: '/ops'
-      preLoaderRoute: typeof AuthenticatedOpsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/personal-settings': {
       id: '/_authenticated/personal-settings'
       path: '/personal-settings'
       fullPath: '/personal-settings'
       preLoaderRoute: typeof AuthenticatedPersonalSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/release': {
+      id: '/_authenticated/release'
+      path: '/release'
+      fullPath: '/release'
+      preLoaderRoute: typeof AuthenticatedReleaseRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/releases': {
+      id: '/_authenticated/releases'
+      path: '/releases'
+      fullPath: '/releases'
+      preLoaderRoute: typeof AuthenticatedReleasesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/roles': {
@@ -468,8 +487,9 @@ interface AuthenticatedRouteChildren {
   AuthenticatedInvitationsRoute: typeof AuthenticatedInvitationsRoute
   AuthenticatedOnlineUsersRoute: typeof AuthenticatedOnlineUsersRoute
   AuthenticatedOperationLogsRoute: typeof AuthenticatedOperationLogsRoute
-  AuthenticatedOpsRoute: typeof AuthenticatedOpsRoute
   AuthenticatedPersonalSettingsRoute: typeof AuthenticatedPersonalSettingsRoute
+  AuthenticatedReleaseRoute: typeof AuthenticatedReleaseRoute
+  AuthenticatedReleasesRoute: typeof AuthenticatedReleasesRoute
   AuthenticatedRolesRoute: typeof AuthenticatedRolesRoute
   AuthenticatedSchedulesRoute: typeof AuthenticatedSchedulesRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
@@ -487,8 +507,9 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedInvitationsRoute: AuthenticatedInvitationsRoute,
   AuthenticatedOnlineUsersRoute: AuthenticatedOnlineUsersRoute,
   AuthenticatedOperationLogsRoute: AuthenticatedOperationLogsRoute,
-  AuthenticatedOpsRoute: AuthenticatedOpsRoute,
   AuthenticatedPersonalSettingsRoute: AuthenticatedPersonalSettingsRoute,
+  AuthenticatedReleaseRoute: AuthenticatedReleaseRoute,
+  AuthenticatedReleasesRoute: AuthenticatedReleasesRoute,
   AuthenticatedRolesRoute: AuthenticatedRolesRoute,
   AuthenticatedSchedulesRoute: AuthenticatedSchedulesRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,

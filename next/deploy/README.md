@@ -38,7 +38,8 @@ docker compose logs api | grep 'initial setup link'
 Open the setup link within 30 minutes and create the first administrator. It
 becomes Super Admin; invite operators and admins from Users & Access, and give
 them the bind-plane **Operator** or **Admin** role. Only Admin (and Super Admin)
-can use device operations; Operators see the release console and nothing else.
+can use device operations; Operators see the home page, the release console and
+their own release history.
 
 ## HTTP or HTTPS
 

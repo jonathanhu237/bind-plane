@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, History, House, LayoutDashboard, LogOut, Mail, Monitor, Network, ScrollText, Server, Settings, ShieldCheck, UserCog, UserRound, Users, Wrench } from 'lucide-react'
+import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, History, House, ListChecks, LogOut, Mail, Monitor, Network, ScrollText, Server, Settings, ShieldCheck, SquareTerminal, Unlink, UserCog, UserRound, Users, Wrench } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -29,6 +29,7 @@ import { currentUserQueryKey } from './queries'
 import type { User } from '@/shared/api/contracts'
 import { clearAccessDrafts, useAccessDraftStore } from '@/features/access/drafts'
 import { IdentityMark } from '@/features/identity/system-identity'
+import { canRelease } from '@/features/release/jobs'
 import { UserAvatar } from './user-avatar'
 import { changeAccountLocale, restoreGuestLocale } from '@/shared/i18n'
 
@@ -101,10 +102,16 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
   const [accessMenuOpen, setAccessMenuOpen] = useState(true)
   const [monitoringMenuOpen, setMonitoringMenuOpen] = useState(true)
   const [opsMenuOpen, setOpsMenuOpen] = useState(true)
+  const [releaseMenuOpen, setReleaseMenuOpen] = useState(true)
   const zhShell = user.locale === 'zh-CN'
   const isBindPlaneAdmin = Boolean(user.superAdmin || user.roles?.some((role) => role.name === 'Admin'))
+  const releasePages = [
+    { to: '/release', icon: SquareTerminal, label: zhShell ? '释放控制台' : 'Release console' },
+    { to: '/releases', icon: ListChecks, label: zhShell ? '释放记录' : 'Release history' },
+  ] as const
+  const releasePage = releasePages.find((page) => location.pathname === page.to)
+  const releaseMenuExpanded = releaseMenuOpen || Boolean(releasePage)
   const opsPages = [
-    { to: '/ops', icon: LayoutDashboard, label: zhShell ? '运维概览' : 'Overview' },
     { to: '/devices', icon: Server, label: zhShell ? '设备' : 'Devices' },
     { to: '/schedules', icon: CalendarClock, label: zhShell ? '计划任务' : 'Schedules' },
     { to: '/compliance', icon: ClipboardCheck, label: zhShell ? '合规检查' : 'Compliance' },
@@ -168,13 +175,25 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={location.pathname === '/'} tooltip={user.locale === 'zh-CN' ? '释放控制台' : 'Release console'}>
+                  <SidebarMenuButton asChild isActive={location.pathname === '/'} tooltip={zhShell ? '首页' : 'Home'}>
                     <Link to="/" aria-current={location.pathname === '/' ? 'page' : undefined}>
                       <House aria-hidden="true" data-icon="inline-start" />
-                      <span>{user.locale === 'zh-CN' ? '释放控制台' : 'Release console'}</span>
+                      <span>{zhShell ? '首页' : 'Home'}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                {canRelease(user) ? (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton type="button" isActive={Boolean(releasePage)} tooltip={zhShell ? '释放' : 'Release'} aria-expanded={releaseMenuExpanded} onClick={() => setReleaseMenuOpen((open) => !open)}>
+                      <Unlink aria-hidden="true" data-icon="inline-start" />
+                      <span>{zhShell ? '释放' : 'Release'}</span>
+                      <ChevronDown aria-hidden="true" className="ml-auto transition-transform data-[open=false]:-rotate-90 group-data-[collapsible=icon]:hidden" data-open={releaseMenuExpanded} />
+                    </SidebarMenuButton>
+                    {releaseMenuExpanded ? <SidebarMenuSub>
+                      {releasePages.map((page) => <SidebarMenuSubItem key={page.to}><SidebarMenuSubButton asChild isActive={releasePage?.to === page.to}><Link to={page.to} aria-current={releasePage?.to === page.to ? 'page' : undefined}><page.icon aria-hidden="true" /><span>{page.label}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem>)}
+                    </SidebarMenuSub> : null}
+                  </SidebarMenuItem>
+                ) : null}
                 {isBindPlaneAdmin ? (
                   <SidebarMenuItem>
                     <SidebarMenuButton type="button" isActive={Boolean(opsPage)} tooltip={zhShell ? '设备运维' : 'Device operations'} aria-expanded={opsMenuExpanded} onClick={() => setOpsMenuOpen((open) => !open)}>
@@ -225,12 +244,13 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
           <AccountMenu user={user} isPersonalSettings={location.pathname.startsWith('/personal-settings')} logoutPending={logout.isPending} onLogout={() => logout.mutate()} />
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset>
+      {/* min-w-0 lets wide tables scroll inside their page instead of widening it past the window. */}
+      <SidebarInset className="min-w-0">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <SidebarTrigger aria-label={t('menu')} />
             <div className="h-4 w-px bg-border" aria-hidden="true" />
-            <p className="truncate text-sm font-medium text-muted-foreground">{location.pathname.startsWith('/personal-settings') ? t('personalSettings') : location.pathname.startsWith('/online-users') ? t('onlineUsers:title') : location.pathname.startsWith('/users') ? t('access:users') : location.pathname.startsWith('/invitations') ? t('access:invitations') : location.pathname.startsWith('/roles') ? t('access:roles') : location.pathname.startsWith('/settings') ? t('settings') : location.pathname.startsWith('/operation-logs') ? t('operationLog:title') : location.pathname.startsWith('/email-tasks') ? t('emailTasks:title') : opsPage ? opsPage.label : user.locale === 'zh-CN' ? '释放控制台' : 'Release console'}</p>
+            <p className="truncate text-sm font-medium text-muted-foreground">{location.pathname.startsWith('/personal-settings') ? t('personalSettings') : location.pathname.startsWith('/online-users') ? t('onlineUsers:title') : location.pathname.startsWith('/users') ? t('access:users') : location.pathname.startsWith('/invitations') ? t('access:invitations') : location.pathname.startsWith('/roles') ? t('access:roles') : location.pathname.startsWith('/settings') ? t('settings') : location.pathname.startsWith('/operation-logs') ? t('operationLog:title') : location.pathname.startsWith('/email-tasks') ? t('emailTasks:title') : opsPage ? opsPage.label : releasePage ? releasePage.label : zhShell ? '首页' : 'Home'}</p>
           </div>
         </header>
         <div className="flex min-h-[calc(100dvh-3.5rem)] flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
