@@ -102,7 +102,7 @@ export function DataTable<T>({
           ) : null}
         </div>
       </div>
-      <div className="overflow-x-auto rounded-md border">
+      <div className="overflow-x-auto rounded-md border [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

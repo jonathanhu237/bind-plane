@@ -52,14 +52,14 @@ function AuditPage() {
       <Input aria-label={pick(zh, '对象', 'Object')} placeholder={pick(zh, '对象名称', 'Object name')} value={q} onChange={(event) => setQ(event.target.value)} className="w-48" />
     </div>
     <ErrorNote error={events.error} zh={zh} />
-    {rows.length ? <div className="overflow-x-auto rounded-xl border"><Table>
+    {rows.length ? <div className="overflow-x-auto rounded-xl border [&_th]:whitespace-nowrap"><Table>
       <TableHeader><TableRow><TableHead>{pick(zh, '时间', 'Time')}</TableHead><TableHead>{pick(zh, '操作者', 'Actor')}</TableHead><TableHead>{pick(zh, '操作', 'Action')}</TableHead><TableHead>{pick(zh, '对象', 'Object')}</TableHead><TableHead>{pick(zh, '变更', 'Changes')}</TableHead></TableRow></TableHeader>
       <TableBody>{rows.map((event) => <TableRow key={event.id}>
         <TableCell className="whitespace-nowrap tabular-nums">{formatTime(event.created_at, zh)}</TableCell>
-        <TableCell>{event.actor_email}</TableCell>
+        <TableCell className="whitespace-nowrap">{event.actor_email}</TableCell>
         <TableCell className="whitespace-nowrap">{actionName(event.action, zh)}</TableCell>
-        <TableCell className="max-w-64 break-words">{event.object_name}</TableCell>
-        <TableCell className="max-w-72 break-words text-muted-foreground">{describe(event)}</TableCell>
+        <TableCell className="min-w-40 max-w-64 break-words">{event.object_name}</TableCell>
+        <TableCell className="min-w-56 max-w-72 break-words text-muted-foreground">{describe(event)}</TableCell>
       </TableRow>)}</TableBody>
     </Table></div> : events.isPending ? null : <Empty>{pick(zh, '没有符合条件的记录。', 'No matching events.')}</Empty>}
     {events.hasNextPage ? <Button type="button" variant="outline" className="self-center" disabled={events.isFetchingNextPage} onClick={() => void events.fetchNextPage()}>{events.isFetchingNextPage ? pick(zh, '正在加载…', 'Loading…') : pick(zh, '加载更多', 'Load more')}</Button> : null}

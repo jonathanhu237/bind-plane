@@ -11,6 +11,7 @@ import { ApiProblemError, type ApiClient } from '@/shared/api/client'
 import type { SystemIdentity } from '@/shared/api/contracts'
 import { isForbidden, translateProblemWithFields } from '@/shared/api/problems'
 import { notifyRequestError, notifySuccess, readFailureFeedback, useRequestErrorToast } from '@/shared/feedback'
+import { FileButton } from '@/shared/file-button'
 import { DefaultSystemIcon, publicSystemIdentityQueryKey } from '@/features/identity/system-identity'
 
 type IconAction = 'preserve' | 'replace' | 'default'
@@ -105,7 +106,7 @@ export function SystemIdentityPage({ api, canWrite = true }: { api: ApiClient; c
         </FieldGroup>
         <div className="grid gap-5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start">
           <div className="flex size-32 items-center justify-center overflow-hidden rounded-xl border bg-muted/30 p-3">{current.iconAction === 'default' || (current.iconAction === 'preserve' && !query.data?.hasCustomIcon) ? <DefaultSystemIcon className="size-16" /> : <img src={current.iconPreview} alt="" className="max-h-full max-w-full object-contain" />}</div>
-          <Field><FieldLabel htmlFor="system-icon">{t('identity.icon')}</FieldLabel><Input ref={inputRef} id="system-icon" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => selectFile(event.target.files?.[0])} disabled={editDisabled} /><FieldDescription>{t('identity.iconDescription')}</FieldDescription>{current.iconAction === 'replace' && !current.iconFile ? <FieldError>{t('identity.iconRequired')}</FieldError> : null}<div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={restoreDefault} disabled={editDisabled}><RotateCcw aria-hidden="true" data-icon="inline-start" />{t('identity.restoreDefault')}</Button><span className="inline-flex items-center gap-2 text-sm text-muted-foreground"><Image aria-hidden="true" className="size-4" />{current.iconAction === 'default' ? t('identity.defaultIconPending') : current.iconAction === 'replace' ? t('identity.newIconPending') : t('identity.currentIcon')}</span></div></Field>
+          <Field><FieldLabel htmlFor="system-icon">{t('identity.icon')}</FieldLabel><FileButton ref={inputRef} id="system-icon" accept="image/png,image/jpeg,image/webp" label={t('identity.chooseIcon')} status={current.iconFile?.name ?? t('identity.noIconFile')} onFile={selectFile} disabled={editDisabled} /><FieldDescription>{t('identity.iconDescription')}</FieldDescription>{current.iconAction === 'replace' && !current.iconFile ? <FieldError>{t('identity.iconRequired')}</FieldError> : null}<div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={restoreDefault} disabled={editDisabled}><RotateCcw aria-hidden="true" data-icon="inline-start" />{t('identity.restoreDefault')}</Button><span className="inline-flex items-center gap-2 text-sm text-muted-foreground"><Image aria-hidden="true" className="size-4" />{current.iconAction === 'default' ? t('identity.defaultIconPending') : current.iconAction === 'replace' ? t('identity.newIconPending') : t('identity.currentIcon')}</span></div></Field>
         </div>
         {canWrite ? <div className="flex justify-end"><Button type="submit" disabled={submitDisabled}><Save aria-hidden="true" data-icon="inline-start" />{busy ? t('common:saving') : t('common:save')}</Button></div> : null}
       </form>

@@ -33,6 +33,14 @@ import { canRelease } from '@/features/release/jobs'
 import { UserAvatar } from './user-avatar'
 import { changeAccountLocale, restoreGuestLocale } from '@/shared/i18n'
 
+// On a phone the menu is a drawer over the page; following a link in it should show the page.
+function CloseMobileMenuOnNavigation() {
+  const { isMobile, setOpenMobile } = useSidebar()
+  const { pathname } = useLocation()
+  useEffect(() => { if (isMobile) setOpenMobile(false) }, [isMobile, pathname, setOpenMobile])
+  return null
+}
+
 function AccountMenu({ user, isPersonalSettings, logoutPending, onLogout }: { user: User; isPersonalSettings: boolean; logoutPending: boolean; onLogout: () => void }) {
   const { setOpenMobile } = useSidebar()
   const { t } = useTranslation(['common', 'auth'])
@@ -167,6 +175,7 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
 
   return (
     <SidebarProvider defaultOpen>
+      <CloseMobileMenuOnNavigation />
       <Sidebar variant="inset" collapsible="icon" role="navigation" aria-label={t('menu')}>
         <SidebarContent>
           <div className="px-3 py-4"><IdentityMark api={api} compact /></div>

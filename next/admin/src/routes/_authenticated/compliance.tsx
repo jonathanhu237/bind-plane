@@ -131,7 +131,7 @@ function CompliancePage() {
       {rules.data?.length ? <div className="overflow-x-auto rounded-xl border [&_th]:whitespace-nowrap"><Table>
         <TableHeader><TableRow><TableHead>{pick(zh, '名称', 'Name')}</TableHead><TableHead>{pick(zh, '匹配规则', 'Pattern')}</TableHead><TableHead>{pick(zh, '级别', 'Severity')}</TableHead><TableHead>{pick(zh, '范围', 'Scope')}</TableHead><TableHead className="text-right">{pick(zh, '通过 / 未通过', 'Pass / fail')}</TableHead><TableHead /></TableRow></TableHeader>
         <TableBody>{rules.data.map((rule) => <TableRow key={rule.id}>
-          <TableCell><div className="flex flex-wrap items-center gap-2 font-medium">{rule.name}{rule.is_enabled ? null : <ToneBadge kind="muted">{pick(zh, '已停用', 'Disabled')}</ToneBadge>}</div>
+          <TableCell><div className="flex items-center gap-2 whitespace-nowrap font-medium">{rule.name}{rule.is_enabled ? null : <ToneBadge kind="muted">{pick(zh, '已停用', 'Disabled')}</ToneBadge>}</div>
             <p className="text-xs text-muted-foreground">{rule.mode === 'must_contain' ? pick(zh, '必须出现', 'Must be present') : pick(zh, '不得出现', 'Must be absent')}</p></TableCell>
           <TableCell className="max-w-72"><code className="block truncate font-mono text-xs" title={rule.pattern}>{rule.pattern}</code></TableCell>
           <TableCell><SeverityBadge severity={rule.severity} zh={zh} /></TableCell>
@@ -162,10 +162,10 @@ function CompliancePage() {
         <TableBody>{results.data.items.map((result) => {
           const evidence = serverText(result.detail, zh)
           return <TableRow key={`${result.switch_id}:${result.rule_id}`}>
-            <TableCell><span className="font-medium">{result.switch_name}</span> <span className="font-mono text-xs text-muted-foreground">{result.management_ip}</span></TableCell>
-            <TableCell><div className="flex flex-wrap items-center gap-2">{result.rule_name}<SeverityBadge severity={result.severity} zh={zh} /></div></TableCell>
+            <TableCell className="whitespace-nowrap"><span className="font-medium">{result.switch_name}</span> <span className="font-mono text-xs text-muted-foreground">{result.management_ip}</span></TableCell>
+            <TableCell><div className="flex items-center gap-2 whitespace-nowrap">{result.rule_name}<SeverityBadge severity={result.severity} zh={zh} /></div></TableCell>
             <TableCell><ToneBadge kind={result.passed ? 'good' : 'bad'}>{result.passed ? pick(zh, '通过', 'Pass') : pick(zh, '未通过', 'Fail')}</ToneBadge></TableCell>
-            <TableCell className={cn('max-w-80 break-words text-xs text-muted-foreground', isConfigExcerpt(result.detail) && 'font-mono')}>{evidence || '—'}</TableCell>
+            <TableCell className={cn('min-w-48 max-w-80 break-words text-xs text-muted-foreground', isConfigExcerpt(result.detail) && 'font-mono')}>{evidence || '—'}</TableCell>
             <TableCell className="whitespace-nowrap"><Time value={result.evaluated_at} zh={zh} className="text-xs" /></TableCell>
           </TableRow>
         })}</TableBody>

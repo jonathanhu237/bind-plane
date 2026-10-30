@@ -120,13 +120,13 @@ function TaskDialog({ taskId, zh, onClose }: { taskId: string | null; zh: boolea
         <DialogDescription>{task ? pick(zh, `${formatTime(task.created_at, zh)} 由 ${task.actor_email ?? '计划任务'} 发起 · 成功 ${task.succeeded} · 失败 ${task.failed} · 跳过 ${task.skipped} · 配置变化 ${task.changed}`, `Started ${formatTime(task.created_at, zh)} by ${task.actor_email ?? 'a schedule'} · ${task.succeeded} succeeded · ${task.failed} failed · ${task.skipped} skipped · ${task.changed} changed`) : ' '}</DialogDescription>
       </DialogHeader>
       <ErrorNote error={query.error} zh={zh} />
-      {task ? <div className="min-h-0 overflow-auto rounded-md border"><Table>
+      {task ? <div className="min-h-0 overflow-auto rounded-md border [&_th]:whitespace-nowrap"><Table>
         <TableHeader><TableRow><TableHead>{pick(zh, '设备', 'Switch')}</TableHead><TableHead>{pick(zh, '状态', 'Status')}</TableHead><TableHead>{pick(zh, '说明', 'Detail')}</TableHead><TableHead>{pick(zh, '完成', 'Finished')}</TableHead></TableRow></TableHeader>
         <TableBody>{task.items.map((item) => <TableRow key={item.id}>
-          <TableCell><span className="font-medium">{item.switch_name}</span> <span className="font-mono text-xs text-muted-foreground">{item.management_ip}</span></TableCell>
+          <TableCell className="whitespace-nowrap"><span className="font-medium">{item.switch_name}</span> <span className="font-mono text-xs text-muted-foreground">{item.management_ip}</span></TableCell>
           <TableCell><ToneBadge kind={tone(item.status)}>{itemStatusLabel(item.status, zh)}</ToneBadge></TableCell>
-          <TableCell className="max-w-72 break-words text-xs text-muted-foreground">{workerMessage(item.message, zh)}{item.changed ? <span className="ml-1 text-success" title={pick(zh, '配置有变化', 'Configuration changed')}>●</span> : null}</TableCell>
-          <TableCell><Time value={item.finished_at} zh={zh} className="text-xs" /></TableCell>
+          <TableCell className="min-w-48 max-w-72 break-words text-xs text-muted-foreground">{workerMessage(item.message, zh)}{item.changed ? <span className="ml-1 text-success" title={pick(zh, '配置有变化', 'Configuration changed')}>●</span> : null}</TableCell>
+          <TableCell className="whitespace-nowrap"><Time value={item.finished_at} zh={zh} className="text-xs" /></TableCell>
         </TableRow>)}</TableBody>
       </Table></div> : null}
     </DialogContent>
@@ -161,7 +161,7 @@ function SchedulesPage() {
     </PageHeader>
     <ErrorNote error={schedules.error ?? tasks.error} zh={zh} />
     <Section title={pick(zh, '计划', 'Schedules')}>
-      {schedules.data?.schedules.length ? <div className="overflow-x-auto rounded-xl border"><Table>
+      {schedules.data?.schedules.length ? <div className="overflow-x-auto rounded-xl border [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap"><Table>
         <TableHeader><TableRow><TableHead>{pick(zh, '名称', 'Name')}</TableHead><TableHead>{pick(zh, '类型', 'Type')}</TableHead><TableHead>{pick(zh, '执行时间', 'When')}</TableHead><TableHead>{pick(zh, '范围', 'Scope')}</TableHead><TableHead>{pick(zh, '下次执行', 'Next run')}</TableHead><TableHead>{pick(zh, '上次执行', 'Last run')}</TableHead><TableHead className="text-right">{pick(zh, '操作', 'Actions')}</TableHead></TableRow></TableHeader>
         <TableBody>{schedules.data.schedules.map((schedule) => <TableRow key={schedule.id}>
           <TableCell><div className="flex flex-wrap items-center gap-2 font-medium">{schedule.name}{schedule.is_enabled ? null : <ToneBadge kind="muted">{pick(zh, '已停用', 'Disabled')}</ToneBadge>}</div></TableCell>
@@ -179,7 +179,7 @@ function SchedulesPage() {
       </Table></div> : <Empty>{pick(zh, '还没有计划任务。建议先创建“每 4 小时备份全部设备”。', 'No schedules yet. A good first one: back up every switch every 4 hours.')}</Empty>}
     </Section>
     <Section title={pick(zh, '执行记录（保留 30 天）', 'Runs (kept for 30 days)')}>
-      {tasks.data?.length ? <div className="overflow-x-auto rounded-xl border"><Table>
+      {tasks.data?.length ? <div className="overflow-x-auto rounded-xl border [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap"><Table>
         <TableHeader><TableRow><TableHead>{pick(zh, '开始', 'Started')}</TableHead><TableHead>{pick(zh, '类型', 'Type')}</TableHead><TableHead>{pick(zh, '来源', 'Source')}</TableHead><TableHead className="text-right">{pick(zh, '成功 / 失败 / 跳过', 'OK / failed / skipped')}</TableHead><TableHead className="text-right">{pick(zh, '配置变化', 'Changed')}</TableHead><TableHead>{pick(zh, '状态', 'Status')}</TableHead></TableRow></TableHeader>
         <TableBody>{tasks.data.map((task) => <TableRow key={task.id} className="cursor-pointer" onClick={() => setTaskId(task.id)}>
           <TableCell><Time value={task.created_at} zh={zh} /></TableCell>

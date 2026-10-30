@@ -4,12 +4,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { callAssets, type Inventory } from '@/features/release/asset-editors'
 import { errorText, serverText } from '@/features/release/messages'
+import { FileButton } from '@/shared/file-button'
 import { ToneBadge, pick } from './ui'
 
 type ImportKind = 'switches' | 'networks'
@@ -30,6 +30,7 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
 }) {
   const [kind, setKind] = useState<ImportKind>('switches')
   const [csv, setCsv] = useState('')
+  const [fileName, setFileName] = useState('')
   const [credential, setCredential] = useState('')
   const [profile, setProfile] = useState('')
   const [report, setReport] = useState<ImportReport | null>(null)
@@ -51,7 +52,7 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
   }
   function readFile(file: File | undefined) {
     if (!file) return
-    void file.text().then((text) => { setCsv(text); setReport(null) })
+    void file.text().then((text) => { setCsv(text); setFileName(file.name); setReport(null) })
   }
   const statusLabel = { create: pick(zh, '新建', 'Create'), skip: pick(zh, '跳过', 'Skip'), error: pick(zh, '错误', 'Error') }
   const defaultSelect = (id: string, label: string, value: string, onChange: (value: string) => void, items: { id: string; name: string }[]) =>
@@ -85,7 +86,7 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
           </Field>
           <Field>
             <FieldLabel htmlFor="import-file">{pick(zh, 'CSV 文件', 'CSV file')}</FieldLabel>
-            <Input id="import-file" type="file" accept=".csv,text/csv" onChange={(event) => readFile(event.target.files?.[0])} />
+            <FileButton id="import-file" accept=".csv,text/csv" label={pick(zh, '选择 CSV 文件', 'Choose a CSV file')} status={fileName || pick(zh, '未选择文件', 'No file chosen')} onFile={readFile} />
           </Field>
           {kind === 'switches' ? <>
             {defaultSelect('import-credential', pick(zh, '默认凭据（CSV 未填写时使用）', 'Default credential (when the CSV has none)'), credential, setCredential, inventory?.credentials ?? [])}
