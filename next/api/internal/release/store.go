@@ -279,7 +279,7 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	return job, nil
 }
 func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool) ([]Job, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,switch_name,kind,status,phase,reason,force FROM bp_release_jobs WHERE ($1 OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`, admin, actor)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,switch_name,kind,status,phase,reason,force,preparation_job_id::text FROM bp_release_jobs WHERE ($1 OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`, admin, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +287,7 @@ func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool) ([]Job, e
 	result := []Job{}
 	for rows.Next() {
 		var job Job
-		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force); err != nil {
+		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &job.PreparationJobID); err != nil {
 			return nil, err
 		}
 		result = append(result, job)

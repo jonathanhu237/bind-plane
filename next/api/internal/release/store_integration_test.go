@@ -107,4 +107,13 @@ func TestPrepareAndConfirmPersistSeparateJobs(t *testing.T) {
 	if err != nil || len(jobs) != 5 {
 		t.Fatalf("jobs %d %v", len(jobs), err)
 	}
+	// The history pairs a release with the query it confirmed.
+	for _, job := range jobs {
+		if job.ID == released.ID && (job.PreparationJobID == nil || *job.PreparationJobID != prepared.PreparationJobID) {
+			t.Fatalf("listed release lost its query: %+v", job)
+		}
+		if job.Kind == "pre_release_query" && job.ID == prepared.PreparationJobID && job.PreparationJobID != nil {
+			t.Fatalf("a query has no query of its own: %+v", job)
+		}
+	}
 }
