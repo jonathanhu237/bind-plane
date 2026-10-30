@@ -6,7 +6,7 @@ import type { SystemIdentity } from '@/shared/api/contracts'
 
 export const publicSystemIdentityQueryKey = ['public', 'system-identity'] as const
 export const defaultSystemIdentity: SystemIdentity = {
-  systemName: 'Temvia',
+  systemName: 'Bind Plane',
   iconUrl: '/api/public/system-identity/icon?default=1&style=layers',
   hasCustomIcon: false,
   revision: 0,

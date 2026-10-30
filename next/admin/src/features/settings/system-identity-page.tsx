@@ -113,7 +113,7 @@ export function SystemIdentityPage({ api, canWrite = true }: { api: ApiClient; c
   </SettingsSection>
 }
 
-const emptyDraft = (): SystemIdentityDraft => ({ systemName: 'Temvia', iconAction: 'preserve', iconPreview: '/api/public/system-identity/icon?default=1', revision: 0, dirty: false, conflict: false })
+const emptyDraft = (): SystemIdentityDraft => ({ systemName: 'Bind Plane', iconAction: 'preserve', iconPreview: '/api/public/system-identity/icon?default=1', revision: 0, dirty: false, conflict: false })
 
 function fromSystemIdentity(identity: SystemIdentity): SystemIdentityDraft {
   return { systemName: identity.systemName, iconAction: 'preserve', iconPreview: identity.iconUrl, revision: identity.revision, dirty: false, conflict: false }

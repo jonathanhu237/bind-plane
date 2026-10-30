@@ -17,7 +17,7 @@ import { notifyRequestError, notifySuccess, readFailureFeedback, useRequestError
 import { useAccessDraftStore, type EmailSettingsDraft } from '@/features/access/drafts'
 
 const emptyDraft: EmailSettingsDraft = {
-  host: '', port: 587, security: 'starttls', authentication: false, username: '', password: '', clearPassword: false, passwordSet: false, fromAddress: '', fromName: 'Temvia', defaultLocale: undefined, autoRetryCount: 9, retentionDays: 30, revision: 0, configured: false, submitting: false, conflict: false,
+  host: '', port: 587, security: 'starttls', authentication: false, username: '', password: '', clearPassword: false, passwordSet: false, fromAddress: '', fromName: 'Bind Plane', defaultLocale: undefined, autoRetryCount: 9, retentionDays: 30, revision: 0, configured: false, submitting: false, conflict: false,
 }
 
 export function EmailSettingsPage({ api, canWrite = true, showTitle = true }: { api: ApiClient; canWrite?: boolean; showTitle?: boolean }) {

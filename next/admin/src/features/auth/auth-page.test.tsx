@@ -32,7 +32,7 @@ describe('authentication page shell', () => {
     expect(screen.queryByText('Appearance')).not.toBeInTheDocument()
     expect(screen.queryByText('English')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Language' })).not.toBeInTheDocument()
-    expect(screen.getByText('Temvia')).toBeVisible()
+    expect(screen.getByText('Bind Plane')).toBeVisible()
   })
 
   it('keeps the authentication shell to one page heading', () => {

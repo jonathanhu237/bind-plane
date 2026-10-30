@@ -219,7 +219,7 @@ describe('access components', () => {
 
     const table = await screen.findByRole('table')
     expect(within(table).queryByRole('columnheader', { name: 'Type' })).not.toBeInTheDocument()
-    expect(within(table).getByRole('img', { name: 'Temvia built-in role; it cannot be edited or deleted.' })).toBeVisible()
+    expect(within(table).getByRole('img', { name: 'Bind Plane built-in role; it cannot be edited or deleted.' })).toBeVisible()
     await user.click(within(table).getByRole('button', { name: /Super Admin/ }))
     const detail = await screen.findByRole('dialog', { name: 'Super Admin' })
     expect(detail).not.toHaveTextContent('Built-in role')
