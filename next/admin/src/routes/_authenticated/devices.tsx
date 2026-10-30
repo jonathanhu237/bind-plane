@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { opsRequest, type OpsSwitch, type Page, type TaskKind } from '@/features/ops/api'
 import { DeviceDetailSheet } from '@/features/ops/device-detail'
 import { ImportDialog } from '@/features/ops/import-dialog'
+import { useRequiredFields } from '@/features/release/required-fields'
 import { AdminOnly, ErrorNote, PageHeader, Pager, ReachabilityBadge, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import {
   AssetEditDialog, AssetRequestError, DisableAssetDialog, assetErrorText, callAssets, selectClass, statusBody, vendorName, vendors,
@@ -41,9 +42,11 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
   const [form, setForm] = useState(empty)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const required = useRequiredFields(zh)
   const set = (key: keyof typeof empty) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm({ ...form, [key]: event.target.value })
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!required.check(event.currentTarget)) return
     if (form.port && !/^\d+$/.test(form.port)) { setError(pick(zh, '端口必须是数字。', 'Port must be a number.')); return }
     setBusy(true); setError('')
     try {
@@ -53,10 +56,10 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
     finally { setBusy(false) }
   }
   const field = (id: keyof typeof empty, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) =>
-    <div className="space-y-2"><Label htmlFor={`new-${id}`}>{label}</Label><Input id={`new-${id}`} value={form[id]} onChange={set(id)} autoComplete="off" {...props} /></div>
+    <div className="space-y-2"><Label htmlFor={`new-${id}`}>{label}</Label><Input id={`new-${id}`} value={form[id]} onChange={set(id)} autoComplete="off" {...props} {...required.invalid(`new-${id}`)} />{required.message(`new-${id}`)}</div>
   return <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
     <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-      <form className="space-y-4" onSubmit={(event) => void submit(event)}>
+      <form className="space-y-4" noValidate onChange={required.onChange} onSubmit={(event) => void submit(event)}>
         <DialogHeader>
           <DialogTitle>{pick(zh, '添加交换机', 'Add switch')}</DialogTitle>
           <DialogDescription>{pick(zh, '只添加你被授权管理的设备。凭据和命令模板在“资产配置”中维护。', 'Only add devices you are authorized to manage. Credentials and command profiles live under Asset settings.')}</DialogDescription>
@@ -64,8 +67,8 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
         {field('name', pick(zh, '名称', 'Name'), { required: true })}
         {field('management_ip', pick(zh, '管理 IPv4', 'Management IPv4'), { required: true, inputMode: 'decimal', className: 'font-mono' })}
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="new-credential">{pick(zh, '凭据', 'Credential')}</Label><select id="new-credential" required className={selectClass} value={form.credential_id} onChange={set('credential_id')}><option value="">—</option>{inventory?.credentials.filter((c) => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-          <div className="space-y-2"><Label htmlFor="new-profile">{pick(zh, '命令模板', 'Command profile')}</Label><select id="new-profile" required className={selectClass} value={form.command_profile_id} onChange={set('command_profile_id')}><option value="">—</option>{inventory?.profiles.filter((p) => p.is_active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+          <div className="space-y-2"><Label htmlFor="new-credential">{pick(zh, '凭据', 'Credential')}</Label><select id="new-credential" required {...required.invalid('new-credential')} className={selectClass} value={form.credential_id} onChange={set('credential_id')}><option value="">—</option>{inventory?.credentials.filter((c) => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>{required.message('new-credential')}</div>
+          <div className="space-y-2"><Label htmlFor="new-profile">{pick(zh, '命令模板', 'Command profile')}</Label><select id="new-profile" required {...required.invalid('new-profile')} className={selectClass} value={form.command_profile_id} onChange={set('command_profile_id')}><option value="">—</option>{inventory?.profiles.filter((p) => p.is_active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>{required.message('new-profile')}</div>
           <div className="space-y-2"><Label htmlFor="new-vendor">{pick(zh, '厂商', 'Vendor')}</Label><select id="new-vendor" className={selectClass} value={form.vendor} onChange={set('vendor')}>{vendors.map((v) => <option key={v} value={v}>{vendorName(v, zh)}</option>)}</select></div>
           {field('model', pick(zh, '型号（可选）', 'Model (optional)'))}
           <div className="space-y-2"><Label htmlFor="new-protocol">{pick(zh, '登录协议', 'Login protocol')}</Label><select id="new-protocol" className={selectClass} value={form.protocol} onChange={set('protocol')}><option value="ssh">SSH</option><option value="telnet">Telnet</option></select></div>

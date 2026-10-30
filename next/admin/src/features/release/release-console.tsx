@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { User } from '@/shared/api/contracts'
@@ -18,6 +19,45 @@ type Preparation = { preparation_job_id?: string; status: string; target_ip: str
 
 // The confirmation the operator saw no longer describes the switch a release would reach.
 const assetChanged = 'switch configuration changed since the pre-query; query again'
+
+// Refusals the release API sends as plain English, in [English, Chinese].
+const releaseErrors: Record<string, [string, string]> = {
+  [assetChanged]: ['The switch configuration changed after this query. Query the binding again before releasing.', '查询之后交换机配置已变更。请重新查询绑定状态后再释放。'],
+  'one IPv4 address is required': ['Enter one IPv4 address, for example 10.0.0.42.', '请输入一个 IPv4 地址，例如 10.0.0.42。'],
+  'no enabled validated switch owns this IP': [
+    'No enabled switch owns a validated network containing this address. An admin can check the networks under Asset settings.',
+    '没有哪台已启用的交换机拥有包含该地址、且已验证的网段。管理员可以在“资产配置”中检查网段。',
+  ],
+  'multiple equally specific switches own this IP': [
+    'Several switches own equally specific networks containing this address. An admin must correct the network data first.',
+    '有多台交换机的网段同样精确地包含该地址，需要管理员先修正网段数据。',
+  ],
+  'release reason required': ['Choose a release reason.', '请选择释放原因。'],
+  'admin force required': ['Only an admin can force a release.', '只有管理员可以强制释放。'],
+  'operator role required': ['An Operator or Admin role is required.', '需要操作员或管理员角色。'],
+  'login required': ['Your session has ended. Sign in again.', '登录已失效，请重新登录。'],
+  conflict: [
+    'This release cannot go ahead: the query is out of date, or another release of this address is still running or awaiting manual confirmation. Query again.',
+    '这次释放无法继续：查询结果已过期，或同一地址的另一次释放仍在执行或等待人工确认。请重新查询。',
+  ],
+  'not found': ['This job no longer exists, or it belongs to someone else.', '任务不存在，或不属于你。'],
+}
+
+export function releaseErrorText(cause: unknown, zh: boolean): string {
+  if (!(cause instanceof Error)) return zh ? '操作失败' : 'Request failed'
+  const known = releaseErrors[cause.message]
+  return known ? known[zh ? 1 : 0] : cause.message
+}
+
+const ipv4 = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/
+
+/** What is wrong with the typed address, in the interface language; empty when it can be queried. */
+export function targetIPProblem(value: string, zh: boolean): string {
+  const ip = value.trim()
+  if (!ip) return zh ? '请输入要查询的 IPv4 地址。' : 'Enter the IPv4 address to query.'
+  if (ipv4.test(ip)) return ''
+  return zh ? '这不是有效的 IPv4 地址，请按 10.0.0.42 这样的格式输入。' : 'That is not an IPv4 address. Enter one like 10.0.0.42.'
+}
 
 function SwitchName({ job }: { job: Pick<Job, 'switch_id' | 'switch_name' | 'switch_management_ip'> }) {
   if (!job.switch_name) return <span className="break-all font-mono">{job.switch_id || '—'}</span>
@@ -47,6 +87,8 @@ export function ReleaseConsole({ user }: { user: User }) {
   const admin = Boolean(user.superAdmin || user.roles?.some((role) => role.name === 'Admin'))
   const authorized = admin || Boolean(user.roles?.some((role) => role.name === 'Operator'))
   const [ip, setIP] = useState('')
+  const [ipProblem, setIPProblem] = useState('')
+  const ipInput = useRef<HTMLInputElement>(null)
   const [reason, setReason] = useState<string>('temporary_test')
   const [preparation, setPreparation] = useState<Preparation | null>(null)
   const [jobID, setJobID] = useState<string | null>(null)
@@ -70,19 +112,21 @@ export function ReleaseConsole({ user }: { user: User }) {
     title: '静态绑定释放', intro: '输入一个 IPv4 地址。系统先定位交换机并查询绑定，确认后才会提交释放任务。', ip: 'IPv4 地址',
     reason: '释放原因', prepare: '查询绑定状态', preparing: '正在查询交换机…', confirm: '确认释放静态绑定',
     force: '管理员强制释放（查询无记录）', empty: '暂无释放记录', history: '最近任务', switch: '交换机',
-    noAccess: '需要操作员或管理员角色才能使用释放控制台。', error: '操作失败', state: '当前状态',
-    assetChanged: '查询之后交换机配置已变更。请重新查询绑定状态后再释放。',
+    noAccess: '需要操作员或管理员角色才能使用释放控制台。', state: '当前状态',
   } : {
     title: 'Static binding release', intro: 'Enter one IPv4 address. The switch and binding are queried before confirmation.', ip: 'IPv4 address',
     reason: 'Reason', prepare: 'Query binding', preparing: 'Querying switch…', confirm: 'Confirm static binding release',
     force: 'Admin force release (no record found)', empty: 'No release jobs yet', history: 'Recent jobs', switch: 'Switch',
-    noAccess: 'An Operator or Admin role is required to use the release console.', error: 'Request failed', state: 'Current state',
-    assetChanged: 'The switch configuration changed after this query. Query the binding again before releasing.',
+    noAccess: 'An Operator or Admin role is required to use the release console.', state: 'Current state',
   }
-  const errorText = (cause: unknown) => !(cause instanceof Error) ? labels.error : cause.message === assetChanged ? labels.assetChanged : cause.message
+  const errorText = (cause: unknown) => releaseErrorText(cause, zh)
 
   async function prepare(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(''); setPreparation(null); setJobID(null); setResultID(null); setForce(false)
+    event.preventDefault()
+    const problem = targetIPProblem(ip, zh)
+    setIPProblem(problem)
+    if (problem) { ipInput.current?.focus(); return }
+    setBusy(true); setError(''); setPreparation(null); setJobID(null); setResultID(null); setForce(false)
     try {
       const data = await request<Preparation>('/api/releases/prepare', { target_ip: ip.trim(), reason, force: admin && force, ...(admin && force && selectedSwitchID ? { selected_switch_id: selectedSwitchID } : {}) })
       setPreparation(data); setJobID(data.preparation_job_id ?? null)
@@ -94,7 +138,7 @@ export function ReleaseConsole({ user }: { user: User }) {
     try {
       const next = await request<Job>(`/api/releases/jobs/${id}/retry`, {})
       setPreparation({ preparation_job_id: next.job_id || next.id, status: 'query_queued', target_ip: next.target_ip, reason: next.reason, force: next.force, resolved_switch: { switch_id: next.switch_id, network_id: '', cidr: '' } })
-      setJobID(next.job_id || next.id); setIP(next.target_ip); setReason(next.reason); setForce(false)
+      setJobID(next.job_id || next.id); setIP(next.target_ip); setIPProblem(''); setReason(next.reason); setForce(false)
       await historyQuery.refetch()
     } catch (cause) { setError(errorText(cause)) }
     finally { setBusy(false) }
@@ -112,13 +156,15 @@ export function ReleaseConsole({ user }: { user: User }) {
   return <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
     <header className="space-y-2"><h1 className="text-2xl font-semibold tracking-tight">{labels.title}</h1><p className="text-sm text-muted-foreground">{labels.intro}</p></header>
     {!authorized ? <p role="alert" className="text-sm text-destructive">{labels.noAccess}</p> : <>
-      <form onSubmit={(event) => void prepare(event)} className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-        <div className="space-y-2"><Label htmlFor="target-ip">{labels.ip}</Label><Input id="target-ip" inputMode="decimal" autoComplete="off" placeholder="10.0.0.42" value={ip} onChange={(event) => setIP(event.target.value)} required /></div>
+      <form noValidate onSubmit={(event) => void prepare(event)} className="grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+        <div className="space-y-2"><Label htmlFor="target-ip">{labels.ip}</Label><Input id="target-ip" ref={ipInput} inputMode="decimal" autoComplete="off" placeholder="10.0.0.42" value={ip} onChange={(event) => { setIP(event.target.value); setIPProblem('') }} required aria-invalid={ipProblem ? true : undefined} aria-describedby={ipProblem ? 'target-ip-problem' : undefined} /></div>
+        {/* Under the address on phones; on wider screens a full row under the inputs, so the bottom-aligned row keeps its line. */}
+        {ipProblem ? <FieldError id="target-ip-problem" className="sm:order-1 sm:col-span-3 sm:-mt-2">{ipProblem}</FieldError> : null}
         <div className="space-y-2"><Label htmlFor="reason">{labels.reason}</Label><select id="reason" value={reason} onChange={(event) => setReason(event.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           {reasons.map((value, index) => <option key={value} value={value}>{zh ? zhReasons[index] : value.replaceAll('_', ' ')}</option>)}
         </select></div>
         <Button type="submit" disabled={busy}>{busy ? labels.preparing : labels.prepare}</Button>
-        {admin ? <div className="flex flex-col gap-2 sm:col-span-3"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} />{labels.force}</label>{force ? <select aria-label={labels.switch} value={selectedSwitchID} onChange={(event) => setSelectedSwitchID(event.target.value)} className="w-full max-w-sm rounded-md border bg-background px-3 py-2 text-sm"><option value="">{zh ? '自动解析交换机' : 'Resolve switch automatically'}</option>{assetsQuery.data?.switches.filter((item) => item.is_enabled).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : null}</div> : null}
+        {admin ? <div className="flex flex-col gap-2 sm:order-2 sm:col-span-3"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} />{labels.force}</label>{force ? <select aria-label={labels.switch} value={selectedSwitchID} onChange={(event) => setSelectedSwitchID(event.target.value)} className="w-full max-w-sm rounded-md border bg-background px-3 py-2 text-sm"><option value="">{zh ? '自动解析交换机' : 'Resolve switch automatically'}</option>{assetsQuery.data?.switches.filter((item) => item.is_enabled).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : null}</div> : null}
       </form>
       {error ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{error}</p> : null}
       {preparation && !jobID ? <p role="status" className="text-sm text-muted-foreground">{preparation.status.replaceAll('_', ' ')}</p> : null}

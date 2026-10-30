@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { describeCron, opsRequest, taskState, type Schedule, type TaskDetail, type TaskKind, type TaskSummary } from '@/features/ops/api'
 import { AdminOnly, Empty, ErrorNote, PageHeader, Section, TaskStateBadge, ToneBadge, Time, formatTime, isAdmin, itemStatusLabel, kindLabel, pick, useZh, workerMessage } from '@/features/ops/ui'
 import { assetErrorText, callAssets, selectClass, type Inventory } from '@/features/release/asset-editors'
+import { useRequiredFields } from '@/features/release/required-fields'
 
 export const Route = createFileRoute('/_authenticated/schedules')({ component: SchedulesPage })
 
@@ -22,8 +23,10 @@ function ScheduleDialog({ schedule, open, zh, inventory, timezone, onClose, onSa
   const [form, setForm] = useState(initial)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const required = useRequiredFields(zh)
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!required.check(event.currentTarget)) return
     setBusy(true); setError('')
     try {
       const body = { ...form, group_id: form.scope === 'group' ? form.group_id : '' }
@@ -35,12 +38,12 @@ function ScheduleDialog({ schedule, open, zh, inventory, timezone, onClose, onSa
   }
   return <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
     <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="sm:max-w-lg">
-      <form className="space-y-4" onSubmit={(event) => void submit(event)}>
+      <form className="space-y-4" noValidate onChange={required.onChange} onSubmit={(event) => void submit(event)}>
         <DialogHeader>
           <DialogTitle>{schedule ? pick(zh, '编辑计划任务', 'Edit schedule') : pick(zh, '新建计划任务', 'New schedule')}</DialogTitle>
           <DialogDescription>{pick(zh, `按 ${timezone} 时区执行。服务停机期间错过的执行只会补跑一次。`, `Runs in the ${timezone} time zone. Runs missed while the service was down are made up once, not repeatedly.`)}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-2"><Label htmlFor="schedule-name">{pick(zh, '名称', 'Name')}</Label><Input id="schedule-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></div>
+        <div className="space-y-2"><Label htmlFor="schedule-name">{pick(zh, '名称', 'Name')}</Label><Input id="schedule-name" required {...required.invalid('schedule-name')} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />{required.message('schedule-name')}</div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="schedule-kind">{pick(zh, '任务类型', 'Task type')}</Label>
             <select id="schedule-kind" className={selectClass} value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as TaskKind })}>
@@ -52,12 +55,12 @@ function ScheduleDialog({ schedule, open, zh, inventory, timezone, onClose, onSa
             </select></div>
         </div>
         {form.scope === 'group' ? <div className="space-y-2"><Label htmlFor="schedule-group">{pick(zh, '分组', 'Group')}</Label>
-          <select id="schedule-group" required className={selectClass} value={form.group_id} onChange={(event) => setForm({ ...form, group_id: event.target.value })}>
+          <select id="schedule-group" required {...required.invalid('schedule-group')} className={selectClass} value={form.group_id} onChange={(event) => setForm({ ...form, group_id: event.target.value })}>
             <option value="">—</option>{inventory?.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-          </select></div> : null}
+          </select>{required.message('schedule-group')}</div> : null}
         <div className="space-y-2">
           <Label htmlFor="schedule-cron">{pick(zh, '执行时间（cron：分 时 日 月 周）', 'When (cron: minute hour day month weekday)')}</Label>
-          <Input id="schedule-cron" required className="font-mono" value={form.cron} onChange={(event) => setForm({ ...form, cron: event.target.value })} aria-describedby="schedule-cron-reading" />
+          <Input id="schedule-cron" required className="font-mono" value={form.cron} onChange={(event) => setForm({ ...form, cron: event.target.value })} {...required.invalid('schedule-cron', 'schedule-cron-reading')} />{required.message('schedule-cron')}
           <p id="schedule-cron-reading" className="text-xs text-muted-foreground">{describeCron(form.cron, zh)}</p>
           <div className="flex flex-wrap gap-1.5">{presets.map((preset) => <Button key={preset} type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setForm({ ...form, cron: preset })}>{describeCron(preset, zh)}</Button>)}</div>
         </div>

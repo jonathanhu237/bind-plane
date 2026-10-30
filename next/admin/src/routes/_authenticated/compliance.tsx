@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { opsRequest, type ComplianceResult, type Page, type Rule, type Severity } from '@/features/ops/api'
 import { AdminOnly, Empty, ErrorNote, PageHeader, Pager, Section, SeverityBadge, ToneBadge, Time, isAdmin, pick, useZh } from '@/features/ops/ui'
 import { assetErrorText, callAssets, selectClass, vendorName, vendors, type Inventory } from '@/features/release/asset-editors'
+import { useRequiredFields } from '@/features/release/required-fields'
 
 export const Route = createFileRoute('/_authenticated/compliance')({ component: CompliancePage })
 
@@ -23,8 +24,10 @@ function RuleDialog({ rule, zh, inventory, onClose, onSaved }: { rule: Rule | nu
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const required = useRequiredFields(zh)
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!required.check(event.currentTarget)) return
     setBusy(true); setError('')
     try {
       if (rule) await opsRequest(`compliance/rules/${rule.id}`, { ...form, version: rule.version }, 'PATCH')
@@ -35,14 +38,14 @@ function RuleDialog({ rule, zh, inventory, onClose, onSaved }: { rule: Rule | nu
   }
   return <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
     <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-      <form className="space-y-4" onSubmit={(event) => void submit(event)}>
+      <form className="space-y-4" noValidate onChange={required.onChange} onSubmit={(event) => void submit(event)}>
         <DialogHeader>
           <DialogTitle>{rule ? pick(zh, '编辑合规规则', 'Edit compliance rule') : pick(zh, '新建合规规则', 'New compliance rule')}</DialogTitle>
           <DialogDescription>{pick(zh, '规则用正则表达式（RE2 语法，^ 和 $ 匹配每一行）检查每台设备的最新配置。只有“严重”级别的不合规会产生告警。', 'A rule checks each switch’s latest configuration with a regular expression (RE2 syntax; ^ and $ match each line). Only critical failures raise alerts.')}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-2"><Label htmlFor="rule-name">{pick(zh, '名称', 'Name')}</Label><Input id="rule-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></div>
+        <div className="space-y-2"><Label htmlFor="rule-name">{pick(zh, '名称', 'Name')}</Label><Input id="rule-name" required {...required.invalid('rule-name')} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />{required.message('rule-name')}</div>
         <div className="space-y-2"><Label htmlFor="rule-pattern">{pick(zh, '匹配规则', 'Pattern')}</Label>
-          <textarea id="rule-pattern" required rows={3} spellCheck={false} value={form.pattern} onChange={(event) => setForm({ ...form, pattern: event.target.value })} placeholder="^ntp-service unicast-server 10\.0\.0\.1" className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
+          <textarea id="rule-pattern" required {...required.invalid('rule-pattern')} rows={3} spellCheck={false} value={form.pattern} onChange={(event) => setForm({ ...form, pattern: event.target.value })} placeholder="^ntp-service unicast-server 10\.0\.0\.1" className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive" />{required.message('rule-pattern')}</div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="rule-mode">{pick(zh, '判定方式', 'Passes when')}</Label>
             <select id="rule-mode" className={selectClass} value={form.mode} onChange={(event) => setForm({ ...form, mode: event.target.value as Rule['mode'] })}>

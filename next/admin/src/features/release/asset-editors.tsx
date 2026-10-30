@@ -16,6 +16,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { useRequiredFields } from './required-fields'
 
 export const profileRuleKeys = ['command_templates', 'parser_rules', 'login_prompt_patterns', 'prompt_patterns', 'pagination_rules', 'success_patterns', 'error_patterns'] as const
 type RuleKey = (typeof profileRuleKeys)[number]
@@ -40,7 +41,7 @@ export type EditTarget =
   | { kind: 'networks'; item: NetworkAsset }
   | { kind: 'groups'; item: GroupAsset }
 
-export const selectClass = 'w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50'
+export const selectClass = 'w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 aria-invalid:border-destructive'
 const ruleClass = 'w-full rounded-md border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 export class AssetRequestError extends Error {
@@ -305,16 +306,18 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
   const [error, setError] = useState('')
   const [invalidRule, setInvalidRule] = useState('')
   const [busy, setBusy] = useState(false)
+  const required = useRequiredFields(zh)
   const set = (key: string, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }))
   const text = (id: string, key: string, label: string, options: { required?: boolean; mono?: boolean; inputMode?: 'decimal' } = {}) =>
-    <Field id={id} label={label}><Input id={id} value={String(form[key])} onChange={(event) => set(key, event.target.value)} required={options.required} inputMode={options.inputMode} autoComplete="off" className={cn(options.mono && 'font-mono')} /></Field>
+    <Field id={id} label={label}><Input id={id} value={String(form[key])} onChange={(event) => set(key, event.target.value)} required={options.required} {...required.invalid(id)} inputMode={options.inputMode} autoComplete="off" className={cn(options.mono && 'font-mono')} />{required.message(id)}</Field>
   const select = (id: string, key: string, label: string, items: { id: string; name: string; on: boolean }[]) =>
-    <Field id={id} label={label}><select id={id} className={selectClass} required value={String(form[key])} onChange={(event) => set(key, event.target.value)}>
+    <Field id={id} label={label}><select id={id} className={selectClass} required {...required.invalid(id)} value={String(form[key])} onChange={(event) => set(key, event.target.value)}>
       {items.map((item) => <option key={item.id} value={item.id}>{item.name}{item.on ? '' : labels.inactive}</option>)}
-    </select></Field>
+    </select>{required.message(id)}</Field>
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!required.check(event.currentTarget)) return
     const request = editRequest(target, form)
     if ('invalidRule' in request) {
       setInvalidRule(request.invalidRule)
@@ -327,7 +330,7 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
     finally { setBusy(false) }
   }
 
-  return <form className="space-y-4" onSubmit={(event) => void submit(event)}>
+  return <form className="space-y-4" noValidate onChange={required.onChange} onSubmit={(event) => void submit(event)}>
     <DialogHeader>
       <DialogTitle>{labels.editTitle(target.kind)}</DialogTitle>
       <DialogDescription>{labels.hint[target.kind]}</DialogDescription>
