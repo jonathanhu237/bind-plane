@@ -20,7 +20,10 @@ func (f fakeIdentity) CurrentPrincipal(context.Context, string) (domain.Principa
 	return f.principal, f.err
 }
 
-type fakeStore struct{ calls int }
+type fakeStore struct {
+	calls  int
+	filter JobFilter
+}
 
 func (f *fakeStore) Prepare(context.Context, PrepareInput) (Preparation, error) {
 	f.calls++
@@ -38,7 +41,41 @@ func (f *fakeStore) Job(context.Context, string, string, bool) (Job, error) {
 	f.calls++
 	return Job{}, nil
 }
-func (f *fakeStore) Jobs(context.Context, string, bool) ([]Job, error) { f.calls++; return nil, nil }
+func (f *fakeStore) Jobs(_ context.Context, _ string, _ bool, filter JobFilter) (JobPage, error) {
+	f.calls++
+	f.filter = filter
+	return JobPage{Items: []Job{}, PageSize: filter.Limit}, nil
+}
+
+func TestJobsReadsHistoryFilters(t *testing.T) {
+	operator := fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Operator"}}}}
+	for _, tc := range []struct {
+		query string
+		code  int
+		want  JobFilter
+	}{
+		{"", 200, JobFilter{Limit: 50}},
+		{"?page=3&page_size=5", 200, JobFilter{Limit: 5, Offset: 10}},
+		{"?q=+10.0.&kind=release&status=needs_manual_confirmation", 200, JobFilter{Query: "10.0.", Kind: "release", Status: "needs_manual_confirmation", Limit: 50}},
+		{"?page=0", 400, JobFilter{}},
+		{"?page=two", 400, JobFilter{}},
+		{"?page_size=51", 400, JobFilter{}},
+		{"?kind=delete", 400, JobFilter{}},
+		{"?status=DROP%20TABLE", 400, JobFilter{}},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			store := &fakeStore{}
+			h := NewHandler(store, operator, "session", "http://localhost:5173")
+			r := httptest.NewRequest("GET", "/api/releases/jobs"+tc.query, nil)
+			r.AddCookie(&http.Cookie{Name: "session", Value: "token"})
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.code || store.filter != tc.want {
+				t.Fatalf("%d %+v: %s", w.Code, store.filter, w.Body.String())
+			}
+		})
+	}
+}
 
 func TestPrepareRequiresSessionAndBusinessRole(t *testing.T) {
 	for _, tc := range []struct {

@@ -103,17 +103,44 @@ func TestPrepareAndConfirmPersistSeparateJobs(t *testing.T) {
 	if _, err = store.Confirm(ctx, ConfirmInput{PreparationJobID: blocked.PreparationJobID, ActorID: actor}); err != ErrConflict {
 		t.Fatalf("uncertain prior command allowed: %v", err)
 	}
-	jobs, err := store.Jobs(ctx, actor, false)
-	if err != nil || len(jobs) != 5 {
-		t.Fatalf("jobs %d %v", len(jobs), err)
+	history, err := store.Jobs(ctx, actor, false, JobFilter{Limit: 50})
+	if err != nil || len(history.Items) != 5 || history.Total != 5 || history.PageSize != 50 {
+		t.Fatalf("jobs %+v %v", history, err)
 	}
-	// The history pairs a release with the query it confirmed.
-	for _, job := range jobs {
+	// The history pairs a release with the query it confirmed, in both directions.
+	for _, job := range history.Items {
 		if job.ID == released.ID && (job.PreparationJobID == nil || *job.PreparationJobID != prepared.PreparationJobID) {
 			t.Fatalf("listed release lost its query: %+v", job)
 		}
-		if job.Kind == "pre_release_query" && job.ID == prepared.PreparationJobID && job.PreparationJobID != nil {
-			t.Fatalf("a query has no query of its own: %+v", job)
+		if job.ID == prepared.PreparationJobID && (job.PreparationJobID != nil || job.ReleaseJobID == nil || *job.ReleaseJobID != released.ID) {
+			t.Fatalf("listed query lost its release: %+v", job)
 		}
+		if job.CreatedAt == nil || job.ActorEmail != "operator@test.invalid" || job.SwitchManagementIP != "192.0.2.1" {
+			t.Fatalf("listed job lacks its context: %+v", job)
+		}
+	}
+	for _, tc := range []struct {
+		name   string
+		filter JobFilter
+		want   int
+	}{
+		{"releases only", JobFilter{Kind: "release", Limit: 50}, 1},
+		{"uncertain", JobFilter{Status: "needs_manual_confirmation", Limit: 50}, 2},
+		{"address prefix", JobFilter{Query: "10.2.1.", Limit: 50}, 5},
+		{"switch name", JobFilter{Query: "TES", Limit: 50}, 5},
+		{"no match", JobFilter{Query: "10.9.", Limit: 50}, 0},
+	} {
+		got, err := store.Jobs(ctx, actor, false, tc.filter)
+		if err != nil || len(got.Items) != tc.want || tc.want > 0 && got.Total != int64(tc.want) {
+			t.Fatalf("%s: %d of %d %v", tc.name, len(got.Items), got.Total, err)
+		}
+	}
+	second, err := store.Jobs(ctx, actor, false, JobFilter{Limit: 2, Offset: 2})
+	if err != nil || len(second.Items) != 2 || second.Total != 5 || second.Items[0].ID != history.Items[2].ID {
+		t.Fatalf("second page %+v %v", second, err)
+	}
+	query, err := store.Job(ctx, prepared.PreparationJobID, actor, false)
+	if err != nil || query.ReleaseJobID == nil || *query.ReleaseJobID != released.ID {
+		t.Fatalf("query detail lost its release: %+v %v", query, err)
 	}
 }

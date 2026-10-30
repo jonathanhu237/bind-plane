@@ -6,6 +6,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +55,7 @@ type Job struct {
 	ActorEmail         string     `json:"actor_email,omitempty"`
 	RetryOfID          *string    `json:"retry_of_id,omitempty"`
 	PreparationJobID   *string    `json:"preparation_job_id,omitempty"`
+	ReleaseJobID       *string    `json:"release_job_id,omitempty"` // the release that confirmed this query
 	CreatedAt          *time.Time `json:"created_at,omitempty"`
 	StartedAt          *time.Time `json:"started_at,omitempty"`
 	FinishedAt         *time.Time `json:"finished_at,omitempty"`
@@ -70,12 +74,23 @@ type Job struct {
 	ErrorMessage       *string    `json:"error_message,omitempty"`
 }
 
+// JobFilter narrows the release history; empty fields match every job.
+type JobFilter struct {
+	Query, Kind, Status string
+	Limit, Offset       int
+}
+type JobPage struct {
+	Items    []Job `json:"items"`
+	Total    int64 `json:"total"`
+	PageSize int   `json:"page_size"`
+}
+
 type Store interface {
 	Prepare(context.Context, PrepareInput) (Preparation, error)
 	Confirm(context.Context, ConfirmInput) (Job, error)
 	Retry(context.Context, string, string, string, bool) (Job, error)
 	Job(context.Context, string, string, bool) (Job, error)
-	Jobs(context.Context, string, bool) ([]Job, error)
+	Jobs(context.Context, string, bool, JobFilter) (JobPage, error)
 }
 type Identity interface {
 	CurrentPrincipal(context.Context, string) (domain.Principal, error)
@@ -236,12 +251,48 @@ func (h *handler) jobs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := h.store.Jobs(r.Context(), p.User.ID, admin)
+	filter, ok := jobFilter(r.URL.Query())
+	if !ok {
+		fail(w, 400, "invalid filter")
+		return
+	}
+	result, err := h.store.Jobs(r.Context(), p.User.ID, admin, filter)
 	if err != nil {
 		storeError(w, err)
 		return
 	}
 	write(w, 200, result)
+}
+
+// jobPageSize is the longest page of release history one request returns.
+const jobPageSize = 50
+
+var jobStatus = regexp.MustCompile(`^[a-z_]{1,40}$`)
+
+// jobFilter reads the history's search text, kind, status and page from the query string.
+func jobFilter(q url.Values) (JobFilter, bool) {
+	filter := JobFilter{Query: strings.TrimSpace(q.Get("q")), Kind: q.Get("kind"), Status: q.Get("status"), Limit: jobPageSize}
+	if len(filter.Query) > 100 || filter.Kind != "" && filter.Kind != "release" && filter.Kind != "pre_release_query" ||
+		filter.Status != "" && !jobStatus.MatchString(filter.Status) {
+		return JobFilter{}, false
+	}
+	page := 1
+	if value := q.Get("page"); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 || n > 100000 {
+			return JobFilter{}, false
+		}
+		page = n
+	}
+	if value := q.Get("page_size"); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 || n > jobPageSize {
+			return JobFilter{}, false
+		}
+		filter.Limit = n
+	}
+	filter.Offset = (page - 1) * filter.Limit
+	return filter, true
 }
 
 var ErrNotFound = errors.New("not found")

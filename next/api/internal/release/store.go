@@ -218,10 +218,10 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	}
 	var job Job
 	var before, after, result []byte
-	var rawBefore, rawRelease, rawAfter, errMessage, retryOf, preparationID sql.NullString
+	var rawBefore, rawRelease, rawAfter, errMessage, retryOf, preparationID, releaseID sql.NullString
 	var created time.Time
 	var started, finished sql.NullTime
-	err := s.DB.QueryRowContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,switch_name,host(switch_management_ip),command_profile_id::text,kind,status,phase,reason,force,before_state,after_state,result,raw_before_output,raw_release_output,raw_after_output,error_message,actor_email,retry_of_id::text,preparation_job_id::text,created_at,started_at,finished_at FROM bp_release_jobs WHERE id=$1 AND ($2 OR actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.CommandProfileID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorEmail, &retryOf, &preparationID, &created, &started, &finished)
+	err := s.DB.QueryRowContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.command_profile_id::text,j.kind,j.status,j.phase,j.reason,j.force,j.before_state,j.after_state,j.result,j.raw_before_output,j.raw_release_output,j.raw_after_output,j.error_message,j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.started_at,j.finished_at FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id WHERE j.id=$1 AND ($2 OR j.actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.CommandProfileID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &started, &finished)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNotFound
 	}
@@ -240,6 +240,9 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	}
 	if preparationID.Valid {
 		job.PreparationJobID = &preparationID.String
+	}
+	if releaseID.Valid {
+		job.ReleaseJobID = &releaseID.String
 	}
 	job.BeforeState = json.RawMessage(before)
 	job.AfterState = json.RawMessage(after)
@@ -278,21 +281,46 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	}
 	return job, nil
 }
-func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool) ([]Job, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id::text,host(target_ip),switch_id::text,switch_name,kind,status,phase,reason,force,preparation_job_id::text FROM bp_release_jobs WHERE ($1 OR actor_id=$2) ORDER BY created_at DESC LIMIT 100`, admin, actor)
+
+// Jobs pages through the history newest first; an operator sees only their own jobs.
+// The search text matches an address prefix or part of a switch name.
+func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool, filter JobFilter) (JobPage, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.kind,j.status,j.phase,j.reason,j.force,
+ j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.finished_at,count(*) OVER()
+ FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id
+ WHERE ($1 OR j.actor_id=$2) AND ($3='' OR host(j.target_ip) LIKE $3||'%' OR j.switch_name ILIKE '%'||$3||'%')
+ AND ($4='' OR j.kind=$4) AND ($5='' OR j.status=$5)
+ ORDER BY j.created_at DESC,j.id DESC LIMIT $6 OFFSET $7`, admin, actor, filter.Query, filter.Kind, filter.Status, filter.Limit, filter.Offset)
 	if err != nil {
-		return nil, err
+		return JobPage{}, err
 	}
 	defer rows.Close()
-	result := []Job{}
+	page := JobPage{Items: []Job{}, PageSize: filter.Limit}
 	for rows.Next() {
 		var job Job
-		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &job.PreparationJobID); err != nil {
-			return nil, err
+		var retryOf, preparationID, releaseID sql.NullString
+		var created time.Time
+		var finished sql.NullTime
+		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force,
+			&job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &finished, &page.Total); err != nil {
+			return JobPage{}, err
 		}
-		result = append(result, job)
+		job.CreatedAt = &created
+		if finished.Valid {
+			job.FinishedAt = &finished.Time
+		}
+		if retryOf.Valid {
+			job.RetryOfID = &retryOf.String
+		}
+		if preparationID.Valid {
+			job.PreparationJobID = &preparationID.String
+		}
+		if releaseID.Valid {
+			job.ReleaseJobID = &releaseID.String
+		}
+		page.Items = append(page.Items, job)
 	}
-	return result, rows.Err()
+	return page, rows.Err()
 }
 
 var _ Store = (*SQLStore)(nil)
