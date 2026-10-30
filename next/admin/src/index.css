@@ -100,8 +100,11 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New";
 }
 
-* {
-  @apply border-border;
+/* In the base layer, so border colour utilities (border-input, border-destructive…) still win. */
+@layer base {
+  * {
+    @apply border-border;
+  }
 }
 
 html {
