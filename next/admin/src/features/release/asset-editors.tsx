@@ -1,5 +1,6 @@
-import { Pencil, Power, PowerOff } from 'lucide-react'
+import { CircleAlert, Pencil, Power, PowerOff } from 'lucide-react'
 import { useState } from 'react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,15 +13,50 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { useRequiredFields } from './required-fields'
+import { errorText } from './messages'
+import { useRequiredFields, type RequiredField } from './required-fields'
 
 export const profileRuleKeys = ['command_templates', 'parser_rules', 'login_prompt_patterns', 'prompt_patterns', 'pagination_rules', 'success_patterns', 'error_patterns'] as const
 type RuleKey = (typeof profileRuleKeys)[number]
 const arrayRules: ReadonlySet<string> = new Set(['success_patterns', 'error_patterns'])
+
+// The JSON parts of a command profile, named for people; the keys stay what the API stores.
+const ruleText: Record<RuleKey, { label: [string, string]; hint: [string, string] }> = {
+  command_templates: {
+    label: ['Commands', '命令'],
+    hint: [
+      'JSON object: single_arp_query and arp_release for releases ($ip is the address), optional config and exit_config, and config_backup for backups.',
+      'JSON 对象：single_arp_query 和 arp_release 用于释放（$ip 代表目标地址），config、exit_config 可选，config_backup 用于配置备份。',
+    ],
+  },
+  parser_rules: {
+    label: ['Parsing rules', '解析规则'],
+    hint: [
+      'JSON object: arp_entry_regex with ip, mac and type groups, plus static_type_values, dynamic_type_values and missing_patterns.',
+      'JSON 对象：arp_entry_regex（含 ip、mac、type 分组），以及 static_type_values、dynamic_type_values、missing_patterns。',
+    ],
+  },
+  login_prompt_patterns: { label: ['Login prompts', '登录提示符'], hint: ['JSON object of login prompt patterns; {} keeps the driver defaults.', 'JSON 对象，登录提示符的匹配规则；{} 表示沿用驱动默认值。'] },
+  prompt_patterns: { label: ['Command prompts', '命令提示符'], hint: ['JSON object of command prompt patterns; {} keeps the driver defaults.', 'JSON 对象，命令提示符的匹配规则；{} 表示沿用驱动默认值。'] },
+  pagination_rules: {
+    label: ['Paging', '分页处理'],
+    hint: ['JSON object; disable_paging_command turns paging off, such as "screen-length 0 temporary". {} for none.', 'JSON 对象；disable_paging_command 用于关闭分页，例如 "screen-length 0 temporary"。{} 表示不处理。'],
+  },
+  success_patterns: { label: ['Success patterns', '成功匹配'], hint: ['JSON array of regular expressions; release output matching one counts as success.', 'JSON 数组，释放输出命中其中任一正则即视为成功。'] },
+  error_patterns: { label: ['Error patterns', '错误匹配'], hint: ['JSON array of regular expressions; command output matching one counts as an error.', 'JSON 数组，命令输出命中其中任一正则即视为出错。'] },
+}
+export const ruleLabel = (key: string, zh: boolean) => ruleText[key as RuleKey]?.label[zh ? 1 : 0] ?? key
+export const ruleHint = (key: string, zh: boolean) => ruleText[key as RuleKey]?.hint[zh ? 1 : 0] ?? ''
+
+// Radix select items need a non-empty value, so "no group" travels as this and is stored as ''.
+export const NO_GROUP = 'none'
 
 export type Credential = { id: string; name: string; username: string; description: string | null; is_active: boolean; has_secret: boolean; version: number }
 export type Profile = { id: string; name: string; is_active: boolean; version: number } & Record<RuleKey, unknown>
@@ -41,8 +77,6 @@ export type EditTarget =
   | { kind: 'networks'; item: NetworkAsset }
   | { kind: 'groups'; item: GroupAsset }
 
-export const selectClass = 'w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 aria-invalid:border-destructive'
-const ruleClass = 'w-full rounded-md border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 export class AssetRequestError extends Error {
   status: number
@@ -61,24 +95,6 @@ export async function callAssets<T>(path: string, body?: unknown, method = body 
   const data: unknown = await response.json().catch(() => ({}))
   if (!response.ok) throw new AssetRequestError((data as { detail?: string }).detail || `HTTP ${response.status}`, response.status)
   return data as T
-}
-
-// Server details that an admin can act on are translated; anything else is shown as sent.
-const knownErrors: Record<string, [string, string]> = {
-  'asset changed since it was loaded; reload and try again': [
-    'Someone changed this asset after you opened it. Close the editor and open it again to edit the latest version.',
-    '打开后该资产已被其他人修改。请关闭编辑框后重新打开，在最新内容上修改。',
-  ],
-  'change conflicts with existing assets': [
-    'Another asset already uses this name or address, or a selected item no longer exists.',
-    '名称或地址已被其他资产使用，或所选对象已不存在。',
-  ],
-}
-
-export function assetErrorText(error: unknown, zh: boolean): string {
-  if (!(error instanceof Error)) return zh ? '操作失败' : 'Request failed'
-  const known = knownErrors[error.message]
-  return known ? known[zh ? 1 : 0] : error.message
 }
 
 export function isOn(target: EditTarget): boolean {
@@ -182,7 +198,7 @@ export function editorLabels(zh: boolean) {
   const switchCount = (count: number) => zh ? `${count} 台交换机` : `${count} switch${count === 1 ? '' : 'es'}`
   return zh ? {
     edit: '编辑', enable: '启用', disable: '停用', disabled: '已停用', unvalidated: '未验证', cancel: '取消', close: '关闭',
-    save: '保存修改', saving: '正在保存…', saved: '已保存。',
+    save: '保存修改', saving: '正在保存…', saved: '已保存。', choose: '请选择',
     name: '名称', username: '设备用户名', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
     keep: '留空则保留现有值', clearSecret: '删除已保存的特权密码', managementIP: '管理 IPv4', credential: '凭据', profile: '命令模板',
     switch: '所属交换机', cidr: 'IPv4 CIDR', vlan: 'VLAN（可选）', validated: '已人工验证网段归属', inactive: '（已停用）',
@@ -196,7 +212,7 @@ export function editorLabels(zh: boolean) {
       networks: '只有已启用且已验证的网段参与交换机解析。若修改使某个地址改由其他交换机负责，其等待确认的查询需要重新执行。',
       groups: '分组用于筛选设备、限定计划任务和合规规则的范围。',
     } satisfies Record<AssetKind, string>,
-    invalidRule: (key: string) => key === 'port' ? '端口必须是 1–65535 之间的数字。' : `${key} 必须是合法的 JSON ${arrayRules.has(key) ? '数组' : '对象'}。`,
+    invalidRule: (key: string) => key === 'port' ? '端口必须是 1–65535 之间的数字。' : `「${ruleLabel(key, true)}」必须是合法的 JSON ${arrayRules.has(key) ? '数组' : '对象'}。`,
     usedBy: (count: number) => count ? `${switchCount(count)}在用` : '暂无交换机使用',
     ownedBy: (name: string) => `交换机 ${name}`,
     disableTitle: (target: EditTarget) => `停用${noun[target.kind]}「${assetName(target)}」？`,
@@ -224,7 +240,7 @@ export function editorLabels(zh: boolean) {
     } satisfies Record<AssetKind, string>,
   } : {
     edit: 'Edit', enable: 'Enable', disable: 'Disable', disabled: 'Disabled', unvalidated: 'Unvalidated', cancel: 'Cancel', close: 'Close',
-    save: 'Save changes', saving: 'Saving…', saved: 'Saved.',
+    save: 'Save changes', saving: 'Saving…', saved: 'Saved.', choose: 'Choose…',
     name: 'Name', username: 'Device username', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
     keep: 'Leave empty to keep the stored value', clearSecret: 'Remove the stored privilege secret', managementIP: 'Management IPv4', credential: 'Credential', profile: 'Command profile',
     switch: 'Switch', cidr: 'IPv4 CIDR', vlan: 'VLAN (optional)', validated: 'Network ownership manually validated', inactive: ' (disabled)',
@@ -238,7 +254,7 @@ export function editorLabels(zh: boolean) {
       networks: 'Only enabled, validated networks take part in switch resolution. If this moves an address to another switch, its waiting pre-query must be run again.',
       groups: 'Groups filter devices and scope schedules and compliance rules.',
     } satisfies Record<AssetKind, string>,
-    invalidRule: (key: string) => key === 'port' ? 'Port must be a number from 1 to 65535.' : `${key} must be a valid JSON ${arrayRules.has(key) ? 'array' : 'object'}.`,
+    invalidRule: (key: string) => key === 'port' ? 'Port must be a number from 1 to 65535.' : `${ruleLabel(key, false)} must be a valid JSON ${arrayRules.has(key) ? 'array' : 'object'}.`,
     usedBy: (count: number) => count ? `Used by ${switchCount(count)}` : 'Not used by any switch',
     ownedBy: (name: string) => `Switch ${name}`,
     disableTitle: (target: EditTarget) => `Disable ${noun[target.kind]} “${assetName(target)}”?`,
@@ -292,11 +308,7 @@ export function AssetRow({ title, detail, on, flag, mono = false, busy, labels, 
 }
 
 export function UnvalidatedBadge({ labels }: { labels: EditorLabels }) {
-  return <Badge variant="outline" className="border-amber-500/50 font-normal text-amber-800 dark:text-amber-300">{labels.unvalidated}</Badge>
-}
-
-function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
-  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label>{children}</div>
+  return <Badge variant="outline" className="border-warning/50 font-normal text-warning">{labels.unvalidated}</Badge>
 }
 
 function EditorForm({ target, inventory, labels, zh, onSave }: {
@@ -306,18 +318,49 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
   const [error, setError] = useState('')
   const [invalidRule, setInvalidRule] = useState('')
   const [busy, setBusy] = useState(false)
-  const required = useRequiredFields(zh)
-  const set = (key: string, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }))
-  const text = (id: string, key: string, label: string, options: { required?: boolean; mono?: boolean; inputMode?: 'decimal' } = {}) =>
-    <Field id={id} label={label}><Input id={id} value={String(form[key])} onChange={(event) => set(key, event.target.value)} required={options.required} {...required.invalid(id)} inputMode={options.inputMode} autoComplete="off" className={cn(options.mono && 'font-mono')} />{required.message(id)}</Field>
+  const value = (key: string) => String(form[key] ?? '')
+  const need = (id: string, key: string, label: string, choose = false): RequiredField => ({ id, label, value: value(key), choose })
+  const required = useRequiredFields(zh, {
+    credentials: [need('edit-name', 'name', labels.name), need('edit-username', 'username', labels.username)],
+    profiles: [need('edit-name', 'name', labels.name)],
+    switches: [need('edit-name', 'name', labels.name), need('edit-management-ip', 'management_ip', labels.managementIP),
+      need('edit-credential', 'credential_id', labels.credential, true), need('edit-profile', 'command_profile_id', labels.profile, true)],
+    groups: [need('edit-name', 'name', labels.name)],
+    networks: [need('edit-switch', 'switch_id', labels.switch, true), need('edit-cidr', 'cidr', labels.cidr)],
+  }[target.kind])
+  const set = (key: string, next: string | boolean) => setForm((current) => ({ ...current, [key]: next }))
+  const text = (id: string, key: string, label: string, options: { mono?: boolean; inputMode?: 'decimal' } = {}) =>
+    <Field data-invalid={required.invalid(id)}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Input id={id} value={value(key)} onChange={(event) => set(key, event.target.value)} {...required.control(id)} inputMode={options.inputMode} autoComplete="off" className={cn(options.mono && 'font-mono')} />
+      {required.message(id)}
+    </Field>
   const select = (id: string, key: string, label: string, items: { id: string; name: string; on: boolean }[]) =>
-    <Field id={id} label={label}><select id={id} className={selectClass} required {...required.invalid(id)} value={String(form[key])} onChange={(event) => set(key, event.target.value)}>
-      {items.map((item) => <option key={item.id} value={item.id}>{item.name}{item.on ? '' : labels.inactive}</option>)}
-    </select>{required.message(id)}</Field>
+    <Field data-invalid={required.invalid(id)}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Select value={value(key)} onValueChange={(next) => set(key, next)}>
+        <SelectTrigger id={id} {...required.control(id)}><SelectValue placeholder={labels.choose} /></SelectTrigger>
+        <SelectContent><SelectGroup>{items.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}{item.on ? '' : labels.inactive}</SelectItem>)}</SelectGroup></SelectContent>
+      </Select>
+      {required.message(id)}
+    </Field>
+  const choice = (id: string, key: string, label: string, options: { value: string; label: string }[]) =>
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Select value={value(key)} onValueChange={(next) => set(key, next)}>
+        <SelectTrigger id={id}><SelectValue /></SelectTrigger>
+        <SelectContent><SelectGroup>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectGroup></SelectContent>
+      </Select>
+    </Field>
+  const toggle = (id: string, key: string, label: string) =>
+    <Field orientation="horizontal">
+      <Checkbox id={id} checked={Boolean(form[key])} onCheckedChange={(checked) => set(key, checked === true)} />
+      <FieldLabel htmlFor={id} className="font-normal">{label}</FieldLabel>
+    </Field>
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!required.check(event.currentTarget)) return
+    if (!required.check()) return
     const request = editRequest(target, form)
     if ('invalidRule' in request) {
       setInvalidRule(request.invalidRule)
@@ -326,65 +369,81 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
     }
     setBusy(true); setError(''); setInvalidRule('')
     try { await onSave(request.path, request.body) }
-    catch (cause) { setError(assetErrorText(cause, zh)) }
+    catch (cause) { setError(errorText(cause, zh)) }
     finally { setBusy(false) }
   }
 
-  return <form className="space-y-4" noValidate onChange={required.onChange} onSubmit={(event) => void submit(event)}>
+  return <form className="flex flex-col gap-6" noValidate onSubmit={(event) => void submit(event)}>
     <DialogHeader>
       <DialogTitle>{labels.editTitle(target.kind)}</DialogTitle>
       <DialogDescription>{labels.hint[target.kind]}</DialogDescription>
     </DialogHeader>
-    {target.kind === 'credentials' ? <>
-      {text('edit-name', 'name', labels.name, { required: true })}
-      {text('edit-username', 'username', labels.username, { required: true })}
-      {text('edit-description', 'description', labels.description)}
-      <Field id="edit-password" label={labels.newPassword}><Input id="edit-password" type="password" autoComplete="new-password" placeholder={labels.keep} value={String(form.password)} onChange={(event) => set('password', event.target.value)} /></Field>
-      <Field id="edit-secret" label={labels.newSecret}><Input id="edit-secret" type="password" autoComplete="new-password" placeholder={labels.keep} disabled={Boolean(form.clear_secret)} value={String(form.secret)} onChange={(event) => set('secret', event.target.value)} /></Field>
-      {target.item.has_secret ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(form.clear_secret)} onChange={(event) => set('clear_secret', event.target.checked)} />{labels.clearSecret}</label> : null}
-    </> : null}
-    {target.kind === 'profiles' ? <>
-      {text('edit-name', 'name', labels.name, { required: true })}
-      {profileRuleKeys.map((key) => <Field key={key} id={`edit-${key}`} label={key}>
-        <textarea id={`edit-${key}`} className={cn(ruleClass, invalidRule === key && 'border-destructive')} aria-invalid={invalidRule === key || undefined} spellCheck={false}
-          rows={key === 'parser_rules' || key === 'command_templates' ? 6 : 3} value={String(form[key])} onChange={(event) => set(key, event.target.value)} />
-      </Field>)}
-    </> : null}
-    {target.kind === 'switches' ? <>
-      {text('edit-name', 'name', labels.name, { required: true })}
-      {text('edit-management-ip', 'management_ip', labels.managementIP, { required: true, mono: true, inputMode: 'decimal' })}
-      {select('edit-credential', 'credential_id', labels.credential, (inventory?.credentials ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
-      {select('edit-profile', 'command_profile_id', labels.profile, (inventory?.profiles ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field id="edit-vendor" label={labels.vendor}><select id="edit-vendor" className={selectClass} value={String(form.vendor)} onChange={(event) => set('vendor', event.target.value)}>
-          {vendors.map((vendor) => <option key={vendor} value={vendor}>{vendorName(vendor, zh)}</option>)}
-        </select></Field>
-        {text('edit-model', 'model', labels.model)}
-        <Field id="edit-protocol" label={labels.protocol}><select id="edit-protocol" className={selectClass} value={String(form.protocol)} onChange={(event) => set('protocol', event.target.value)}>
-          <option value="ssh">SSH</option><option value="telnet">Telnet</option>
-        </select></Field>
-        <Field id="edit-port" label={labels.port}><Input id="edit-port" inputMode="numeric" placeholder={form.protocol === 'ssh' ? '22' : '23'} aria-describedby="edit-port-hint" value={String(form.port)} onChange={(event) => set('port', event.target.value)} className={cn('font-mono', invalidRule === 'port' && 'border-destructive')} /></Field>
-      </div>
-      <p id="edit-port-hint" className="-mt-2 text-xs text-muted-foreground">{labels.portHint}</p>
-      <Field id="edit-group" label={labels.group}><select id="edit-group" className={selectClass} value={String(form.group_id)} onChange={(event) => set('group_id', event.target.value)}>
-        <option value="">{labels.noGroup}</option>
-        {(inventory?.groups ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-      </select></Field>
-      {text('edit-site', 'site', labels.site)}
-      {text('edit-description', 'description', labels.description)}
-    </> : null}
-    {target.kind === 'groups' ? <>
-      {text('edit-name', 'name', labels.name, { required: true })}
-      {text('edit-description', 'description', labels.description)}
-    </> : null}
-    {target.kind === 'networks' ? <>
-      {select('edit-switch', 'switch_id', labels.switch, (inventory?.switches ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_enabled })))}
-      {text('edit-cidr', 'cidr', labels.cidr, { required: true, mono: true })}
-      {text('edit-vlan', 'vlan', labels.vlan)}
-      {text('edit-description', 'description', labels.description)}
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(form.is_validated)} onChange={(event) => set('is_validated', event.target.checked)} />{labels.validated}</label>
-    </> : null}
-    {error ? <p role="alert" className="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+    <FieldGroup>
+      {target.kind === 'credentials' ? <>
+        {text('edit-name', 'name', labels.name)}
+        {text('edit-username', 'username', labels.username)}
+        {text('edit-description', 'description', labels.description)}
+        <Field>
+          <FieldLabel htmlFor="edit-password">{labels.newPassword}</FieldLabel>
+          <Input id="edit-password" type="password" autoComplete="new-password" placeholder={labels.keep} value={value('password')} onChange={(event) => set('password', event.target.value)} />
+        </Field>
+        <Field data-disabled={Boolean(form.clear_secret)}>
+          <FieldLabel htmlFor="edit-secret">{labels.newSecret}</FieldLabel>
+          <Input id="edit-secret" type="password" autoComplete="new-password" placeholder={labels.keep} disabled={Boolean(form.clear_secret)} value={value('secret')} onChange={(event) => set('secret', event.target.value)} />
+        </Field>
+        {target.item.has_secret ? toggle('edit-clear-secret', 'clear_secret', labels.clearSecret) : null}
+      </> : null}
+      {target.kind === 'profiles' ? <>
+        {text('edit-name', 'name', labels.name)}
+        {profileRuleKeys.map((key) => <Field key={key} data-invalid={invalidRule === key}>
+          <FieldLabel htmlFor={`edit-${key}`}>{ruleLabel(key, zh)}</FieldLabel>
+          <Textarea id={`edit-${key}`} className="font-mono" aria-invalid={invalidRule === key || undefined} aria-describedby={`edit-${key}-hint`} spellCheck={false}
+            rows={key === 'parser_rules' || key === 'command_templates' ? 6 : 3} value={value(key)} onChange={(event) => set(key, event.target.value)} />
+          <FieldDescription id={`edit-${key}-hint`}>{ruleHint(key, zh)}</FieldDescription>
+        </Field>)}
+      </> : null}
+      {target.kind === 'switches' ? <>
+        {text('edit-name', 'name', labels.name)}
+        {text('edit-management-ip', 'management_ip', labels.managementIP, { mono: true, inputMode: 'decimal' })}
+        {select('edit-credential', 'credential_id', labels.credential, (inventory?.credentials ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
+        {select('edit-profile', 'command_profile_id', labels.profile, (inventory?.profiles ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
+        <div className="grid gap-4 sm:grid-cols-2">
+          {choice('edit-vendor', 'vendor', labels.vendor, vendors.map((vendor) => ({ value: vendor, label: vendorName(vendor, zh) })))}
+          {text('edit-model', 'model', labels.model)}
+          {choice('edit-protocol', 'protocol', labels.protocol, [{ value: 'ssh', label: 'SSH' }, { value: 'telnet', label: 'Telnet' }])}
+          <Field data-invalid={invalidRule === 'port'}>
+            <FieldLabel htmlFor="edit-port">{labels.port}</FieldLabel>
+            <Input id="edit-port" inputMode="numeric" placeholder={form.protocol === 'ssh' ? '22' : '23'} aria-describedby="edit-port-hint" aria-invalid={invalidRule === 'port' || undefined}
+              value={value('port')} onChange={(event) => set('port', event.target.value)} className="font-mono" />
+            <FieldDescription id="edit-port-hint">{labels.portHint}</FieldDescription>
+          </Field>
+        </div>
+        <Field>
+          <FieldLabel htmlFor="edit-group">{labels.group}</FieldLabel>
+          <Select value={value('group_id') || NO_GROUP} onValueChange={(next) => set('group_id', next === NO_GROUP ? '' : next)}>
+            <SelectTrigger id="edit-group"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectGroup>
+              <SelectItem value={NO_GROUP}>{labels.noGroup}</SelectItem>
+              {(inventory?.groups ?? []).map((group) => <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>)}
+            </SelectGroup></SelectContent>
+          </Select>
+        </Field>
+        {text('edit-site', 'site', labels.site)}
+        {text('edit-description', 'description', labels.description)}
+      </> : null}
+      {target.kind === 'groups' ? <>
+        {text('edit-name', 'name', labels.name)}
+        {text('edit-description', 'description', labels.description)}
+      </> : null}
+      {target.kind === 'networks' ? <>
+        {select('edit-switch', 'switch_id', labels.switch, (inventory?.switches ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_enabled })))}
+        {text('edit-cidr', 'cidr', labels.cidr, { mono: true })}
+        {text('edit-vlan', 'vlan', labels.vlan)}
+        {text('edit-description', 'description', labels.description)}
+        {toggle('edit-validated', 'is_validated', labels.validated)}
+      </> : null}
+    </FieldGroup>
+    {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
     <DialogFooter>
       <DialogClose asChild><Button type="button" variant="outline">{labels.cancel}</Button></DialogClose>
       <Button type="submit" disabled={busy}>{busy ? labels.saving : labels.save}</Button>
@@ -430,6 +489,7 @@ const fieldNames: Record<string, [string, string]> = {
   vendor: ['vendor', '厂商'], model: ['model', '型号'], site: ['site', '站点'], protocol: ['protocol', '协议'], port: ['port', '端口'],
   group_id: ['group', '分组'], kind: ['task type', '任务类型'], cron: ['schedule', '执行时间'], scope: ['scope', '范围'],
   pattern: ['pattern', '匹配规则'], mode: ['mode', '判定方式'], severity: ['severity', '严重级别'],
+  ...Object.fromEntries(profileRuleKeys.map((key) => [key, [ruleText[key].label[0].toLowerCase(), ruleText[key].label[1]] as [string, string]])),
 }
 
 // describeChanges summarizes an audit record without repeating any stored value.

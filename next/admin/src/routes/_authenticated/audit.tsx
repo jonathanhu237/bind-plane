@@ -3,15 +3,17 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { cn } from '@/lib/utils'
 import { opsRequest, type AuditEvent, type TaskKind } from '@/features/ops/api'
 import { AdminOnly, Empty, ErrorNote, PageHeader, formatTime, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
-import { actionName, describeChanges, selectClass } from '@/features/release/asset-editors'
+import { actionName, describeChanges } from '@/features/release/asset-editors'
 
 export const Route = createFileRoute('/_authenticated/audit')({ component: AuditPage })
 
 const categories = ['credential', 'profile', 'switch', 'network', 'group', 'schedule', 'rule', 'task', 'config', 'alert'] as const
+// "Every category" travels as this select value and is sent as no filter.
+const ALL = 'all'
 
 function AuditPage() {
   const { user } = useLoaderData({ from: '/_authenticated' })
@@ -39,9 +41,13 @@ function AuditPage() {
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
     <PageHeader title={pick(zh, '审计日志', 'Audit log')} description={pick(zh, '所有资产变更、导入、计划和规则调整、手动任务、配置查看与告警确认。永久保留，不会自动清理；密码类字段只记录“已更换”。', 'Every asset change, import, schedule and rule edit, manual task, configuration read and alert acknowledgement. Kept indefinitely; secrets are only ever recorded as replaced.')} />
     <div className="flex flex-wrap items-center gap-2">
-      <select aria-label={pick(zh, '操作类别', 'Category')} className={cn(selectClass, 'w-auto')} value={action} onChange={(event) => setAction(event.target.value)}>
-        <option value="">{pick(zh, '全部类别', 'All categories')}</option>{categories.map((category) => <option key={category} value={category}>{categoryName[category]}</option>)}
-      </select>
+      <Select value={action || ALL} onValueChange={(value) => setAction(value === ALL ? '' : value)}>
+        <SelectTrigger aria-label={pick(zh, '操作类别', 'Category')} className="w-auto min-w-36"><SelectValue /></SelectTrigger>
+        <SelectContent><SelectGroup>
+          <SelectItem value={ALL}>{pick(zh, '全部类别', 'All categories')}</SelectItem>
+          {categories.map((category) => <SelectItem key={category} value={category}>{categoryName[category]}</SelectItem>)}
+        </SelectGroup></SelectContent>
+      </Select>
       <Input aria-label={pick(zh, '操作者', 'Actor')} placeholder={pick(zh, '操作者邮箱', 'Actor email')} value={actor} onChange={(event) => setActor(event.target.value)} className="w-48" />
       <Input aria-label={pick(zh, '对象', 'Object')} placeholder={pick(zh, '对象名称', 'Object name')} value={q} onChange={(event) => setQ(event.target.value)} className="w-48" />
     </div>

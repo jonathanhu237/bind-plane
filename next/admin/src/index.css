@@ -21,6 +21,9 @@
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.99 0 0);
+  /* Status text on the page background: reachable or passed, and needs attention. */
+  --success: oklch(0.508 0.118 165.612);
+  --warning: oklch(0.473 0.137 46.201);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -51,6 +54,8 @@
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.985 0 0);
+  --success: oklch(0.845 0.143 164.978);
+  --warning: oklch(0.879 0.169 91.605);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -81,6 +86,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

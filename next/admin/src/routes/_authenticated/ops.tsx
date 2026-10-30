@@ -1,26 +1,30 @@
 import { Link, createFileRoute, useLoaderData } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 import { opsRequest, taskState, type Overview } from '@/features/ops/api'
 import { AdminOnly, Empty, ErrorNote, PageHeader, Section, TaskStateBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
+import { taskScopeText } from '@/features/release/messages'
 
 export const Route = createFileRoute('/_authenticated/ops')({ component: OverviewPage })
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: 'bad' | 'warn' }) {
   return <div className="flex items-baseline justify-between gap-3 py-1 text-sm">
     <dt className="text-muted-foreground">{label}</dt>
-    <dd className={tone === 'bad' && value ? 'font-semibold text-destructive tabular-nums' : tone === 'warn' && value ? 'font-semibold text-amber-700 dark:text-amber-300 tabular-nums' : 'font-medium tabular-nums'}>{value}</dd>
+    <dd className={cn('font-medium tabular-nums', value > 0 && tone === 'bad' && 'font-semibold text-destructive', value > 0 && tone === 'warn' && 'font-semibold text-warning')}>{value}</dd>
   </div>
 }
 
 function Panel({ title, to, link, children }: { title: string; to: string; link: string; children: React.ReactNode }) {
-  return <div className="rounded-xl border bg-card p-4">
-    <div className="mb-2 flex items-center justify-between gap-2">
-      <h2 className="text-sm font-semibold">{title}</h2>
+  return <Card>
+    <CardHeader className="flex-row items-center justify-between gap-2 pb-2">
+      <CardTitle className="text-sm">{title}</CardTitle>
       <Link to={to} className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">{link}</Link>
-    </div>
-    <dl className="divide-y">{children}</dl>
-  </div>
+    </CardHeader>
+    <CardContent><dl className="divide-y">{children}</dl></CardContent>
+  </Card>
 }
 
 function OverviewPage() {
@@ -66,7 +70,7 @@ function OverviewPage() {
             <TableBody>{data.recent_tasks.map((task) => <TableRow key={task.id}>
               <TableCell><Time value={task.created_at} zh={zh} /></TableCell>
               <TableCell>{kindLabel(task.kind, zh)}</TableCell>
-              <TableCell className="max-w-48 truncate">{task.schedule_name ?? task.scope_label}</TableCell>
+              <TableCell className="max-w-48 truncate">{task.schedule_name ?? taskScopeText(task.scope_label, zh)}</TableCell>
               <TableCell className="text-right tabular-nums">{task.succeeded} / {task.failed}</TableCell>
               <TableCell><TaskStateBadge state={taskState(task)} zh={zh} /></TableCell>
             </TableRow>)}</TableBody>
@@ -87,6 +91,8 @@ function OverviewPage() {
           </Section>
         </div>
       </div>
-    </> : query.isPending ? <p className="text-sm text-muted-foreground">{pick(zh, '正在加载…', 'Loading…')}</p> : null}
+    </> : query.isPending ? <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label={pick(zh, '正在加载', 'Loading')}>
+      {[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-48 rounded-xl" />)}
+    </div> : null}
   </main>
 }

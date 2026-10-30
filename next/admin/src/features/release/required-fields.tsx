@@ -1,48 +1,47 @@
 import { useState } from 'react'
 import { FieldError } from '@/components/ui/field'
 
-type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-
-const isControl = (element: Element): element is Control =>
-  element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement
+/** A field the form cannot be saved without; `choose` marks a select. */
+export type RequiredField = { id: string; label: string; value: string; choose?: boolean }
 
 /** Names the empty field by its label, without hints such as （可选）. */
-export function requiredMessage(control: Control, zh: boolean): string {
-  const choose = control instanceof HTMLSelectElement
-  if (!zh) return choose ? 'Choose an option.' : 'This field is required.'
-  const label = (control.labels?.[0]?.textContent ?? '').replace(/（[^）]*）|\([^)]*\)/g, '').trim()
-  if (!label) return choose ? '请选择一项。' : '请填写此项。'
-  return `${choose ? '请选择' : '请输入'}${/^[A-Za-z0-9]/.test(label) ? ' ' : ''}${label}。`
+export function requiredMessage(field: Pick<RequiredField, 'label' | 'choose'>, zh: boolean): string {
+  const label = field.label.replace(/（[^）]*）|\([^)]*\)/g, '').trim()
+  if (!zh) return `${label} is required.`
+  return `${field.choose ? '请选择' : '请输入'}${/^[A-Za-z0-9]/.test(label) ? ' ' : ''}${label}。`
 }
 
 /**
- * Required fields checked in the interface language. Controls keep `required`, which assistive
- * technology announces, and the form sets noValidate: the browser's own bubble speaks the
- * browser's language, not the interface's.
+ * Required fields checked in the interface language once the form is first submitted;
+ * each message goes away as its field is filled. Forms set noValidate, because the
+ * browser's own bubble speaks the browser's language, not the interface's.
  */
-export function useRequiredFields(zh: boolean) {
-  const [problems, setProblems] = useState<Record<string, string>>({})
+export function useRequiredFields(zh: boolean, fields: RequiredField[]) {
+  const [checked, setChecked] = useState(false)
+  const missing = new Map(checked ? fields.filter((field) => !field.value.trim()).map((field) => [field.id, field]) : [])
   return {
-    /** Call first in onSubmit; false means a required field is empty, and it now has focus. */
-    check(form: HTMLFormElement): boolean {
-      const empty = Array.from(form.elements).filter(isControl).filter((control) => control.required && !control.disabled && !control.value.trim())
-      setProblems(Object.fromEntries(empty.map((control) => [control.id, requiredMessage(control, zh)])))
-      empty[0]?.focus()
-      return empty.length === 0
+    /** Call first when saving; false means a field is empty, and the first empty one has focus. */
+    check(): boolean {
+      setChecked(true)
+      const first = fields.find((field) => !field.value.trim())
+      if (first) document.getElementById(first.id)?.focus()
+      return !first
     },
-    /** The form's onChange: editing a field clears its message. */
-    onChange(event: React.FormEvent<HTMLFormElement>) {
-      const { id } = event.target as HTMLElement
-      if (problems[id]) setProblems((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== id)))
+    /** Forget earlier attempts, for example after the form was saved and cleared. */
+    reset() {
+      setChecked(false)
     },
-    /** ARIA for one control; `describedBy` keeps a hint the control already points to. */
-    invalid(id: string, describedBy?: string) {
-      return problems[id]
+    /** For the Field's data-invalid. */
+    invalid: (id: string) => missing.has(id),
+    /** ARIA for the control; `describedBy` keeps a hint the control already points to. */
+    control(id: string, describedBy?: string) {
+      return missing.has(id)
         ? { 'aria-invalid': true, 'aria-describedby': [describedBy, `${id}-required`].filter(Boolean).join(' ') }
         : { 'aria-describedby': describedBy }
     },
     message(id: string) {
-      return problems[id] ? <FieldError id={`${id}-required`}>{problems[id]}</FieldError> : null
+      const field = missing.get(id)
+      return field ? <FieldError id={`${id}-required`}>{requiredMessage(field, zh)}</FieldError> : null
     },
   }
 }

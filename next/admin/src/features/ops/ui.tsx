@@ -1,8 +1,11 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CircleAlert, Lock } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Empty as EmptyState, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { cn } from '@/lib/utils'
+import { errorText, serverText } from '@/features/release/messages'
 import type { User } from '@/shared/api/contracts'
 import type { Severity, TaskKind, TaskState } from './api'
 
@@ -34,9 +37,9 @@ export function Time({ value, zh, className }: { value: string | null | undefine
   return <time dateTime={value} title={formatTime(value, zh)} className={cn('tabular-nums', className)}>{relative(value, zh)}</time>
 }
 
-export function PageHeader({ title, description, children }: { title: string; description: string; children?: React.ReactNode }) {
+export function PageHeader({ title, description, children }: { title: string; description: React.ReactNode; children?: React.ReactNode }) {
   return <header className="flex flex-wrap items-end justify-between gap-4">
-    <div className="space-y-1.5">
+    <div className="flex flex-col gap-1.5">
       <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
       <p className="max-w-[70ch] text-sm text-muted-foreground">{description}</p>
     </div>
@@ -45,20 +48,19 @@ export function PageHeader({ title, description, children }: { title: string; de
 }
 
 export function AdminOnly({ zh }: { zh: boolean }) {
-  return <p role="alert" className="text-sm text-muted-foreground">{pick(zh, '仅管理员可以使用设备运维功能。', 'Device operations are available to admins only.')}</p>
+  return <Alert><Lock aria-hidden="true" /><AlertDescription>{pick(zh, '仅管理员可以使用设备运维功能。', 'Device operations are available to admins only.')}</AlertDescription></Alert>
 }
 
+/** A failed request in the interface language; renders nothing without an error. */
 export function ErrorNote({ error, zh }: { error: unknown; zh: boolean }) {
   if (!error) return null
-  return <p role="alert" className="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">
-    {error instanceof Error ? error.message : pick(zh, '请求失败', 'Request failed')}
-  </p>
+  return <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{errorText(error, zh)}</AlertDescription></Alert>
 }
 
 const tone = {
-  good: 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300',
+  good: 'border-success/40 text-success',
   bad: 'border-destructive/50 text-destructive',
-  warn: 'border-amber-500/50 text-amber-800 dark:text-amber-300',
+  warn: 'border-warning/50 text-warning',
   muted: 'text-muted-foreground',
 }
 
@@ -70,7 +72,7 @@ export function ReachabilityBadge({ reachable, latency, error, zh }: { reachable
   if (reachable === null) return <ToneBadge kind="muted">{pick(zh, '未检测', 'Not checked')}</ToneBadge>
   return reachable
     ? <ToneBadge kind="good">{pick(zh, '在线', 'Reachable')}{latency != null ? ` · ${latency} ms` : ''}</ToneBadge>
-    : <ToneBadge kind="bad" title={error ?? undefined}>{pick(zh, '不可达', 'Unreachable')}</ToneBadge>
+    : <ToneBadge kind="bad" title={error ? serverText(error, zh) : undefined}>{pick(zh, '不可达', 'Unreachable')}</ToneBadge>
 }
 
 export function SeverityBadge({ severity, zh }: { severity: Severity; zh: boolean }) {
@@ -90,16 +92,8 @@ export function TaskStateBadge({ state, zh }: { state: TaskState; zh: boolean })
 export const itemStatusLabel = (status: string, zh: boolean) =>
   ({ queued: pick(zh, '排队中', 'Queued'), running: pick(zh, '执行中', 'Running'), succeeded: pick(zh, '成功', 'Succeeded'), failed: pick(zh, '失败', 'Failed'), skipped: pick(zh, '跳过', 'Skipped') })[status] ?? status
 
-const workerMessages: Record<string, string> = {
-  'New configuration version': '已保存新的配置版本', 'Configuration unchanged': '配置无变化', 'Already queued or running': '已在队列中，本次跳过',
-  'Switch is disabled': '设备已停用', 'Worker stopped before finishing': '工作进程中断，未完成', 'Unexpected worker error': '工作进程异常',
-  'Credential or command profile is disabled': '凭据或命令模板已停用', 'Command profile has no config_backup command': '命令模板未配置 config_backup 命令',
-  'Backup output is too short to be a configuration': '备份输出过短，不像完整配置', 'Backup output matches an error pattern of the command profile': '备份输出匹配到命令模板的错误规则',
-  'Connection refused': '连接被拒绝', 'Timed out': '超时', 'Switch authentication failed': '设备认证失败', 'Switch connection timed out': '连接设备超时',
-}
-
-/** Known worker messages in the interface language; anything else is technical detail shown as sent. */
-export const workerMessage = (message: string | null, zh: boolean) => (message && zh ? workerMessages[message] ?? message : message)
+/** A worker message in the interface language; unknown detail is shown as sent. */
+export const workerMessage = (message: string | null, zh: boolean) => serverText(message, zh)
 
 export const kindLabel = (kind: TaskKind, zh: boolean) => (kind === 'config_backup' ? pick(zh, '配置备份', 'Config backup') : pick(zh, '连通性检测', 'Reachability check'))
 
@@ -115,7 +109,7 @@ export function Pager({ page, total, pageSize, onPage, zh }: { page: number; tot
 
 /** A titled section of a page; one level of container, never nested. */
 export function Section({ title, actions, children, className }: { title: string; actions?: React.ReactNode; children: React.ReactNode; className?: string }) {
-  return <section className={cn('min-w-0 space-y-3', className)}>
+  return <section className={cn('flex min-w-0 flex-col gap-3', className)}>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h2 className="text-base font-semibold">{title}</h2>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
@@ -125,5 +119,5 @@ export function Section({ title, actions, children, className }: { title: string
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">{children}</p>
+  return <EmptyState className="border md:p-6"><EmptyHeader><EmptyDescription>{children}</EmptyDescription></EmptyHeader></EmptyState>
 }
