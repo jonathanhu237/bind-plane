@@ -1177,8 +1177,13 @@ func (m *AccessManagement) knownPermissions(keys []domain.PermissionKey) bool {
 // normalizeRole is the single boundary between persisted role projections and
 // authorization. The database deliberately does not copy the live catalog
 // into the built-in role, so that role is expanded here. Custom role data must
-// be non-empty and entirely known to the current process before it can be
-// returned or used for authorization.
+// be entirely known to the current process before it can be returned or used
+// for authorization.
+//
+// A role may hold no permissions at all: Bind Plane's Operator role signs in
+// and releases bindings but administers nothing. Such a role grants no
+// permission here; the role editor still refuses to save a custom role
+// without any.
 func normalizeRole(catalog domain.PermissionCatalog, role domain.Role) (domain.Role, error) {
 	if role.IsSystem() {
 		if role.SystemKey != "super_admin" {
@@ -1188,7 +1193,8 @@ func normalizeRole(catalog domain.PermissionCatalog, role domain.Role) (domain.R
 		return role, nil
 	}
 	if len(role.Permissions) == 0 {
-		return domain.Role{}, ErrDependencyUnavailable
+		role.Permissions = []domain.PermissionKey{}
+		return role, nil
 	}
 	permissions, err := catalog.ValidateFeatureSet(role.Permissions)
 	if err != nil {

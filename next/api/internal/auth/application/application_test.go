@@ -323,11 +323,11 @@ func TestCurrentPrincipalRejectsMismatchedProjection(t *testing.T) {
 	}
 }
 
-func TestNormalizePrincipalRejectsUnknownAndEmptyCustomRoleData(t *testing.T) {
+func TestNormalizePrincipalRejectsUnknownCustomRoleData(t *testing.T) {
 	catalog := domain.DefaultPermissionCatalog()
 	for _, role := range []domain.Role{
-		{ID: "role-1", Name: "Empty"},
 		{ID: "role-2", Name: "Unknown", Permissions: []domain.PermissionKey{"projects.write"}},
+		{ID: "role-3", SystemKey: "auditor", Name: "Auditor"},
 	} {
 		if _, err := normalizePrincipal(catalog, domain.Principal{Roles: []domain.Role{role}}); !errors.Is(err, ErrDependencyUnavailable) {
 			t.Fatalf("normalizePrincipal(%#v) error = %v, want dependency unavailable", role, err)
@@ -335,6 +335,22 @@ func TestNormalizePrincipalRejectsUnknownAndEmptyCustomRoleData(t *testing.T) {
 	}
 	if principal, err := normalizePrincipal(catalog, domain.Principal{Roles: []domain.Role{{SystemKey: "super_admin", Name: "Super Admin"}}}); err != nil || !principal.SuperAdmin || !principal.Has(domain.PermissionRolesRead) {
 		t.Fatalf("normalizePrincipal(super) = %#v, %v", principal, err)
+	}
+}
+
+// Bind Plane's Operator role signs in and releases bindings but holds no administration permission.
+func TestNormalizePrincipalAcceptsRoleWithoutPermissions(t *testing.T) {
+	catalog := domain.DefaultPermissionCatalog()
+	operator, err := normalizePrincipal(catalog, domain.Principal{Roles: []domain.Role{{ID: "role-operator", Name: "Operator"}}})
+	if err != nil || operator.SuperAdmin || len(operator.Permissions) != 0 || operator.Roles[0].Permissions == nil {
+		t.Fatalf("normalizePrincipal(operator) = %#v, %v", operator, err)
+	}
+	mixed, err := normalizePrincipal(catalog, domain.Principal{Roles: []domain.Role{
+		{ID: "role-operator", Name: "Operator"},
+		{ID: "role-users", Name: "Users", Permissions: []domain.PermissionKey{domain.PermissionUsersRead}},
+	}})
+	if err != nil || !mixed.Has(domain.PermissionUsersRead) || len(mixed.Permissions) != 1 {
+		t.Fatalf("normalizePrincipal(operator and users) = %#v, %v", mixed, err)
 	}
 }
 
