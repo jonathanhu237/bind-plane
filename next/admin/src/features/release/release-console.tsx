@@ -19,7 +19,7 @@ export function ReleaseConsole({ user, jobID, onJob }: { user: User; jobID?: str
     {!canRelease(user)
       ? <Alert><Lock aria-hidden="true" /><AlertDescription>{pick(zh, '需要操作员或管理员角色才能使用解绑控制台。', 'An Operator or Admin role is required to use the release console.')}</AlertDescription></Alert>
       : <>
-        <ReleaseQueryForm admin={admin} zh={zh} allowForce onPrepared={onJob} />
+        <ReleaseQueryForm admin={admin} zh={zh} onPrepared={onJob} />
         {jobID ? <JobView key={jobID} jobID={jobID} admin={admin} zh={zh} onJob={onJob} /> : null}
       </>}
   </div>

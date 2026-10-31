@@ -144,13 +144,13 @@ Never log plaintext credentials, decrypted passwords, sensitive environment vari
 
 ## UI Direction
 
-Everyone lands on the home page after login. It is not a marketing page or a generic dashboard:
+Everyone lands on the home page after login. It shows where things stand and starts no operations; it is not a marketing page or a generic dashboard:
 
-- Its first element is a quick release form (IPv4 address, reason, query), so the release workflow stays one step away.
-- Below it come releases whose outcome needs manual confirmation, then recent jobs (the operator's own; everyone's for admins).
+- Releases whose outcome needs manual confirmation come first, then recent jobs (the operator's own; everyone's for admins).
 - Admins also see the device operations summary there; there is no separate overview page.
+- A "New release" (发起解绑) button in its header opens the release console, so the release workflow stays one click away.
 
-The release console is a focused page for one job at a time: query, confirm, result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Admin force release lives here, not on the home page. Release history is its own page, with filters and pagination.
+Every release starts in the release console; do not add a second release form elsewhere. It is a focused page for one job at a time: query, confirm, result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Admin force release lives here. Release history is its own page, with filters and pagination.
 
 Navigation stays small:
 
@@ -159,7 +159,7 @@ Navigation stays small:
 - Device operations (admins): devices, schedules, compliance, alerts, audit log, asset settings (credentials, command profiles, switches, networks)
 - User and system administration
 
-The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar and on the home page, 解绑控制台, 解绑记录, 确认解绑, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
+The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑控制台, 解绑记录, 确认解绑, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
 
 Build a clear, restrained operator-focused tool. Do not block the main release workflow on a polished full admin system.
 

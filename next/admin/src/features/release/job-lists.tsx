@@ -55,7 +55,7 @@ export function RecentJobs({ zh, admin }: { zh: boolean; admin: boolean }) {
     actions={<Link to="/releases" className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">{pick(zh, '全部解绑记录', 'All release history')}</Link>}>
     <ErrorNote error={recent.error} zh={zh} />
     {recent.data
-      ? recent.data.items.length ? <JobTable jobs={recent.data.items} zh={zh} admin={admin} /> : <Empty>{pick(zh, '还没有解绑任务。在上方输入 IP 地址，开始第一次解绑。', 'No release jobs yet. Enter an IP address above to start your first release.')}</Empty>
+      ? recent.data.items.length ? <JobTable jobs={recent.data.items} zh={zh} admin={admin} /> : <Empty>{pick(zh, '还没有解绑任务。需要解绑时，点“发起解绑”。', 'No release jobs yet. Choose New release to start one.')}</Empty>
       : recent.isPending ? <Skeleton className="h-40 rounded-xl" /> : null}
   </Section>
 }

@@ -3,12 +3,11 @@ import { CircleAlert, TriangleAlert } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { cn } from '@/lib/utils'
 import {
   assetOptionsKey, reasonLabel, reasons, releaseErrorText, request, statusLabel, stopText, targetIPProblem, type AssetOptions, type Preparation,
 } from './jobs'
@@ -17,19 +16,15 @@ import {
 const AUTO = 'auto'
 
 type Props = {
+  /** Admins are also offered the forced release of an address the query finds no record for. */
   admin: boolean
   zh: boolean
-  /** Offer admins the forced release of an address the query finds no record for. */
-  allowForce?: boolean
-  title?: string
-  description?: string
-  action?: React.ReactNode
   /** Receives the pre-release query job once the API has queued it. */
   onPrepared: (jobID: string) => void
 }
 
 /** The first step of a release: one IPv4 address and a reason, queued as a pre-release query. */
-export function ReleaseQueryForm({ admin, zh, allowForce = false, title, description, action, onPrepared }: Props) {
+export function ReleaseQueryForm({ admin, zh, onPrepared }: Props) {
   const id = useId()
   const [ip, setIP] = useState('')
   const [ipProblem, setIPProblem] = useState('')
@@ -40,7 +35,7 @@ export function ReleaseQueryForm({ admin, zh, allowForce = false, title, descrip
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [stopped, setStopped] = useState('')
-  const forcing = allowForce && admin && force
+  const forcing = admin && force
   const options = useQuery({ queryKey: [assetOptionsKey], queryFn: () => request<AssetOptions>('/api/releases/admin/assets'), enabled: forcing, staleTime: 60_000 })
   const labels = zh ? {
     ip: 'IPv4 地址', reason: '解绑原因', prepare: '查询绑定状态', preparing: '正在查询交换机…',
@@ -65,14 +60,7 @@ export function ReleaseQueryForm({ admin, zh, allowForce = false, title, descrip
   }
 
   return <Card>
-    {title ? <CardHeader className="flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
-      <div className="flex flex-col gap-1.5">
-        <CardTitle className="text-lg">{title}</CardTitle>
-        {description ? <CardDescription>{description}</CardDescription> : null}
-      </div>
-      {action}
-    </CardHeader> : null}
-    <CardContent className={cn(!title && 'pt-6')}>
+    <CardContent className="pt-6">
       <form noValidate onSubmit={(event) => void submit(event)} className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
           <Field data-invalid={Boolean(ipProblem)}>
@@ -91,7 +79,7 @@ export function ReleaseQueryForm({ admin, zh, allowForce = false, title, descrip
           </Field>
           <Button type="submit" disabled={busy}>{busy ? labels.preparing : labels.prepare}</Button>
         </div>
-        {allowForce && admin ? <div className="flex flex-col gap-3">
+        {admin ? <div className="flex flex-col gap-3">
           <Field orientation="horizontal">
             <Checkbox id={`${id}-force`} checked={force} onCheckedChange={(checked) => setForce(checked === true)} />
             <FieldLabel htmlFor={`${id}-force`} className="font-normal">{labels.force}</FieldLabel>
