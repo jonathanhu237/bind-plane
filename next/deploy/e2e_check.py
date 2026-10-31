@@ -149,13 +149,17 @@ assert diff["removed"] >= 1 and diff["added"] >= 1, diff
 assert "irreversible-cipher" not in json.dumps(call("GET", "/api/ops/overview"))
 ok(f"changed configuration stored version {versions[0]}, diff +{diff['added']} -{diff['removed']}, alert resolved")
 
-prepared = call("POST", "/api/releases/prepare", {"target_ip": "10.20.30.40", "reason": "temporary_test"}, 202)
-query = wait("pre-release query", lambda: (j := call("GET", f"/api/releases/jobs/{prepared['preparation_job_id']}"))["status"] not in ("queued", "running") and j)
-assert query["status"] == "waiting_confirmation" and query["before_state"]["entry_type"] == "static", query
-release = call("POST", "/api/releases", {"preparation_job_id": prepared["preparation_job_id"]}, 202)
-done = wait("release", lambda: (j := call("GET", f"/api/releases/jobs/{release['job_id']}"))["status"] not in ("queued", "running") and j)
-assert done["status"] == "succeeded" and done["after_state"]["entry_type"] == "dynamic", done
+def release(ip):
+    queued = call("POST", "/api/releases", {"target_ip": ip, "reason": "temporary_test"}, 202)
+    return wait("release", lambda: (j := call("GET", f"/api/releases/jobs/{queued['job_id']}"))["status"] not in ("queued", "running") and j)
+
+
+done = release("10.20.30.40")
+assert done["status"] == "succeeded" and done["before_state"]["entry_type"] == "static" and done["after_state"]["entry_type"] == "dynamic", done
 ok(f"release of 10.20.30.40 on {done['switch_name']} ({done['switch_management_ip']}) succeeded; entry is now dynamic")
+again = release("10.20.30.40")
+assert again["status"] == "cancelled" and again.get("raw_release_output") is None, again
+ok("releasing it again sent nothing: the binding is no longer static")
 
 call("POST", "/api/ops/schedules", {"name": "E2E every minute", "kind": "reachability", "cron": "* * * * *", "scope": "all"}, 201)
 wait("scheduled run", lambda: any(t["schedule_name"] == "E2E every minute" for t in call("GET", "/api/ops/tasks")), 100)

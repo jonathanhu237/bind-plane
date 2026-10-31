@@ -15,7 +15,9 @@ import (
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
 )
 
-type PrepareInput struct {
+// StartInput asks for the release of one address. The worker queries the binding first and changes
+// nothing unless it is static, or missing on an admin's forced release.
+type StartInput struct {
 	TargetIP         string `json:"target_ip"`
 	Reason           string `json:"reason"`
 	Force            bool   `json:"force"`
@@ -23,20 +25,6 @@ type PrepareInput struct {
 	ActorID          string `json:"-"`
 	ActorEmail       string `json:"-"`
 	Admin            bool   `json:"-"`
-}
-type ConfirmInput struct {
-	PreparationJobID string `json:"preparation_job_id"`
-	Force            bool   `json:"force"`
-	ActorID          string `json:"-"`
-	Admin            bool   `json:"-"`
-}
-type Preparation struct {
-	PreparationJobID string `json:"preparation_job_id,omitempty"`
-	Status           string `json:"status"`
-	TargetIP         string `json:"target_ip"`
-	ResolvedSwitch   any    `json:"resolved_switch,omitempty"`
-	Force            bool   `json:"force"`
-	Reason           string `json:"reason"`
 }
 type JobEvent struct {
 	Phase     string    `json:"phase"`
@@ -54,8 +42,8 @@ type Job struct {
 	CommandProfileID   string     `json:"command_profile_id,omitempty"`
 	ActorEmail         string     `json:"actor_email,omitempty"`
 	RetryOfID          *string    `json:"retry_of_id,omitempty"`
-	PreparationJobID   *string    `json:"preparation_job_id,omitempty"`
-	ReleaseJobID       *string    `json:"release_job_id,omitempty"` // the release that confirmed this query
+	PreparationJobID   *string    `json:"preparation_job_id,omitempty"` // a release from the old two-step flow: the query it confirmed
+	ReleaseJobID       *string    `json:"release_job_id,omitempty"`     // a query from the old two-step flow: the release that confirmed it
 	CreatedAt          *time.Time `json:"created_at,omitempty"`
 	StartedAt          *time.Time `json:"started_at,omitempty"`
 	FinishedAt         *time.Time `json:"finished_at,omitempty"`
@@ -86,8 +74,7 @@ type JobPage struct {
 }
 
 type Store interface {
-	Prepare(context.Context, PrepareInput) (Preparation, error)
-	Confirm(context.Context, ConfirmInput) (Job, error)
+	Start(context.Context, StartInput) (Job, error)
 	Retry(context.Context, string, string, string, bool) (Job, error)
 	Job(context.Context, string, string, bool) (Job, error)
 	Jobs(context.Context, string, bool, JobFilter) (JobPage, error)
@@ -104,8 +91,7 @@ type handler struct {
 func NewHandler(store Store, identity Identity, cookieName, origin string) http.Handler {
 	h := &handler{store: store, identity: identity, cookie: cookieName, origin: origin}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/releases/prepare", h.prepare)
-	mux.HandleFunc("POST /api/releases", h.confirm)
+	mux.HandleFunc("POST /api/releases", h.start)
 	mux.HandleFunc("GET /api/releases/jobs", h.jobs)
 	mux.HandleFunc("GET /api/releases/jobs/{id}", h.job)
 	mux.HandleFunc("POST /api/releases/jobs/{id}/retry", h.retry)
@@ -170,12 +156,12 @@ func (h *handler) principal(w http.ResponseWriter, r *http.Request, mutate bool)
 	}
 	return p, admin, true
 }
-func (h *handler) prepare(w http.ResponseWriter, r *http.Request) {
+func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	p, admin, ok := h.principal(w, r, true)
 	if !ok {
 		return
 	}
-	var input PrepareInput
+	var input StartInput
 	if err := decode(r, &input); err != nil {
 		fail(w, 400, "invalid request")
 		return
@@ -193,34 +179,17 @@ func (h *handler) prepare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.ActorID, input.ActorEmail, input.Admin = p.User.ID, p.User.Email, admin
-	result, err := h.store.Prepare(r.Context(), input)
+	job, err := h.store.Start(r.Context(), input)
 	if err != nil {
 		storeError(w, err)
 		return
 	}
-	write(w, 202, result)
-}
-func (h *handler) confirm(w http.ResponseWriter, r *http.Request) {
-	p, admin, ok := h.principal(w, r, true)
-	if !ok {
+	// Without a job the release stopped before any switch: none, or several, own the address.
+	if job.JobID == "" {
+		write(w, http.StatusOK, job)
 		return
 	}
-	var input ConfirmInput
-	if err := decode(r, &input); err != nil || input.PreparationJobID == "" {
-		fail(w, 400, "preparation job required")
-		return
-	}
-	if input.Force && !admin {
-		fail(w, 403, "admin force required")
-		return
-	}
-	input.ActorID, input.Admin = p.User.ID, admin
-	result, err := h.store.Confirm(r.Context(), input)
-	if err != nil {
-		storeError(w, err)
-		return
-	}
-	write(w, 202, result)
+	write(w, http.StatusAccepted, job)
 }
 func (h *handler) job(w http.ResponseWriter, r *http.Request) {
 	p, admin, ok := h.principal(w, r, false)

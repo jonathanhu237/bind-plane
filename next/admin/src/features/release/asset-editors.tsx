@@ -207,9 +207,9 @@ export function editorLabels(zh: boolean) {
     editTitle: (kind: AssetKind) => `编辑${noun[kind]}`,
     hint: {
       credentials: '密码不会回显。两个密码框留空即保留现有值。',
-      profiles: '保存会改变此模板发送的命令。使用它的交换机上等待确认的查询需要重新执行。',
-      switches: '保存后，此交换机上等待确认的查询会失效，操作员需重新查询后才能解绑。',
-      networks: '只有已启用且已验证的网段参与交换机解析。若修改使某个地址改由其他交换机负责，其等待确认的查询需要重新执行。',
+      profiles: '保存会改变此模板发送的命令。使用它的交换机上排队中的解绑会直接失败、不会连接交换机，需要重新解绑。',
+      switches: '保存后，此交换机上排队中的解绑会直接失败、不会连接交换机，需要重新解绑。',
+      networks: '只有已启用且已验证的网段参与交换机解析。修改只影响之后提交的解绑。',
       groups: '分组用于筛选设备、限定计划任务和合规规则的范围。',
     } satisfies Record<AssetKind, string>,
     invalidRule: (key: string) => key === 'port' ? '端口必须是 1–65535 之间的数字。' : `「${ruleLabel(key, true)}」必须是合法的 JSON ${arrayRules.has(key) ? '数组' : '对象'}。`,
@@ -223,9 +223,9 @@ export function editorLabels(zh: boolean) {
         case 'profiles':
           return count ? `${switchCount(count)}使用此${noun[target.kind]}。重新启用之前，它们不参与解析，排队中的任务会直接失败，不会连接交换机。` : `目前没有交换机使用此${noun[target.kind]}。`
         case 'switches':
-          return '其网段内的地址将不再解析到此交换机，等待确认的查询需要重新执行。排队中的任务会直接失败，不会连接交换机。'
+          return '其网段内的地址将不再解析到此交换机。排队中的任务会直接失败，不会连接交换机。'
         case 'networks':
-          return `${target.item.cidr} 内的地址将不再解析到${switchName ? `交换机 ${switchName}` : '该交换机'}。依赖此网段且等待确认的查询需要重新执行。`
+          return `${target.item.cidr} 内的地址将不再解析到${switchName ? `交换机 ${switchName}` : '该交换机'}。`
         case 'groups':
           return ''
       }
@@ -249,9 +249,9 @@ export function editorLabels(zh: boolean) {
     editTitle: (kind: AssetKind) => `Edit ${noun[kind]}`,
     hint: {
       credentials: 'Stored passwords are never shown. Leave both password fields empty to keep them.',
-      profiles: 'Saving changes the commands this profile sends. Pre-queries waiting for confirmation on its switches must be run again.',
-      switches: 'Saving invalidates pre-queries waiting for confirmation on this switch. Operators query again before releasing.',
-      networks: 'Only enabled, validated networks take part in switch resolution. If this moves an address to another switch, its waiting pre-query must be run again.',
+      profiles: 'Saving changes the commands this profile sends. Releases queued on its switches fail without contacting the switch and must be started again.',
+      switches: 'After saving, releases queued on this switch fail without contacting it and must be started again.',
+      networks: 'Only enabled, validated networks take part in switch resolution. Changes affect releases started afterwards.',
       groups: 'Groups filter devices and scope schedules and compliance rules.',
     } satisfies Record<AssetKind, string>,
     invalidRule: (key: string) => key === 'port' ? 'Port must be a number from 1 to 65535.' : `${ruleLabel(key, false)} must be a valid JSON ${arrayRules.has(key) ? 'array' : 'object'}.`,
@@ -265,9 +265,9 @@ export function editorLabels(zh: boolean) {
         case 'profiles':
           return count ? `${switchCount(count)} use${count === 1 ? 's' : ''} this ${noun[target.kind]}. Until it is enabled again they stop resolving, and their queued jobs fail without contacting the switch.` : `No switch uses this ${noun[target.kind]}.`
         case 'switches':
-          return 'Addresses in its networks stop resolving to it, and pre-queries waiting for confirmation must be run again. Its queued jobs fail without contacting the switch.'
+          return 'Addresses in its networks stop resolving to it. Its queued jobs fail without contacting the switch.'
         case 'networks':
-          return `Addresses in ${target.item.cidr} stop resolving to ${switchName ? `switch ${switchName}` : 'its switch'}. Waiting pre-queries that relied on it must be run again.`
+          return `Addresses in ${target.item.cidr} stop resolving to ${switchName ? `switch ${switchName}` : 'its switch'}.`
         case 'groups':
           return ''
       }

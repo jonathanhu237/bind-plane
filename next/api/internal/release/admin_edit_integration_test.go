@@ -92,52 +92,41 @@ func TestAssetEditsAreVersionedAuditedAndFenceReleases(t *testing.T) {
 	call("PATCH", "switches/"+switchB, `{"version":1,"management_ip":"192.0.2.21"}`, 409)
 
 	store := NewSQLStore(db)
-	ready := func(ip string) Preparation {
+	start := func(ip string) Job {
 		t.Helper()
-		prepared, err := store.Prepare(ctx, PrepareInput{TargetIP: ip, Reason: "temporary_test", ActorID: actor, ActorEmail: "edit@test.invalid"})
-		if err != nil || prepared.PreparationJobID == "" {
-			t.Fatalf("prepare %+v %v", prepared, err)
+		started, err := store.Start(ctx, StartInput{TargetIP: ip, Reason: "temporary_test", ActorID: actor, ActorEmail: "edit@test.invalid"})
+		if err != nil || started.JobID == "" {
+			t.Fatalf("start %+v %v", started, err)
 		}
-		if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='waiting_confirmation',phase='waiting_confirmation',before_state='{"entry_type":"static"}' WHERE id=$1`, prepared.PreparationJobID); err != nil {
-			t.Fatal(err)
-		}
-		return prepared
+		return started
 	}
 
-	// The switch a pre-query observed must still be the switch a release would reach.
-	readdressed := ready("10.30.1.5")
+	// A job pins the switch revision it was queued against; the worker refuses it once that revision is stale.
+	queued := start("10.30.1.5")
 	call("PATCH", "switches/"+switchA, `{"version":1,"management_ip":"192.0.2.23"}`, 200)
-	if _, err = store.Confirm(ctx, ConfirmInput{PreparationJobID: readdressed.PreparationJobID, ActorID: actor}); err != ErrAssetChanged {
-		t.Fatalf("confirmed against a re-addressed switch: %v", err)
-	}
-	moved := ready("10.30.1.6")
+	var pinned int
 	var snapshot string
-	if err = db.QueryRow(`SELECT host(switch_management_ip) FROM bp_release_jobs WHERE id=$1`, moved.PreparationJobID).Scan(&snapshot); err != nil || snapshot != "192.0.2.23" {
-		t.Fatalf("job snapshot %q %v", snapshot, err)
+	if err = db.QueryRow(`SELECT switch_version,host(switch_management_ip) FROM bp_release_jobs WHERE id=$1`, queued.JobID).Scan(&pinned, &snapshot); err != nil || pinned != 1 || snapshot != "192.0.2.21" {
+		t.Fatalf("job pin %d %q %v", pinned, snapshot, err)
+	}
+	moved := start("10.30.1.6")
+	if moved.SwitchManagementIP != "192.0.2.23" {
+		t.Fatalf("job snapshot %+v", moved)
 	}
 	call("PATCH", "networks/"+network, fmt.Sprintf(`{"version":1,"switch_id":%q}`, switchB), 200)
-	if _, err = store.Confirm(ctx, ConfirmInput{PreparationJobID: moved.PreparationJobID, ActorID: actor}); err != ErrAssetChanged {
-		t.Fatalf("confirmed after the network moved: %v", err)
-	}
 
 	// A retry resolves again and pins the new owner's current revision.
-	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='failed',phase='finished' WHERE id=$1`, moved.PreparationJobID); err != nil {
+	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='failed',phase='finished' WHERE id=$1`, moved.JobID); err != nil {
 		t.Fatal(err)
 	}
-	retried, err := store.Retry(ctx, moved.PreparationJobID, actor, "edit@test.invalid", false)
-	if err != nil || retried.SwitchID != switchB || retried.SwitchName != "edit-switch-b" || retried.SwitchManagementIP != "192.0.2.22" {
+	retried, err := store.Retry(ctx, moved.JobID, actor, "edit@test.invalid", false)
+	if err != nil || retried.Kind != "release" || retried.SwitchID != switchB || retried.SwitchName != "edit-switch-b" || retried.SwitchManagementIP != "192.0.2.22" {
 		t.Fatalf("retry %+v %v", retried, err)
-	}
-	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='waiting_confirmation',phase='waiting_confirmation',before_state='{"entry_type":"static"}' WHERE id=$1`, retried.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = store.Confirm(ctx, ConfirmInput{PreparationJobID: retried.ID, ActorID: actor}); err != nil {
-		t.Fatalf("fresh retry could not be confirmed: %v", err)
 	}
 
 	// A disabled switch no longer resolves.
 	call("PATCH", "switches/"+switchB, `{"version":1,"is_enabled":false}`, 200)
-	if stopped, err := store.Prepare(ctx, PrepareInput{TargetIP: "10.30.1.7", Reason: "temporary_test", ActorID: actor, ActorEmail: "edit@test.invalid"}); err != nil || stopped.Status != "stopped_no_switch" {
+	if stopped, err := store.Start(ctx, StartInput{TargetIP: "10.30.1.7", Reason: "temporary_test", ActorID: actor, ActorEmail: "edit@test.invalid"}); err != nil || stopped.Status != "stopped_no_switch" {
 		t.Fatalf("disabled switch resolved: %+v %v", stopped, err)
 	}
 	if _, latest := events(switchB); !strings.Contains(latest, `"is_enabled": {"to": false, "from": true}`) {

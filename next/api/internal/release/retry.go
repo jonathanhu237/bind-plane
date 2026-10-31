@@ -7,7 +7,9 @@ import (
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
 )
 
-// Retry creates a fresh pre-query, never replays a possibly executed switch command.
+// Retry queues a fresh release after a failed or timed-out one. The worker queries the binding again
+// before sending anything, so a release that took effect is not repeated. An uncertain release is not
+// retried: it holds the address until someone checks the switch.
 // It runs against the switch's current revision; an auto-resolved target is resolved again.
 func (s *SQLStore) Retry(ctx context.Context, original, actorID, actorEmail string, admin bool) (Job, error) {
 	if !domain.IsCanonicalUUID(original) {
@@ -34,7 +36,8 @@ func (s *SQLStore) Retry(ctx context.Context, original, actorID, actorEmail stri
 	if forced && !admin {
 		return Job{}, ErrConflict
 	}
-	if status != "failed" && status != "timeout" && status != "needs_manual_confirmation" {
+	// Queries from the old two-step flow are never turned into releases.
+	if kind != "release" || status != "failed" && status != "timeout" {
 		return Job{}, ErrConflict
 	}
 	if resolvedNetwork.Valid {
@@ -48,10 +51,13 @@ func (s *SQLStore) Retry(ctx context.Context, original, actorID, actorEmail stri
 		}
 		switchID, resolvedNetwork.String = selected.SwitchID, selected.ID
 	}
+	if err = addressFree(ctx, tx, ip); err != nil {
+		return Job{}, err
+	}
 	var id, reason, switchName, managementIP string
 	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,ticket_id,force,status,phase,actor_id,actor_email,retry_of_id,resolved_network_id,
  switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
- SELECT j.target_ip,'pre_release_query',j.reason,j.ticket_id,j.force,'queued','queued',$1,$2,j.id,$4::uuid,`+pinnedColumns+`
+ SELECT j.target_ip,'release',j.reason,j.ticket_id,j.force,'queued','queued',$1,$2,j.id,$4::uuid,`+pinnedColumns+`
  FROM bp_release_jobs j, `+usableSwitch+` WHERE j.id=$3 AND s.id=$5 AND `+switchUsable+`
  RETURNING id::text,reason,switch_name,host(switch_management_ip)`, actorID, actorEmail, original, nullable(resolvedNetwork), switchID).Scan(&id, &reason, &switchName, &managementIP)
 	if err == sql.ErrNoRows {
@@ -60,13 +66,13 @@ func (s *SQLStore) Retry(ctx context.Context, original, actorID, actorEmail stri
 	if err != nil {
 		return Job{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO bp_release_events(job_id,phase,status,message,payload) VALUES ($1,'queued','queued','Retry begins with a fresh pre-query',jsonb_build_object('retry_of_id',$2::text))`, id, original); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO bp_release_events(job_id,phase,status,message,payload) VALUES ($1,'queued','queued','Retry queued as a new release',jsonb_build_object('retry_of_id',$2::text))`, id, original); err != nil {
 		return Job{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		return Job{}, err
 	}
-	return Job{ID: id, JobID: id, TargetIP: ip, SwitchID: switchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "pre_release_query", Status: "queued", Phase: "queued", Reason: reason, Force: forced}, nil
+	return Job{ID: id, JobID: id, TargetIP: ip, SwitchID: switchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Status: "queued", Phase: "queued", Reason: reason, Force: forced}, nil
 }
 
 func nullable(value sql.NullString) any {

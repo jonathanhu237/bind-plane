@@ -21,17 +21,14 @@ func (f fakeIdentity) CurrentPrincipal(context.Context, string) (domain.Principa
 }
 
 type fakeStore struct {
-	calls  int
-	filter JobFilter
+	calls   int
+	filter  JobFilter
+	started Job
 }
 
-func (f *fakeStore) Prepare(context.Context, PrepareInput) (Preparation, error) {
+func (f *fakeStore) Start(context.Context, StartInput) (Job, error) {
 	f.calls++
-	return Preparation{Status: "query_queued"}, nil
-}
-func (f *fakeStore) Confirm(context.Context, ConfirmInput) (Job, error) {
-	f.calls++
-	return Job{Status: "queued"}, nil
+	return f.started, nil
 }
 func (f *fakeStore) Retry(context.Context, string, string, string, bool) (Job, error) {
 	f.calls++
@@ -77,7 +74,14 @@ func TestJobsReadsHistoryFilters(t *testing.T) {
 	}
 }
 
-func TestPrepareRequiresSessionAndBusinessRole(t *testing.T) {
+func startRequest(body string) *http.Request {
+	r := httptest.NewRequest("POST", "/api/releases", strings.NewReader(body))
+	r.Header.Set("Origin", "http://localhost:5173")
+	r.Header.Set("Content-Type", "application/json")
+	return r
+}
+
+func TestStartRequiresSessionAndBusinessRole(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		identity fakeIdentity
@@ -89,11 +93,9 @@ func TestPrepareRequiresSessionAndBusinessRole(t *testing.T) {
 		{"operator", fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Operator"}}}}, true, 202},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store := &fakeStore{}
+			store := &fakeStore{started: Job{ID: "j1", JobID: "j1", Kind: "release", Status: "queued"}}
 			h := NewHandler(store, tc.identity, "session", "http://localhost:5173")
-			r := httptest.NewRequest("POST", "/api/releases/prepare", strings.NewReader(`{"target_ip":"10.0.0.1","reason":"temporary_test"}`))
-			r.Header.Set("Origin", "http://localhost:5173")
-			r.Header.Set("Content-Type", "application/json")
+			r := startRequest(`{"target_ip":"10.0.0.1","reason":"temporary_test"}`)
 			if tc.cookie {
 				r.AddCookie(&http.Cookie{Name: "session", Value: "token"})
 			}
@@ -106,8 +108,8 @@ func TestPrepareRequiresSessionAndBusinessRole(t *testing.T) {
 				t.Fatal("unauthorized request touched store")
 			}
 			if tc.code == 202 {
-				var body Preparation
-				if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Status != "query_queued" {
+				var body Job
+				if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.JobID != "j1" || body.Kind != "release" || body.Status != "queued" {
 					t.Fatalf("response %s: %v", w.Body.String(), err)
 				}
 			}
@@ -115,16 +117,31 @@ func TestPrepareRequiresSessionAndBusinessRole(t *testing.T) {
 	}
 }
 
-func TestOperatorCannotForceRelease(t *testing.T) {
-	store := &fakeStore{}
+func TestStartWithoutSwitchQueuesNothing(t *testing.T) {
+	store := &fakeStore{started: Job{Status: "stopped_no_switch", TargetIP: "10.0.0.1"}}
 	h := NewHandler(store, fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Operator"}}}}, "session", "http://localhost:5173")
-	r := httptest.NewRequest("POST", "/api/releases", strings.NewReader(`{"preparation_job_id":"abc","force":true}`))
-	r.Header.Set("Origin", "http://localhost:5173")
-	r.Header.Set("Content-Type", "application/json")
+	r := startRequest(`{"target_ip":"10.0.0.1","reason":"temporary_test"}`)
 	r.AddCookie(&http.Cookie{Name: "session", Value: "token"})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Code != 403 || store.calls != 0 {
-		t.Fatalf("status %d calls %d", w.Code, store.calls)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"stopped_no_switch"`) || strings.Contains(w.Body.String(), "job_id") {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOperatorCannotForceRelease(t *testing.T) {
+	for _, body := range []string{
+		`{"target_ip":"10.0.0.1","reason":"temporary_test","force":true}`,
+		`{"target_ip":"10.0.0.1","reason":"temporary_test","selected_switch_id":"00000000-0000-4000-8000-000000000001"}`,
+	} {
+		store := &fakeStore{}
+		h := NewHandler(store, fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Operator"}}}}, "session", "http://localhost:5173")
+		r := startRequest(body)
+		r.AddCookie(&http.Cookie{Name: "session", Value: "token"})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 403 || store.calls != 0 {
+			t.Fatalf("%s: status %d calls %d", body, w.Code, store.calls)
+		}
 	}
 }

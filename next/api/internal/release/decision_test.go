@@ -2,22 +2,16 @@ package release
 
 import "testing"
 
-func TestCanConfirmRelease(t *testing.T) {
-	for _, tc := range []struct {
-		before       string
-		force, admin bool
-		allowed      bool
-	}{
-		{"static", false, false, true},
-		{"static", true, true, false},
-		{"dynamic", false, false, false},
-		{"missing", false, true, false},
-		{"missing", true, false, false},
-		{"missing", true, true, true},
-		{"unknown", true, true, false},
+func TestValidReason(t *testing.T) {
+	for reason, valid := range map[string]bool{
+		"temporary_test": true,
+		"other":          true,
+		"":               false,
+		"Temporary_Test": false,
+		"delete":         false,
 	} {
-		if got := CanConfirmRelease(tc.before, tc.force, tc.admin); got != tc.allowed {
-			t.Errorf("%+v got %v", tc, got)
+		if got := ValidReason(reason); got != valid {
+			t.Errorf("%q got %v", reason, got)
 		}
 	}
 }

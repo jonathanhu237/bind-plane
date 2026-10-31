@@ -42,26 +42,24 @@ The normal operator flow is:
 
 1. Login.
 2. Enter one IPv4 address.
-3. Resolve the switch from enabled and validated network data.
-4. Query state before release.
-5. Require a reason selection.
-6. Show a confirmation view with at least IP, current MAC/state if known, switch, and reason.
-7. Create a background release job.
-8. Worker connects to the switch over Telnet.
-9. Worker executes the configured release command.
-10. Worker queries state after release.
-11. Store structured result, raw output, job status, and audit data.
+3. Require a reason selection.
+4. Resolve the switch from enabled and validated network data.
+5. Create a background release job.
+6. Worker connects to the switch over Telnet.
+7. Worker queries state before release. If the binding is not static, it stops without sending anything.
+8. Worker executes the configured release command.
+9. Worker queries state after release.
+10. Store structured result, raw output, job status, and audit data.
+
+There is no separate confirmation step: choosing Release starts the job, and the state before release is recorded with it. One release per address may be queued or running at a time, and none while an earlier one needs manual confirmation.
 
 Reasons should be quick to select and include a temporary-test option. Ticket IDs are optional for MVP.
 
 ## Forced Release
 
-If the pre-query finds no record:
+If the query before release finds no record, the release stops. An `admin` may instead start a forced release, which runs the release command even when no record is found. It is allowed only after automatic switch resolution or explicit switch selection.
 
-- `operator` must stop.
-- `admin` may force release only after automatic switch resolution or explicit switch selection.
-
-Forced releases must require confirmation, require a reason, store `force = true`, preserve raw before/after output, and be clearly marked in job details and audit logs.
+Forced releases must require confirmation before the job is created, require a reason, store `force = true`, preserve raw before/after output, and be clearly marked in job details and audit logs.
 
 ## Execution Architecture
 
@@ -123,7 +121,7 @@ Command profiles should support:
 - IP, MAC, and entry-type parsing rules
 - Static/dynamic/unknown classification values
 
-If output cannot be parsed confidently, store the raw output and mark the result as needing manual confirmation.
+If the output after a release command cannot be parsed confidently, store the raw output and mark the result as needing manual confirmation. If the state before release cannot be parsed, send nothing and fail the job: the binding is untouched, so the address must not be held as an uncertain release.
 
 ## Audit
 
@@ -150,7 +148,7 @@ Everyone lands on the home page after login. It shows where things stand and sta
 - Admins also see the device operations summary there; there is no separate overview page.
 - A "New release" (发起解绑) button in its header opens the release console, so the release workflow stays one click away.
 
-Every release starts in the release console; do not add a second release form elsewhere. It is a focused page for one job at a time: query, confirm, result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Admin force release lives here. Release history is its own page, with filters and pagination.
+Every release starts in the release console; do not add a second release form elsewhere. It is a focused page for one job at a time: address and reason, then the result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Admin force release lives here. Release history is its own page, with filters and pagination.
 
 Navigation stays small:
 
@@ -159,7 +157,9 @@ Navigation stays small:
 - Device operations (admins): devices, schedules, compliance, alerts, audit log, asset settings (credentials, command profiles, switches, networks)
 - User and system administration
 
-The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑控制台, 解绑记录, 确认解绑, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
+The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 解绑控制台, 解绑记录, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
+
+Chinese release statuses are 排队中, 进行中, 成功, 失败, 超时, 无需解绑 (the binding was not static, so nothing was sent) and 需人工核实 (the outcome is unknown). 确认 means only a person confirming something, never a status.
 
 Build a clear, restrained operator-focused tool. Do not block the main release workflow on a polished full admin system.
 

@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Empty, ErrorNote, Section, Time, pick } from '@/features/ops/ui'
 import { JobStatusBadge } from './job-parts'
-import { canRetry, jobKindLabel, jobListKey, jobsPath, reasonLabel, request, type Job, type JobPage } from './jobs'
+import { canRetry, jobListKey, jobsPath, reasonLabel, request, type Job, type JobPage } from './jobs'
 
 type TableProps = {
   jobs: Job[]
@@ -18,7 +18,7 @@ type TableProps = {
   busy?: boolean
 }
 
-/** Jobs newest first; each address opens the job in the release console. */
+/** Releases newest first; each address opens the release in the console. */
 export function JobTable({ jobs, zh, admin, onRetry, busy = false }: TableProps) {
   return <div className="overflow-x-auto rounded-xl border [&_th]:whitespace-nowrap">
     <Table>
@@ -26,7 +26,6 @@ export function JobTable({ jobs, zh, admin, onRetry, busy = false }: TableProps)
         <TableHead>{pick(zh, '时间', 'Time')}</TableHead>
         <TableHead>IP</TableHead>
         <TableHead>{pick(zh, '交换机', 'Switch')}</TableHead>
-        <TableHead>{pick(zh, '类型', 'Type')}</TableHead>
         {onRetry ? <TableHead>{pick(zh, '原因', 'Reason')}</TableHead> : null}
         {admin ? <TableHead>{pick(zh, '执行人', 'Actor')}</TableHead> : null}
         <TableHead>{pick(zh, '状态', 'Status')}</TableHead>
@@ -36,26 +35,25 @@ export function JobTable({ jobs, zh, admin, onRetry, busy = false }: TableProps)
         <TableCell className="whitespace-nowrap text-muted-foreground"><Time value={job.created_at} zh={zh} /></TableCell>
         <TableCell><Button asChild variant="link" className="h-auto p-0 font-mono"><Link to="/release" search={{ job: job.id }}>{job.target_ip}</Link></Button></TableCell>
         <TableCell className="whitespace-nowrap text-muted-foreground" title={job.switch_management_ip}>{job.switch_name ?? '—'}</TableCell>
-        <TableCell className="whitespace-nowrap">{jobKindLabel(job.kind, zh)}{job.force ? <span className="text-warning"> · {pick(zh, '强制', 'forced')}</span> : null}</TableCell>
         {onRetry ? <TableCell className="whitespace-nowrap">{reasonLabel(job.reason, zh)}</TableCell> : null}
         {admin ? <TableCell className="max-w-48 truncate" title={job.actor_email}>{job.actor_email ?? '—'}</TableCell> : null}
-        <TableCell><JobStatusBadge job={job} zh={zh} /></TableCell>
+        <TableCell className="whitespace-nowrap"><JobStatusBadge job={job} zh={zh} />{job.force ? <span className="ml-2 text-xs text-warning">{pick(zh, '强制', 'Forced')}</span> : null}</TableCell>
         {onRetry ? <TableCell className="text-right">{canRetry(job, admin)
-          ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => onRetry(job)}>{pick(zh, '重新查询', 'Retry query')}</Button> : null}</TableCell> : null}
+          ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => onRetry(job)}>{pick(zh, '重试', 'Retry')}</Button> : null}</TableCell> : null}
       </TableRow>)}</TableBody>
     </Table>
   </div>
 }
 
-/** The latest jobs: the operator's own, or everyone's for an admin. */
+/** The latest releases: the operator's own, or everyone's for an admin. */
 export function RecentJobs({ zh, admin }: { zh: boolean; admin: boolean }) {
-  const recent = useQuery({ queryKey: [jobListKey, 'recent'], queryFn: () => request<JobPage>(jobsPath({ pageSize: 8 })), refetchInterval: 15_000 })
+  const recent = useQuery({ queryKey: [jobListKey, 'recent'], queryFn: () => request<JobPage>(jobsPath({ kind: 'release', pageSize: 8 })), refetchInterval: 15_000 })
   return <Section
-    title={admin ? pick(zh, '最近任务', 'Recent jobs') : pick(zh, '我的最近任务', 'My recent jobs')}
+    title={admin ? pick(zh, '最近解绑', 'Recent releases') : pick(zh, '我的最近解绑', 'My recent releases')}
     actions={<Link to="/releases" className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">{pick(zh, '全部解绑记录', 'All release history')}</Link>}>
     <ErrorNote error={recent.error} zh={zh} />
     {recent.data
-      ? recent.data.items.length ? <JobTable jobs={recent.data.items} zh={zh} admin={admin} /> : <Empty>{pick(zh, '还没有解绑任务。需要解绑时，点“发起解绑”。', 'No release jobs yet. Choose New release to start one.')}</Empty>
+      ? recent.data.items.length ? <JobTable jobs={recent.data.items} zh={zh} admin={admin} /> : <Empty>{pick(zh, '还没有解绑记录。需要解绑时，点“发起解绑”。', 'No releases yet. Choose New release to start one.')}</Empty>
       : recent.isPending ? <Skeleton className="h-40 rounded-xl" /> : null}
   </Section>
 }

@@ -9,15 +9,13 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Skeleton } from '@/components/ui/skeleton'
 import { Empty, ErrorNote, PageHeader, Pager, isAdmin, pick, useZh } from '@/features/ops/ui'
 import { JobTable } from '@/features/release/job-lists'
-import { canRelease, jobKindLabel, jobListKey, jobsPath, releaseErrorText, request, statusLabel, type Job, type JobPage } from '@/features/release/jobs'
+import { canRelease, jobListKey, jobsPath, releaseErrorText, request, statusLabel, type Job, type JobPage } from '@/features/release/jobs'
 
-type HistorySearch = { q?: string; kind?: string; status?: string; page?: number }
-const filterKeys = ['q', 'kind', 'status'] as const
+type HistorySearch = { q?: string; status?: string; page?: number }
+const filterKeys = ['q', 'status'] as const
 // A filter set to everything travels as this select value and leaves the search parameter out.
 const ANY = 'any'
-const kinds = ['release', 'pre_release_query']
-// A query waiting for confirmation shows as confirmed once released, so that status is not offered as a filter.
-const statuses = ['succeeded', 'failed', 'timeout', 'needs_manual_confirmation', 'cancelled', 'running']
+const statuses = ['succeeded', 'failed', 'timeout', 'needs_manual_confirmation', 'cancelled', 'queued', 'running']
 
 export const Route = createFileRoute('/_authenticated/releases')({
   validateSearch: (search: Record<string, unknown>): HistorySearch => {
@@ -44,7 +42,8 @@ function ReleaseHistoryPage() {
   const [text, setText] = useState(search.q ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const path = jobsPath({ q: search.q, kind: search.kind, status: search.status, page })
+  // Queries left from the old two-step flow stay out of the history; their own pages still open.
+  const path = jobsPath({ q: search.q, kind: 'release', status: search.status, page })
   const list = useQuery({ queryKey: [jobListKey, path], queryFn: () => request<JobPage>(path), enabled: allowed, placeholderData: keepPreviousData, refetchInterval: 15_000 })
 
   const filter = (patch: HistorySearch) => void navigate({ search: (previous) => ({ ...previous, ...patch, page: undefined }), replace: true })
@@ -62,7 +61,7 @@ function ReleaseHistoryPage() {
     finally { setBusy(false) }
   }
   if (!allowed) return <Alert><Lock aria-hidden="true" /><AlertDescription>{pick(zh, '需要操作员或管理员角色才能查看解绑记录。', 'An Operator or Admin role is required to see the release history.')}</AlertDescription></Alert>
-  const filterSelect = (key: 'kind' | 'status', label: string, options: [string, string][]) =>
+  const filterSelect = (key: 'status', label: string, options: [string, string][]) =>
     <Select value={search[key] ?? ANY} onValueChange={(value) => filter({ [key]: value === ANY ? undefined : value })}>
       <SelectTrigger aria-label={label} className="w-auto min-w-36"><SelectValue /></SelectTrigger>
       <SelectContent><SelectGroup>
@@ -73,13 +72,12 @@ function ReleaseHistoryPage() {
   const filtered = filterKeys.some((key) => search[key])
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
     <PageHeader title={pick(zh, '解绑记录', 'Release history')} description={admin
-      ? pick(zh, '所有人的查询与解绑任务，最新的在前。点击 IP 查看详情和原始输出。', 'Every query and release job, newest first. Select an IP for its details and raw output.')
-      : pick(zh, '你的查询与解绑任务，最新的在前。点击 IP 查看详情和原始输出。', 'Your query and release jobs, newest first. Select an IP for its details and raw output.')}>
+      ? pick(zh, '所有人的解绑，最新的在前。点击 IP 查看详情和原始输出。', 'Every release, newest first. Select an IP for its details and raw output.')
+      : pick(zh, '你的解绑，最新的在前。点击 IP 查看详情和原始输出。', 'Your releases, newest first. Select an IP for its details and raw output.')}>
       <Button asChild><Link to="/release"><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '发起解绑', 'New release')}</Link></Button>
     </PageHeader>
     <div className="flex flex-wrap items-center gap-2">
       <Input aria-label={pick(zh, '搜索 IP 或交换机', 'Search IP or switch')} placeholder={pick(zh, '搜索 IP 或交换机', 'Search IP or switch')} value={text} onChange={(event) => setText(event.target.value)} className="w-full sm:w-64" />
-      {filterSelect('kind', pick(zh, '全部类型', 'All types'), kinds.map((kind) => [kind, jobKindLabel(kind, zh)]))}
       {filterSelect('status', pick(zh, '全部状态', 'Any status'), statuses.map((status) => [status, statusLabel(status, zh)]))}
     </div>
     {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
@@ -87,7 +85,7 @@ function ReleaseHistoryPage() {
     {list.data
       ? list.data.items.length
         ? <JobTable jobs={list.data.items} zh={zh} admin={admin} busy={busy} onRetry={(job) => void retry(job)} />
-        : <Empty>{filtered ? pick(zh, '没有符合筛选条件的任务。', 'No job matches these filters.') : pick(zh, '还没有解绑任务。', 'No release jobs yet.')}</Empty>
+        : <Empty>{filtered ? pick(zh, '没有符合筛选条件的解绑。', 'No release matches these filters.') : pick(zh, '还没有解绑记录。', 'No releases yet.')}</Empty>
       : list.isPending ? <Skeleton className="h-64 rounded-xl" /> : null}
     {list.data ? <Pager page={page} total={list.data.total} pageSize={list.data.page_size} zh={zh} onPage={(next) => void navigate({ search: (previous) => ({ ...previous, page: next > 1 ? next : undefined }) })} /> : null}
   </main>

@@ -190,12 +190,12 @@ def dependency_problem(job, dep):
     """Why a job must not reach its switch at all, decided before any connection."""
     if not dep or not (dep["is_enabled"] and dep["credential_active"] and dep["profile_active"]):
         return "Switch, credential or command profile unavailable"
-    # The pre-query and its confirmation were made against the pinned revision only.
+    # The release was queued against the pinned revision only.
     if (
         dep["switch_version"] != job["switch_version"]
         or dep["profile_version"] != job["command_profile_version"]
     ):
-        return "Switch configuration changed after the pre-query; query again"
+        return "Switch configuration changed after the release was queued; release again"
     return None
 
 
@@ -249,10 +249,12 @@ def device_task(job, dep, checkpoint_sync):
             before_state=observation_to_dict(before),
         )
         if before.entry_type == ArpEntryType.UNKNOWN:
+            # Nothing has been sent, so the binding is untouched: a definite failure that must
+            # not hold the address as an uncertain release would.
             checkpoint_sync(
                 phase="finished",
-                status="needs_manual_confirmation",
-                message="Pre-query could not be parsed",
+                status="failed",
+                message="Pre-query could not be parsed; nothing was sent",
             )
             return
         if job["kind"] == "pre_release_query":

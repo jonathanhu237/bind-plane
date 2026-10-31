@@ -6,20 +6,20 @@ import { PageHeader, isAdmin, pick, useZh } from '@/features/ops/ui'
 import type { User } from '@/shared/api/contracts'
 import { JobView } from './job-view'
 import { canRelease } from './jobs'
-import { ReleaseQueryForm } from './query-form'
+import { ReleaseForm } from './release-form'
 
-/** One release at a time: the query form, then the job it queued. The job is part of the address, so a reload keeps it. */
+/** One release at a time: the form, then the job it started. The job is part of the address, so a reload keeps it. */
 export function ReleaseConsole({ user, jobID, onJob }: { user: User; jobID?: string; onJob: (jobID: string) => void }) {
   const zh = useZh()
   const admin = isAdmin(user)
   return <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-    <PageHeader title={pick(zh, '解绑控制台', 'Release console')} description={pick(zh, '输入一个 IPv4 地址。系统先定位交换机并查询绑定，确认后才会提交解绑任务。', 'Enter one IPv4 address. The switch and binding are queried before confirmation.')}>
+    <PageHeader title={pick(zh, '解绑控制台', 'Release console')} description={pick(zh, '输入一个 IPv4 地址，选好原因后点“解绑”。系统会先查询交换机上的绑定，只有静态绑定才会被删除。', 'Enter one IPv4 address and a reason, then choose Release. The switch is queried first, and only a static binding is deleted.')}>
       <Button asChild variant="outline"><Link to="/releases"><ListChecks aria-hidden="true" data-icon="inline-start" />{pick(zh, '解绑记录', 'Release history')}</Link></Button>
     </PageHeader>
     {!canRelease(user)
       ? <Alert><Lock aria-hidden="true" /><AlertDescription>{pick(zh, '需要操作员或管理员角色才能使用解绑控制台。', 'An Operator or Admin role is required to use the release console.')}</AlertDescription></Alert>
       : <>
-        <ReleaseQueryForm admin={admin} zh={zh} onPrepared={onJob} />
+        <ReleaseForm admin={admin} zh={zh} onStarted={onJob} />
         {jobID ? <JobView key={jobID} jobID={jobID} admin={admin} zh={zh} onJob={onJob} /> : null}
       </>}
   </div>

@@ -9,7 +9,8 @@ export type Job = {
   actor_email?: string; retry_of_id?: string; preparation_job_id?: string; release_job_id?: string; created_at?: string; started_at?: string; finished_at?: string
   events?: { phase: string; status: string; message?: string; created_at: string }[]
 }
-export type Preparation = { preparation_job_id?: string; status: string; target_ip: string; reason: string; force: boolean; resolved_switch?: { switch_id: string; network_id: string; cidr: string } }
+/** What starting a release returns: the queued job, or only a status when no switch could take it. */
+export type Started = Pick<Job, 'job_id' | 'status'>
 export type JobPage = { items: Job[]; total: number; page_size: number }
 export type JobFilter = { q?: string; kind?: string; status?: string; page?: number; pageSize?: number }
 /** Switches and profiles from the admin asset list, for the force-release switch and profile names. */
@@ -41,7 +42,7 @@ export function jobsPath({ q, kind, status, page, pageSize }: JobFilter): string
   return `/api/releases/jobs${query ? `?${query}` : ''}`
 }
 
-// Lists of jobs share this key prefix, so a confirm or retry refreshes all of them.
+// Lists of jobs share this key prefix, so a new release or a retry refreshes all of them.
 export const jobListKey = 'release-jobs'
 export const assetOptionsKey = 'release-asset-options'
 
@@ -50,13 +51,12 @@ export const canRelease = (user: User) => Boolean(user.superAdmin || user.roles?
 
 export const isRunning = (job: Pick<Job, 'status'> | undefined) => job?.status === 'queued' || job?.status === 'running'
 
-/** A query stays "waiting for confirmation" after its release starts; it is shown as confirmed. */
-export const shownStatus = (job: Pick<Job, 'kind' | 'status' | 'release_job_id'>) =>
-  job.kind === 'pre_release_query' && job.status === 'waiting_confirmation' && job.release_job_id ? 'confirmed' : job.status
-
-/** Failed, timed-out and uncertain jobs can start a fresh query; a forced one only by an admin. */
-export const canRetry = (job: Pick<Job, 'status' | 'force'>, admin: boolean) =>
-  ['failed', 'timeout', 'needs_manual_confirmation'].includes(job.status) && (!job.force || admin)
+/**
+ * A failed or timed-out release can be started again; a forced one only by an admin. An uncertain
+ * release holds its address until someone checks the switch, and old queries are never retried.
+ */
+export const canRetry = (job: Pick<Job, 'kind' | 'status' | 'force'>, admin: boolean) =>
+  job.kind === 'release' && ['failed', 'timeout'].includes(job.status) && (!job.force || admin)
 
 type Words = [english: string, chinese: string]
 const say = (words: Words | undefined, zh: boolean, fallback: string) => (words ? words[zh ? 1 : 0] : fallback)
@@ -70,18 +70,15 @@ const ambiguousSwitch: Words = [
   '有多台交换机的网段同样精确地包含该地址，需要管理员先修正网段数据。',
 ]
 
-// The confirmation the operator saw no longer describes the switch a release would reach.
-const assetChanged = 'switch configuration changed since the pre-query; query again'
-
 // Refusals whose meaning is specific to releases; everything else goes through serverText.
 const releaseErrors: Record<string, Words> = {
-  [assetChanged]: ['The switch configuration changed after this query. Query the binding again before releasing.', '查询之后交换机配置已变更。请重新查询绑定状态后再解绑。'],
+  'switch configuration changed; try again': ['The switch configuration changed just now. Release again.', '交换机配置刚刚有变更，请重新解绑。'],
   'one IPv4 address is required': ['Enter one IPv4 address, for example 10.0.0.42.', '请输入一个 IPv4 地址，例如 10.0.0.42。'],
   'no enabled validated switch owns this IP': noSwitch,
   'multiple equally specific switches own this IP': ambiguousSwitch,
   conflict: [
-    'This release cannot go ahead: the query is out of date, or another release of this address is still running or awaiting manual confirmation. Query again.',
-    '这次解绑无法继续：查询结果已过期，或同一地址的另一次解绑仍在执行或等待人工确认。请重新查询。',
+    'This address is already being released, or its last release needs a manual check. Wait for it to finish, or ask an admin to check the switch.',
+    '这个 IP 正在解绑，或上一次解绑的结果需要人工核实。请等它完成，或请管理员核实交换机。',
   ],
   'not found': ['This job no longer exists, or it belongs to someone else.', '任务不存在，或不属于你。'],
 }
@@ -96,21 +93,24 @@ const ipv4 = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[
 /** What is wrong with the typed address, in the interface language; empty when it can be queried. */
 export function targetIPProblem(value: string, zh: boolean): string {
   const ip = value.trim()
-  if (!ip) return zh ? '请输入要查询的 IPv4 地址。' : 'Enter the IPv4 address to query.'
+  if (!ip) return zh ? '请输入要解绑的 IPv4 地址。' : 'Enter the IPv4 address to release.'
   if (ipv4.test(ip)) return ''
   return zh ? '这不是有效的 IPv4 地址，请按 10.0.0.42 这样的格式输入。' : 'That is not an IPv4 address. Enter one like 10.0.0.42.'
 }
 
 // Job states, phases, binding types and reasons arrive as codes; unknown codes are shown as sent.
+// A release stopped because the binding was not static ("cancelled") has nothing to release.
+// Only the user's own "确认" exists in Chinese; an uncertain outcome is something to check (核实).
 const statuses: Record<string, Words> = {
-  queued: ['Queued', '排队中'], query_queued: ['Query queued', '查询排队中'], running: ['Running', '执行中'],
-  waiting_confirmation: ['Waiting for confirmation', '等待确认'], confirmed: ['Confirmed', '已确认'], succeeded: ['Succeeded', '成功'],
-  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], cancelled: ['Stopped', '已停止'], needs_manual_confirmation: ['Needs manual confirmation', '需人工确认'],
+  queued: ['Queued', '排队中'], running: ['In progress', '进行中'], succeeded: ['Succeeded', '成功'],
+  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], cancelled: ['Nothing to release', '无需解绑'], needs_manual_confirmation: ['Needs manual confirmation', '需人工核实'],
   stopped_no_switch: ['No switch matched', '未匹配到交换机'], stopped_ambiguous_switch: ['Several switches matched', '匹配到多台交换机'],
+  // A query from the old two-step flow that finished.
+  waiting_confirmation: ['Queried', '已查询'],
 }
 const phases: Record<string, Words> = {
   queued: ['Queued', '排队中'], connecting: ['Connecting to the switch', '正在连接交换机'], querying_before: ['Querying before release', '正在查询解绑前状态'],
-  waiting_confirmation: ['Waiting for confirmation', '等待确认'], releasing: ['Releasing', '正在解绑'], querying_after: ['Querying after release', '正在查询解绑后状态'],
+  waiting_confirmation: ['Queried', '查询完成'], releasing: ['Releasing', '正在解绑'], querying_after: ['Querying after release', '正在查询解绑后状态'],
   classifying: ['Judging the result', '正在判定结果'], finished: ['Finished', '已结束'],
 }
 const entryTypes: Record<string, Words> = { static: ['Static binding', '静态绑定'], dynamic: ['Dynamic entry', '动态记录'], missing: ['No record', '无记录'], unknown: ['Unclear', '无法判断'] }
@@ -123,7 +123,7 @@ export const rawOutputs = ['raw_before_output', 'raw_release_output', 'raw_after
 const rawOutputWords: Record<(typeof rawOutputs)[number], Words> = {
   raw_before_output: ['Raw output before release', '解绑前原始输出'], raw_release_output: ['Raw release command output', '解绑命令原始输出'], raw_after_output: ['Raw output after release', '解绑后原始输出'],
 }
-// A query that stops before any job exists explains what to do next.
+// A release that stops before any job exists explains what to do next.
 const stops: Record<string, Words> = { stopped_no_switch: noSwitch, stopped_ambiguous_switch: ambiguousSwitch }
 
 export const statusLabel = (status: string, zh: boolean) => say(statuses[status], zh, status.replaceAll('_', ' '))
@@ -132,7 +132,7 @@ export const entryLabel = (entry: string | undefined, zh: boolean) => (entry ? s
 export const reasonLabel = (reason: string, zh: boolean) => say(reasonWords[reason as (typeof reasons)[number]], zh, reason.replaceAll('_', ' '))
 export const rawOutputLabel = (key: (typeof rawOutputs)[number], zh: boolean) => say(rawOutputWords[key], zh, key)
 export const jobKindLabel = (kind: string, zh: boolean) => (kind === 'release' ? (zh ? '解绑' : 'Release') : zh ? '查询' : 'Query')
-/** Why a query stopped before a job existed; empty for every other status. */
+/** Why a release stopped before a job existed; empty for every other status. */
 export const stopText = (status: string, zh: boolean) => say(stops[status], zh, '')
 
 export const statusTone = (status: string) =>

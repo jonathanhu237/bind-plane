@@ -17,8 +17,8 @@ type querier interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// ErrAssetChanged means the switch a pre-query observed is no longer the switch a release would use.
-var ErrAssetChanged = errors.New("switch configuration changed since the pre-query; query again")
+// ErrAssetChanged means the resolved switch stopped being usable while its job was being queued.
+var ErrAssetChanged = errors.New("switch configuration changed; try again")
 
 // Jobs copy the switch revision (pinnedColumns) so the worker can refuse an edited asset.
 const (
@@ -49,168 +49,95 @@ func activeNetworks(ctx context.Context, q querier) ([]Network, error) {
 	return networks, rows.Err()
 }
 
-// pinnedSwitchCurrent re-checks, inside the caller's transaction, that a job's pinned revision still applies.
-func pinnedSwitchCurrent(ctx context.Context, q querier, ip, switchID, profileID string, switchVersion, profileVersion int, resolvedNetwork sql.NullString) error {
-	var current bool
-	err := q.QueryRowContext(ctx, `SELECT s.version=$3 AND p.version=$4 AND `+switchUsable+`
- FROM `+usableSwitch+` WHERE s.id=$1 AND p.id=$2`, switchID, profileID, switchVersion, profileVersion).Scan(&current)
-	if err == sql.ErrNoRows || err == nil && !current {
-		return ErrAssetChanged
-	}
-	if err != nil || !resolvedNetwork.Valid {
-		// An admin's explicit switch selection is not re-resolved.
-		return err
-	}
-	networks, err := activeNetworks(ctx, q)
-	if err != nil {
-		return err
-	}
-	selected, err := ResolveNetwork(ip, networks)
-	if err == ErrNoSwitch || err == ErrAmbiguous || err == nil && selected.SwitchID != switchID {
-		return ErrAssetChanged
-	}
-	return err
-}
-
-func (s *SQLStore) Prepare(ctx context.Context, input PrepareInput) (Preparation, error) {
+// Start queues a release job. The worker queries the binding first and changes nothing unless it is
+// static, or missing on an admin's forced release. When no switch, or several equally specific ones,
+// own the address, it returns that stop as a status and queues nothing.
+func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	if !ValidReason(input.Reason) {
-		return Preparation{}, ErrConflict
+		return Job{}, ErrConflict
 	}
 	if _, err := ResolveNetwork(input.TargetIP, nil); err == ErrInvalidIP {
-		return Preparation{}, err
+		return Job{}, err
 	}
-	networks, err := activeNetworks(ctx, s.DB)
-	if err != nil {
-		return Preparation{}, err
-	}
-	selected, err := ResolveNetwork(input.TargetIP, networks)
-	if err == ErrAmbiguous {
-		return Preparation{Status: "stopped_ambiguous_switch", TargetIP: input.TargetIP, Reason: input.Reason, Force: input.Force}, nil
-	}
-	if err == ErrNoSwitch && input.SelectedSwitchID != "" && input.Force && input.Admin {
-		err = s.DB.QueryRowContext(ctx, `SELECT s.id::text FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id WHERE s.id=$1 AND s.is_enabled AND c.is_active AND p.is_active`, input.SelectedSwitchID).Scan(&selected.SwitchID)
-		if err == sql.ErrNoRows {
-			return Preparation{}, ErrNoSwitch
-		}
-		if err != nil {
-			return Preparation{}, err
-		}
-		selected.ID = ""
-	} else if err == ErrNoSwitch {
-		return Preparation{Status: "stopped_no_switch", TargetIP: input.TargetIP, Reason: input.Reason, Force: input.Force}, nil
-	} else if err != nil {
-		return Preparation{}, err
-	}
-	if input.SelectedSwitchID != "" && selected.ID != "" {
-		return Preparation{}, ErrConflict
+	stopped := func(status string) (Job, error) {
+		return Job{Status: status, TargetIP: input.TargetIP, Reason: input.Reason, Force: input.Force}, nil
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return Preparation{}, err
+		return Job{}, err
 	}
 	defer tx.Rollback()
+	networks, err := activeNetworks(ctx, tx)
+	if err != nil {
+		return Job{}, err
+	}
+	selected, err := ResolveNetwork(input.TargetIP, networks)
+	if err == ErrAmbiguous {
+		return stopped("stopped_ambiguous_switch")
+	}
+	if err == ErrNoSwitch && input.SelectedSwitchID != "" && input.Force && input.Admin {
+		if !domain.IsCanonicalUUID(input.SelectedSwitchID) {
+			return Job{}, ErrNoSwitch
+		}
+		err = tx.QueryRowContext(ctx, `SELECT s.id::text FROM `+usableSwitch+` WHERE s.id=$1 AND `+switchUsable, input.SelectedSwitchID).Scan(&selected.SwitchID)
+		if err == sql.ErrNoRows {
+			return Job{}, ErrNoSwitch
+		}
+		if err != nil {
+			return Job{}, err
+		}
+		selected.ID = ""
+	} else if err == ErrNoSwitch {
+		return stopped("stopped_no_switch")
+	} else if err != nil {
+		return Job{}, err
+	}
+	if input.SelectedSwitchID != "" && selected.ID != "" {
+		return Job{}, ErrConflict
+	}
+	if err = addressFree(ctx, tx, input.TargetIP); err != nil {
+		return Job{}, err
+	}
 	var id, switchName, managementIP string
 	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,result,resolved_network_id,
  switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
- SELECT $1,'pre_release_query',$2,$3,'queued','queued',$4,$5,$6::jsonb,NULLIF($7,'')::uuid,`+pinnedColumns+`
+ SELECT $1,'release',$2,$3,'queued','queued',$4,$5,$6::jsonb,NULLIF($7,'')::uuid,`+pinnedColumns+`
  FROM `+usableSwitch+` WHERE `+switchUsable+` AND s.id=$8
  RETURNING id::text,switch_name,host(switch_management_ip)`, input.TargetIP, input.Reason, input.Force, input.ActorID, input.ActorEmail, selectionJSON(selected), selected.ID, selected.SwitchID).Scan(&id, &switchName, &managementIP)
 	if err == sql.ErrNoRows {
 		// The switch was disabled between resolution and insertion.
-		return Preparation{}, ErrAssetChanged
+		return Job{}, ErrAssetChanged
 	}
 	if err != nil {
-		return Preparation{}, err
+		return Job{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO bp_release_events(job_id,phase,status,message) VALUES ($1,'queued','queued','Pre-release query queued')`, id); err != nil {
-		return Preparation{}, err
+	if _, err = tx.ExecContext(ctx, `INSERT INTO bp_release_events(job_id,phase,status,message) VALUES ($1,'queued','queued','Release queued')`, id); err != nil {
+		return Job{}, err
 	}
 	if err = tx.Commit(); err != nil {
-		return Preparation{}, err
+		return Job{}, err
 	}
-	return Preparation{PreparationJobID: id, Status: "query_queued", TargetIP: input.TargetIP, ResolvedSwitch: map[string]string{"switch_id": selected.SwitchID, "network_id": selected.ID, "cidr": selected.CIDR, "name": switchName, "management_ip": managementIP}, Force: input.Force, Reason: input.Reason}, nil
+	return Job{ID: id, JobID: id, TargetIP: input.TargetIP, SwitchID: selected.SwitchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Status: "queued", Phase: "queued", Reason: input.Reason, Force: input.Force}, nil
 }
 func selectionJSON(n Network) string {
 	b, _ := json.Marshal(map[string]string{"network_id": n.ID, "cidr": n.CIDR})
 	return string(b)
 }
-func (s *SQLStore) Confirm(ctx context.Context, input ConfirmInput) (Job, error) {
-	if !domain.IsCanonicalUUID(input.PreparationJobID) {
-		return Job{}, ErrNotFound
+
+// addressFree takes the address lock the worker also holds while it claims a release, then refuses
+// another release while one is queued or running, or while an earlier one awaits manual confirmation.
+func addressFree(ctx context.Context, tx *sql.Tx, ip string) error {
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(host($1::inet),0))`, ip); err != nil {
+		return err
 	}
-	tx, err := s.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return Job{}, err
+	var busy bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bp_release_jobs WHERE target_ip=$1::inet AND kind='release' AND status IN ('queued','running','needs_manual_confirmation'))`, ip).Scan(&busy); err != nil {
+		return err
 	}
-	defer tx.Rollback()
-	var owner, ip, kind, reason, status, switchID, profileID, entry string
-	var preparedForce bool
-	var before []byte
-	var switchVersion, profileVersion int
-	var resolvedNetwork sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT actor_id::text,host(target_ip),kind,reason,status,force,switch_id::text,command_profile_id::text,before_state,switch_version,command_profile_version,resolved_network_id::text FROM bp_release_jobs WHERE id=$1 FOR UPDATE`, input.PreparationJobID).Scan(&owner, &ip, &kind, &reason, &status, &preparedForce, &switchID, &profileID, &before, &switchVersion, &profileVersion, &resolvedNetwork)
-	if err == sql.ErrNoRows {
-		return Job{}, ErrNotFound
+	if busy {
+		return ErrConflict
 	}
-	if err != nil {
-		return Job{}, err
-	}
-	if owner != input.ActorID {
-		return Job{}, ErrNotFound
-	}
-	var state struct {
-		EntryType string `json:"entry_type"`
-	}
-	if err = json.Unmarshal(before, &state); err != nil {
-		return Job{}, err
-	}
-	entry = state.EntryType
-	if kind != "pre_release_query" || !(status == "waiting_confirmation" || status == "cancelled" && entry == "missing") || !CanConfirmRelease(entry, input.Force, input.Admin) {
-		return Job{}, ErrConflict
-	}
-	if !preparedForce && input.Force && entry != "missing" {
-		return Job{}, ErrConflict
-	}
-	var existing, existingStatus, existingPhase string
-	var existingForce bool
-	err = tx.QueryRowContext(ctx, `SELECT id::text,status,phase,force FROM bp_release_jobs WHERE preparation_job_id=$1`, input.PreparationJobID).Scan(&existing, &existingStatus, &existingPhase, &existingForce)
-	if err == nil {
-		if existingForce != input.Force {
-			return Job{}, ErrConflict
-		}
-		if err = tx.Commit(); err != nil {
-			return Job{}, err
-		}
-		return Job{ID: existing, JobID: existing, TargetIP: ip, SwitchID: switchID, Kind: "release", Status: existingStatus, Phase: existingPhase, Reason: reason, Force: existingForce}, nil
-	}
-	if err != sql.ErrNoRows {
-		return Job{}, err
-	}
-	var blocked bool
-	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bp_release_jobs WHERE target_ip=$1 AND kind='release' AND status IN ('running','needs_manual_confirmation'))`, ip).Scan(&blocked); err != nil {
-		return Job{}, err
-	}
-	if blocked {
-		return Job{}, ErrConflict
-	}
-	if err = pinnedSwitchCurrent(ctx, tx, ip, switchID, profileID, switchVersion, profileVersion, resolvedNetwork); err != nil {
-		return Job{}, err
-	}
-	var id string
-	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,preparation_job_id,before_state,resolved_network_id,
- switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
- SELECT target_ip,'release',reason,$1,'queued','queued',actor_id,actor_email,id,before_state,resolved_network_id,
- switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip FROM bp_release_jobs WHERE id=$2 RETURNING id::text`, input.Force, input.PreparationJobID).Scan(&id)
-	if err != nil {
-		return Job{}, err
-	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO bp_release_events(job_id,phase,status,message) VALUES ($1,'queued','queued','Release confirmed and queued')`, id); err != nil {
-		return Job{}, err
-	}
-	if err = tx.Commit(); err != nil {
-		return Job{}, err
-	}
-	return Job{ID: id, JobID: id, TargetIP: ip, SwitchID: switchID, Kind: "release", Status: "queued", Phase: "queued", Reason: reason, Force: input.Force}, nil
+	return nil
 }
 func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, error) {
 	if !domain.IsCanonicalUUID(id) {
