@@ -161,7 +161,7 @@ Navigation stays small:
 
 The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 重新解绑 on the button that releases an address again, 解绑控制台, 解绑记录, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
 
-Release statuses say what happened on the switch. In Chinese they are 排队中, 进行中, 已解绑 (the static binding was deleted and is gone), 无静态绑定 (only a dynamic entry, so nothing was sent), 无记录 (the switch has no record of the address, so nothing was sent; an admin may force a release), 失败, 超时 and 结果未知 (a release command may have run, but whether the binding is gone is unknown; releasing again checks the switch first). 确认 means only a person confirming something, never a status.
+Release statuses say what happened on the switch. In Chinese they are 排队中, 进行中, 已解绑 (the static binding was deleted and is gone), 无绑定 (only a dynamic entry, so nothing was sent; 绑定 always means a static binding, and a dynamic entry is a 动态记录), 无记录 (the switch has no record of the address, so nothing was sent; an admin may force a release), 失败, 超时 and 结果未知 (a release command may have run, but whether the binding is gone is unknown; releasing again checks the switch first). 确认 means only a person confirming something, never a status.
 
 Build a clear, restrained operator-focused tool. Do not block the main release workflow on a polished full admin system.
 

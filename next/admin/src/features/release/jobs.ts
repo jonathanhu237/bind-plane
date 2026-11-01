@@ -108,7 +108,7 @@ export function targetIPProblem(value: string, zh: boolean): string {
 // releasing the address again settles it. In Chinese, 确认 is only a person confirming something.
 const statuses: Record<string, Words> = {
   queued: ['Queued', '排队中'], running: ['In progress', '进行中'], succeeded: ['Released', '已解绑'],
-  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], no_static_binding: ['No static binding', '无静态绑定'], no_record: ['No record', '无记录'], needs_manual_confirmation: ['Outcome unknown', '结果未知'],
+  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], no_static_binding: ['Not bound', '无绑定'], no_record: ['No record', '无记录'], needs_manual_confirmation: ['Outcome unknown', '结果未知'],
   stopped_no_switch: ['No switch matched', '未匹配到交换机'], stopped_ambiguous_switch: ['Several switches matched', '匹配到多台交换机'],
   // A query from the old two-step flow that finished.
   waiting_confirmation: ['Queried', '已查询'],
