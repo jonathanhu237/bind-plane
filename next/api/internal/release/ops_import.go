@@ -191,7 +191,7 @@ func importInsert(ctx context.Context, tx *sql.Tx, actor domain.Principal, actio
 	var id string
 	err := tx.QueryRowContext(ctx, statement, args...).Scan(&id)
 	if err == nil {
-		_, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,action,object_id,object_name) VALUES ($1,$2,$3,$4,$5)`, actor.User.ID, actor.User.Email, action, id, label)
+		_, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name) VALUES ($1,$2,$6,$3,$4,$5)`, actor.User.ID, actor.User.Email, action, id, label, actor.User.Name)
 	}
 	if err != nil {
 		if _, rollbackErr := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT import_row`); rollbackErr != nil {
@@ -281,7 +281,7 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 				if err = tx.QueryRowContext(ctx, `INSERT INTO bp_switch_groups(name) VALUES ($1) RETURNING id::text`, name).Scan(&groupID); err != nil {
 					return err
 				}
-				if _, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,action,object_id,object_name) VALUES ($1,$2,'group.create',$3,$4)`, actor.User.ID, actor.User.Email, groupID, name); err != nil {
+				if _, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name) VALUES ($1,$2,$5,'group.create',$3,$4)`, actor.User.ID, actor.User.Email, groupID, name, actor.User.Name); err != nil {
 					return err
 				}
 				groups[name] = groupID

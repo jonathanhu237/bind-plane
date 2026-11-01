@@ -138,6 +138,8 @@ Every release job must record enough information to answer:
 - Whether it succeeded, failed, timed out, or needs manual confirmation
 - Raw before/after/command output needed for troubleshooting
 
+Records name who acted: release jobs, asset events and device tasks keep the actor's name and email as they were at the time.
+
 Never log plaintext credentials, decrypted passwords, sensitive environment variables, or full connection strings.
 
 ## UI Direction
@@ -159,7 +161,7 @@ Navigation stays small:
 
 The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 解绑控制台, 解绑记录, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
 
-Chinese release statuses are 排队中, 进行中, 成功, 失败, 超时, 无需解绑 (the binding was not static, so nothing was sent) and 需人工核实 (the outcome is unknown). 确认 means only a person confirming something, never a status.
+Release statuses say what happened on the switch. In Chinese they are 排队中, 进行中, 已解绑 (the static binding was deleted and is gone), 无静态绑定 (only a dynamic entry, so nothing was sent), 无记录 (the switch has no record of the address, so nothing was sent; an admin may force a release), 失败, 超时 and 需人工核实 (a release command may have run, but the outcome is unknown). 确认 means only a person confirming something, never a status.
 
 Build a clear, restrained operator-focused tool. Do not block the main release workflow on a polished full admin system.
 

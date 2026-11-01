@@ -158,7 +158,7 @@ done = release("10.20.30.40")
 assert done["status"] == "succeeded" and done["before_state"]["entry_type"] == "static" and done["after_state"]["entry_type"] == "dynamic", done
 ok(f"release of 10.20.30.40 on {done['switch_name']} ({done['switch_management_ip']}) succeeded; entry is now dynamic")
 again = release("10.20.30.40")
-assert again["status"] == "cancelled" and again.get("raw_release_output") is None, again
+assert again["status"] == "no_static_binding" and again.get("raw_release_output") is None, again
 ok("releasing it again sent nothing: the binding is no longer static")
 
 call("POST", "/api/ops/schedules", {"name": "E2E every minute", "kind": "reachability", "cron": "* * * * *", "scope": "all"}, 201)

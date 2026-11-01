@@ -34,10 +34,11 @@ func TestAssetEditsAreVersionedAuditedAndFenceReleases(t *testing.T) {
 	if err = db.QueryRow(`INSERT INTO auth_users(name,email,email_canonical,password_hash) VALUES ('Admin','edit@test.invalid','edit@test.invalid','test') RETURNING id::text`).Scan(&actor); err != nil {
 		t.Fatal(err)
 	}
-	h, err := NewAdminHandler(db, fakeIdentity{principal: domain.Principal{User: domain.User{ID: actor, Email: "edit@test.invalid"}, SuperAdmin: true}}, "session", "http://localhost:5173")
+	h, err := NewAdminHandler(db, fakeIdentity{principal: domain.Principal{User: domain.User{ID: actor, Name: "Admin", Email: "edit@test.invalid"}, SuperAdmin: true}}, "session", "http://localhost:5173")
 	if err != nil {
 		t.Fatal(err)
 	}
+	editor := Actor{ID: actor, Name: "Admin", Email: "edit@test.invalid"}
 	call := func(method, path, body string, want int) map[string]any {
 		t.Helper()
 		r := httptest.NewRequest(method, "/api/releases/admin/"+path, strings.NewReader(body))
@@ -94,7 +95,7 @@ func TestAssetEditsAreVersionedAuditedAndFenceReleases(t *testing.T) {
 	store := NewSQLStore(db)
 	start := func(ip string) Job {
 		t.Helper()
-		started, err := store.Start(ctx, StartInput{TargetIP: ip, Reason: "temporary_test", ActorID: actor, ActorEmail: "edit@test.invalid"})
+		started, err := store.Start(ctx, StartInput{TargetIP: ip, Reason: "temporary_test", Actor: editor})
 		if err != nil || started.JobID == "" {
 			t.Fatalf("start %+v %v", started, err)
 		}
@@ -119,14 +120,14 @@ func TestAssetEditsAreVersionedAuditedAndFenceReleases(t *testing.T) {
 	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='failed',phase='finished' WHERE id=$1`, moved.JobID); err != nil {
 		t.Fatal(err)
 	}
-	retried, err := store.Retry(ctx, moved.JobID, actor, "edit@test.invalid", false)
+	retried, err := store.Retry(ctx, moved.JobID, editor, false)
 	if err != nil || retried.Kind != "release" || retried.SwitchID != switchB || retried.SwitchName != "edit-switch-b" || retried.SwitchManagementIP != "192.0.2.22" {
 		t.Fatalf("retry %+v %v", retried, err)
 	}
 
 	// A disabled switch no longer resolves.
 	call("PATCH", "switches/"+switchB, `{"version":1,"is_enabled":false}`, 200)
-	if stopped, err := store.Start(ctx, StartInput{TargetIP: "10.30.1.7", Reason: "temporary_test", ActorID: actor, ActorEmail: "edit@test.invalid"}); err != nil || stopped.Status != "stopped_no_switch" {
+	if stopped, err := store.Start(ctx, StartInput{TargetIP: "10.30.1.7", Reason: "temporary_test", Actor: editor}); err != nil || stopped.Status != "stopped_no_switch" {
 		t.Fatalf("disabled switch resolved: %+v %v", stopped, err)
 	}
 	if _, latest := events(switchB); !strings.Contains(latest, `"is_enabled": {"to": false, "from": true}`) {

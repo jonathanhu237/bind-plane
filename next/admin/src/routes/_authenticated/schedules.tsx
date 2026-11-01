@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { describeCron, opsRequest, taskState, type Schedule, type TaskDetail, type TaskKind, type TaskSummary } from '@/features/ops/api'
-import { AdminOnly, Empty, ErrorNote, PageHeader, Section, TaskStateBadge, ToneBadge, Time, formatTime, isAdmin, itemStatusLabel, kindLabel, pick, useZh, workerMessage } from '@/features/ops/ui'
+import { AdminOnly, Empty, ErrorNote, PageHeader, Section, TaskStateBadge, ToneBadge, Time, actorText, formatTime, isAdmin, itemStatusLabel, kindLabel, pick, useZh, workerMessage } from '@/features/ops/ui'
 import { callAssets, type Inventory } from '@/features/release/asset-editors'
 import { errorText, taskScopeText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
@@ -117,7 +117,7 @@ function TaskDialog({ taskId, zh, onClose }: { taskId: string | null; zh: boolea
     <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="flex max-h-[90dvh] flex-col sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle>{task ? `${kindLabel(task.kind, zh)} · ${task.schedule_name ?? taskScopeText(task.scope_label, zh)}` : pick(zh, '任务详情', 'Task run')}</DialogTitle>
-        <DialogDescription>{task ? pick(zh, `${formatTime(task.created_at, zh)} 由 ${task.actor_email ?? '计划任务'} 发起 · 成功 ${task.succeeded} · 失败 ${task.failed} · 跳过 ${task.skipped} · 配置变化 ${task.changed}`, `Started ${formatTime(task.created_at, zh)} by ${task.actor_email ?? 'a schedule'} · ${task.succeeded} succeeded · ${task.failed} failed · ${task.skipped} skipped · ${task.changed} changed`) : ' '}</DialogDescription>
+        <DialogDescription>{task ? pick(zh, `${formatTime(task.created_at, zh)} 由 ${task.actor_email ? actorText(task.actor_name, task.actor_email) : '计划任务'} 发起 · 成功 ${task.succeeded} · 失败 ${task.failed} · 跳过 ${task.skipped} · 配置变化 ${task.changed}`, `Started ${formatTime(task.created_at, zh)} by ${task.actor_email ? actorText(task.actor_name, task.actor_email) : 'a schedule'} · ${task.succeeded} succeeded · ${task.failed} failed · ${task.skipped} skipped · ${task.changed} changed`) : ' '}</DialogDescription>
       </DialogHeader>
       <ErrorNote error={query.error} zh={zh} />
       {task ? <div className="min-h-0 overflow-auto rounded-md border [&_th]:whitespace-nowrap"><Table>
@@ -184,7 +184,7 @@ function SchedulesPage() {
         <TableBody>{tasks.data.map((task) => <TableRow key={task.id} className="cursor-pointer" onClick={() => setTaskId(task.id)}>
           <TableCell><Time value={task.created_at} zh={zh} /></TableCell>
           <TableCell>{kindLabel(task.kind, zh)}</TableCell>
-          <TableCell className="max-w-64 truncate">{task.schedule_name ?? [taskScopeText(task.scope_label, zh), task.actor_email].filter(Boolean).join(' · ')}</TableCell>
+          <TableCell className="max-w-64 truncate">{task.schedule_name ?? [taskScopeText(task.scope_label, zh), task.actor_name ?? task.actor_email].filter(Boolean).join(' · ')}</TableCell>
           <TableCell className="text-right tabular-nums">{task.succeeded} / {task.failed} / {task.skipped}{taskState(task) === 'running' ? <span className="ml-1 text-muted-foreground">({pick(zh, `剩余 ${task.queued + task.running}`, `${task.queued + task.running} left`)})</span> : null}</TableCell>
           <TableCell className="text-right tabular-nums">{task.kind === 'config_backup' ? task.changed : '—'}</TableCell>
           <TableCell><TaskStateBadge state={taskState(task)} zh={zh} /></TableCell>

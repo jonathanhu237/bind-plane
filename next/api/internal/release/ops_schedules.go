@@ -175,10 +175,10 @@ func (o *OpsHandler) runSchedule(w http.ResponseWriter, r *http.Request) {
 	var taskID string
 	var queued, skipped int64
 	if err == nil {
-		taskID, _, queued, skipped, err = enqueueDeviceTask(r.Context(), tx, kind, id, actor.User.ID, actor.User.Email, scope, groupID, nil)
+		taskID, _, queued, skipped, err = enqueueDeviceTask(r.Context(), tx, kind, id, actor.User.ID, actor.User.Name, actor.User.Email, scope, groupID, nil)
 	}
 	if err == nil {
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO bp_asset_events(actor_id,actor_email,action,object_id,object_name) VALUES ($1,$2,'schedule.run',$3,$4)`, actor.User.ID, actor.User.Email, id, name)
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name) VALUES ($1,$2,$5,'schedule.run',$3,$4)`, actor.User.ID, actor.User.Email, id, name, actor.User.Name)
 	}
 	if err == nil {
 		err = tx.Commit()
@@ -244,7 +244,7 @@ func (o *OpsHandler) runDueSchedules(ctx context.Context, now time.Time) error {
 		if next, err := o.nextRun(d.cron, now); err == nil {
 			nextRun = next
 		}
-		if _, _, _, _, err = enqueueDeviceTask(ctx, tx, d.kind, d.id, nil, nil, d.scope, d.group, nil); err != nil && err != ErrNotFound {
+		if _, _, _, _, err = enqueueDeviceTask(ctx, tx, d.kind, d.id, nil, nil, nil, d.scope, d.group, nil); err != nil && err != ErrNotFound {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE bp_schedules SET last_run_at=$2,next_run_at=$3 WHERE id=$1`, d.id, now, nextRun); err != nil {

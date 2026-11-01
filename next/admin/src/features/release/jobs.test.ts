@@ -26,7 +26,10 @@ describe('release job messages', () => {
 
   it('names job states, phases, bindings and reasons instead of showing their codes', () => {
     expect(statusLabel('stopped_no_switch', true)).toBe('未匹配到交换机')
-    expect(statusLabel('cancelled', true)).toBe('无需解绑')
+    expect(statusLabel('succeeded', true)).toBe('已解绑')
+    expect(statusLabel('no_static_binding', true)).toBe('无静态绑定')
+    expect(statusLabel('no_record', true)).toBe('无记录')
+    expect(statusLabel('no_record', false)).toBe('No record')
     expect(statusLabel('needs_manual_confirmation', true)).toBe('需人工核实')
     expect(statusLabel('needs_manual_confirmation', false)).toBe('Needs manual confirmation')
     expect(statusLabel('some_new_state', true)).toBe('some new state')

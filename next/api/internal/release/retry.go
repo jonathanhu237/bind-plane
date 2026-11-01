@@ -11,7 +11,7 @@ import (
 // before sending anything, so a release that took effect is not repeated. An uncertain release is not
 // retried: it holds the address until someone checks the switch.
 // It runs against the switch's current revision; an auto-resolved target is resolved again.
-func (s *SQLStore) Retry(ctx context.Context, original, actorID, actorEmail string, admin bool) (Job, error) {
+func (s *SQLStore) Retry(ctx context.Context, original string, actor Actor, admin bool) (Job, error) {
 	if !domain.IsCanonicalUUID(original) {
 		return Job{}, ErrNotFound
 	}
@@ -30,7 +30,7 @@ func (s *SQLStore) Retry(ctx context.Context, original, actorID, actorEmail stri
 	if err != nil {
 		return Job{}, err
 	}
-	if !admin && owner != actorID {
+	if !admin && owner != actor.ID {
 		return Job{}, ErrNotFound
 	}
 	if forced && !admin {
@@ -55,11 +55,11 @@ func (s *SQLStore) Retry(ctx context.Context, original, actorID, actorEmail stri
 		return Job{}, err
 	}
 	var id, reason, switchName, managementIP string
-	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,ticket_id,force,status,phase,actor_id,actor_email,retry_of_id,resolved_network_id,
+	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,ticket_id,force,status,phase,actor_id,actor_email,actor_name,retry_of_id,resolved_network_id,
  switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
- SELECT j.target_ip,'release',j.reason,j.ticket_id,j.force,'queued','queued',$1,$2,j.id,$4::uuid,`+pinnedColumns+`
+ SELECT j.target_ip,'release',j.reason,j.ticket_id,j.force,'queued','queued',$1,$2,$6,j.id,$4::uuid,`+pinnedColumns+`
  FROM bp_release_jobs j, `+usableSwitch+` WHERE j.id=$3 AND s.id=$5 AND `+switchUsable+`
- RETURNING id::text,reason,switch_name,host(switch_management_ip)`, actorID, actorEmail, original, nullable(resolvedNetwork), switchID).Scan(&id, &reason, &switchName, &managementIP)
+ RETURNING id::text,reason,switch_name,host(switch_management_ip)`, actor.ID, actor.Email, original, nullable(resolvedNetwork), switchID, actor.Name).Scan(&id, &reason, &switchName, &managementIP)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrAssetChanged
 	}

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { opsRequest, type AuditEvent, type TaskKind } from '@/features/ops/api'
-import { AdminOnly, Empty, ErrorNote, PageHeader, formatTime, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
+import { AdminOnly, Empty, ErrorNote, PageHeader, actorText, formatTime, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import { actionName, describeChanges } from '@/features/release/asset-editors'
 
 export const Route = createFileRoute('/_authenticated/audit')({ component: AuditPage })
@@ -48,7 +48,7 @@ function AuditPage() {
           {categories.map((category) => <SelectItem key={category} value={category}>{categoryName[category]}</SelectItem>)}
         </SelectGroup></SelectContent>
       </Select>
-      <Input aria-label={pick(zh, '操作者', 'Actor')} placeholder={pick(zh, '操作者邮箱', 'Actor email')} value={actor} onChange={(event) => setActor(event.target.value)} className="w-48" />
+      <Input aria-label={pick(zh, '操作者', 'Actor')} placeholder={pick(zh, '操作者姓名或邮箱', 'Actor name or email')} value={actor} onChange={(event) => setActor(event.target.value)} className="w-48" />
       <Input aria-label={pick(zh, '对象', 'Object')} placeholder={pick(zh, '对象名称', 'Object name')} value={q} onChange={(event) => setQ(event.target.value)} className="w-48" />
     </div>
     <ErrorNote error={events.error} zh={zh} />
@@ -56,7 +56,7 @@ function AuditPage() {
       <TableHeader><TableRow><TableHead>{pick(zh, '时间', 'Time')}</TableHead><TableHead>{pick(zh, '操作者', 'Actor')}</TableHead><TableHead>{pick(zh, '操作', 'Action')}</TableHead><TableHead>{pick(zh, '对象', 'Object')}</TableHead><TableHead>{pick(zh, '变更', 'Changes')}</TableHead></TableRow></TableHeader>
       <TableBody>{rows.map((event) => <TableRow key={event.id}>
         <TableCell className="whitespace-nowrap tabular-nums">{formatTime(event.created_at, zh)}</TableCell>
-        <TableCell className="whitespace-nowrap">{event.actor_email}</TableCell>
+        <TableCell className="whitespace-nowrap" title={event.actor_email}>{actorText(event.actor_name, event.actor_email)}</TableCell>
         <TableCell className="whitespace-nowrap">{actionName(event.action, zh)}</TableCell>
         <TableCell className="min-w-40 max-w-64 break-words">{event.object_name}</TableCell>
         <TableCell className="min-w-56 max-w-72 break-words text-muted-foreground">{describe(event)}</TableCell>

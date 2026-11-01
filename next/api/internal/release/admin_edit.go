@@ -128,7 +128,7 @@ func (a *AdminHandler) updateAuditedThen(ctx context.Context, actor domain.Princ
 	if err != nil {
 		return 0, err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,action,object_id,object_name,changes) VALUES ($1,$2,$3,$4,$5,$6)`, actor.User.ID, actor.User.Email, kind.action, id, label, string(audit))
+	_, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name,changes) VALUES ($1,$2,$7,$3,$4,$5,$6)`, actor.User.ID, actor.User.Email, kind.action, id, label, string(audit), actor.User.Name)
 	if err == nil && then != nil {
 		err = then(ctx, tx)
 	}

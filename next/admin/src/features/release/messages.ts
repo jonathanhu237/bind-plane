@@ -111,8 +111,8 @@ const fixed: Record<string, Words> = {
   // Release jobs in the API, the worker and its result classifier.
   'Release queued': ['Release queued', '已提交解绑，等待执行'],
   'Retry queued as a new release': ['Retry queued as a new release', '重试：已重新提交解绑'],
-  'Dynamic entry is not a static binding': ['Dynamic entry, not a static binding; nothing to release', '这是动态记录，不是静态绑定，无需解绑'],
-  'No record; release stopped': ['The switch has no record of this address; nothing to release', '交换机上没有该地址的记录，无需解绑'],
+  'Dynamic entry is not a static binding': ['Only a dynamic entry, no static binding; nothing was sent', '只有动态记录，没有静态绑定，未发送任何命令'],
+  'No record; release stopped': ['The switch has no record of this address, so nothing was sent. Check the address; an admin can force the release.', '交换机上查不到这个 IP 的记录，未发送任何命令。请检查 IP 是否输错；管理员可以强制解绑。'],
   'Pre-query could not be parsed; nothing was sent': ['The output before release could not be parsed, so nothing was sent', '无法解析解绑前的查询输出，没有执行解绑'],
   'Switch configuration changed after the release was queued; release again': ['The switch configuration changed after the release was queued. Release again.', '提交解绑后交换机配置有变更，请重新解绑。'],
   // Messages kept on jobs from the old two-step flow, which queried first and released after a confirmation.

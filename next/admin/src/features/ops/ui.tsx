@@ -15,6 +15,8 @@ export function useZh(): boolean {
 }
 
 export const pick = (zh: boolean, chinese: string, english: string) => (zh ? chinese : english)
+/** Who acted, by name. Older records, or ones whose name was never recorded, have only the email. */
+export const actorText = (name?: string | null, email?: string | null) => name || email || '—'
 
 export const isAdmin = (user: User) => Boolean(user.superAdmin || user.roles?.some((role) => role.name === 'Admin'))
 

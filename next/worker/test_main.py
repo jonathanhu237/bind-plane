@@ -93,7 +93,28 @@ def test_dynamic_record_never_sends_release_command():
             lambda **data: events.append(data),
         )
     assert instance.release_calls == 0
-    assert events[-1]["status"] == "cancelled"
+    assert events[-1]["status"] == "no_static_binding"
+
+
+def test_missing_record_never_sends_release_command():
+    class EmptyDevice(Device):
+        def query_before(self, commands):
+            return "10.1.2.3 not found"
+
+    events = []
+    instance = EmptyDevice(None)
+    with (
+        patch("worker.main.NetmikoSwitchSession", return_value=instance),
+        patch("worker.main.connection_settings", return_value=SimpleNamespace()),
+        patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
+    ):
+        device_task(
+            {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED},
+            dependency(),
+            lambda **data: events.append(data),
+        )
+    assert instance.release_calls == 0
+    assert events[-1]["status"] == "no_record"
 
 
 def test_prequery_never_sends_release_command():

@@ -6,7 +6,7 @@ export type Job = {
   before_state?: { entry_type?: string; mac?: string }; after_state?: { entry_type?: string }
   result?: { message?: string; preparation_status?: string }; error_message?: string
   raw_before_output?: string; raw_release_output?: string; raw_after_output?: string
-  actor_email?: string; retry_of_id?: string; preparation_job_id?: string; release_job_id?: string; created_at?: string; started_at?: string; finished_at?: string
+  actor_name?: string; actor_email?: string; retry_of_id?: string; preparation_job_id?: string; release_job_id?: string; created_at?: string; started_at?: string; finished_at?: string
   events?: { phase: string; status: string; message?: string; created_at: string }[]
 }
 /** What starting a release returns: the queued job, or only a status when no switch could take it. */
@@ -99,11 +99,12 @@ export function targetIPProblem(value: string, zh: boolean): string {
 }
 
 // Job states, phases, binding types and reasons arrive as codes; unknown codes are shown as sent.
-// A release stopped because the binding was not static ("cancelled") has nothing to release.
+// A release status says what happened on the switch. Nothing is sent when the address has only a
+// dynamic entry (no_static_binding) or no record at all (no_record).
 // Only the user's own "确认" exists in Chinese; an uncertain outcome is something to check (核实).
 const statuses: Record<string, Words> = {
-  queued: ['Queued', '排队中'], running: ['In progress', '进行中'], succeeded: ['Succeeded', '成功'],
-  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], cancelled: ['Nothing to release', '无需解绑'], needs_manual_confirmation: ['Needs manual confirmation', '需人工核实'],
+  queued: ['Queued', '排队中'], running: ['In progress', '进行中'], succeeded: ['Released', '已解绑'],
+  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], no_static_binding: ['No static binding', '无静态绑定'], no_record: ['No record', '无记录'], needs_manual_confirmation: ['Needs manual confirmation', '需人工核实'],
   stopped_no_switch: ['No switch matched', '未匹配到交换机'], stopped_ambiguous_switch: ['Several switches matched', '匹配到多台交换机'],
   // A query from the old two-step flow that finished.
   waiting_confirmation: ['Queried', '已查询'],

@@ -5,7 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Empty, ErrorNote, Section, Time, pick } from '@/features/ops/ui'
+import { Empty, ErrorNote, Section, Time, actorText, pick } from '@/features/ops/ui'
 import { JobStatusBadge } from './job-parts'
 import { canRetry, jobListKey, jobsPath, reasonLabel, request, type Job, type JobPage } from './jobs'
 
@@ -36,7 +36,7 @@ export function JobTable({ jobs, zh, admin, onRetry, busy = false }: TableProps)
         <TableCell><Button asChild variant="link" className="h-auto p-0 font-mono"><Link to="/release" search={{ job: job.id }}>{job.target_ip}</Link></Button></TableCell>
         <TableCell className="whitespace-nowrap text-muted-foreground" title={job.switch_management_ip}>{job.switch_name ?? '—'}</TableCell>
         {onRetry ? <TableCell className="whitespace-nowrap">{reasonLabel(job.reason, zh)}</TableCell> : null}
-        {admin ? <TableCell className="max-w-48 truncate" title={job.actor_email}>{job.actor_email ?? '—'}</TableCell> : null}
+        {admin ? <TableCell className="max-w-48 truncate" title={job.actor_email}>{actorText(job.actor_name, job.actor_email)}</TableCell> : null}
         <TableCell className="whitespace-nowrap"><JobStatusBadge job={job} zh={zh} />{job.force ? <span className="ml-2 text-xs text-warning">{pick(zh, '强制', 'Forced')}</span> : null}</TableCell>
         {onRetry ? <TableCell className="text-right">{canRetry(job, admin)
           ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => onRetry(job)}>{pick(zh, '重试', 'Retry')}</Button> : null}</TableCell> : null}

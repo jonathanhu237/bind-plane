@@ -123,9 +123,9 @@ func (o *OpsHandler) audit(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
-	items, err := o.rows(r.Context(), []string{"id", "actor_email", "action", "object_id", "object_name", "changes", "created_at"},
-		`SELECT id,actor_email,action,object_id::text,object_name,changes::text,created_at FROM bp_asset_events
- WHERE ($1='' OR action LIKE $1||'.%') AND ($2='' OR actor_email ILIKE '%'||$2||'%') AND ($3='' OR object_name ILIKE '%'||$3||'%') AND ($4=0 OR id<$4)
+	items, err := o.rows(r.Context(), []string{"id", "actor_name", "actor_email", "action", "object_id", "object_name", "changes", "created_at"},
+		`SELECT id,actor_name,actor_email,action,object_id::text,object_name,changes::text,created_at FROM bp_asset_events
+ WHERE ($1='' OR action LIKE $1||'.%') AND ($2='' OR actor_email ILIKE '%'||$2||'%' OR actor_name ILIKE '%'||$2||'%') AND ($3='' OR object_name ILIKE '%'||$3||'%') AND ($4=0 OR id<$4)
  ORDER BY id DESC LIMIT 51`, q.Get("action"), q.Get("actor"), q.Get("q"), before)
 	if err != nil {
 		o.unavailable(w, err)
@@ -302,7 +302,7 @@ func (o *OpsHandler) openBackup(ctx context.Context, raw string) (sealedBackup, 
 
 // auditRead records who looked at sensitive configuration; the view fails closed without it.
 func (o *OpsHandler) auditRead(ctx context.Context, actor domain.Principal, action, objectID, name string) error {
-	_, err := o.db.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,action,object_id,object_name) VALUES ($1,$2,$3,$4,$5)`, actor.User.ID, actor.User.Email, action, objectID, name)
+	_, err := o.db.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name) VALUES ($1,$2,$6,$3,$4,$5)`, actor.User.ID, actor.User.Email, action, objectID, name, actor.User.Name)
 	return err
 }
 
@@ -359,11 +359,11 @@ func (o *OpsHandler) backupDiff(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-var taskSummaryColumns = []string{"id", "kind", "scope_label", "actor_email", "schedule_name", "created_at",
+var taskSummaryColumns = []string{"id", "kind", "scope_label", "actor_name", "actor_email", "schedule_name", "created_at",
 	"total", "queued", "running", "succeeded", "failed", "skipped", "changed", "finished_at"}
 
 func (o *OpsHandler) taskSummaries(ctx context.Context, id string, limit int) ([]map[string]any, error) {
-	return o.rows(ctx, taskSummaryColumns, `SELECT t.id::text,t.kind,t.scope_label,t.actor_email,sc.name,t.created_at,
+	return o.rows(ctx, taskSummaryColumns, `SELECT t.id::text,t.kind,t.scope_label,t.actor_name,t.actor_email,sc.name,t.created_at,
  count(i.id),count(i.id) FILTER (WHERE i.status='queued'),count(i.id) FILTER (WHERE i.status='running'),
  count(i.id) FILTER (WHERE i.status='succeeded'),count(i.id) FILTER (WHERE i.status='failed'),count(i.id) FILTER (WHERE i.status='skipped'),
  count(i.id) FILTER (WHERE i.changed),max(i.finished_at)
@@ -417,7 +417,7 @@ var deviceTaskKinds = map[string]bool{"config_backup": true, "reachability": tru
 
 // enqueueDeviceTask queues one item per enabled switch in scope. A switch that already has a
 // pending operation of this kind is recorded as skipped instead of queued twice.
-func enqueueDeviceTask(ctx context.Context, tx *sql.Tx, kind string, scheduleID, actorID, actorEmail any, scope, groupID string, switchIDs []string) (string, string, int64, int64, error) {
+func enqueueDeviceTask(ctx context.Context, tx *sql.Tx, kind string, scheduleID, actorID, actorName, actorEmail any, scope, groupID string, switchIDs []string) (string, string, int64, int64, error) {
 	label := "All enabled switches"
 	filter := `TRUE`
 	param := ""
@@ -440,8 +440,8 @@ func enqueueDeviceTask(ctx context.Context, tx *sql.Tx, kind string, scheduleID,
 		}
 	}
 	var taskID string
-	if err := tx.QueryRowContext(ctx, `INSERT INTO bp_device_tasks(kind,schedule_id,actor_id,actor_email,scope_label) VALUES ($1,$2,$3,$4,$5) RETURNING id::text`,
-		kind, scheduleID, actorID, actorEmail, label).Scan(&taskID); err != nil {
+	if err := tx.QueryRowContext(ctx, `INSERT INTO bp_device_tasks(kind,schedule_id,actor_id,actor_name,actor_email,scope_label) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id::text`,
+		kind, scheduleID, actorID, actorName, actorEmail, label).Scan(&taskID); err != nil {
 		return "", "", 0, 0, err
 	}
 	if param == "" {
@@ -491,14 +491,14 @@ func (o *OpsHandler) runTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	taskID, label, queued, skipped, err := enqueueDeviceTask(r.Context(), tx, input.Kind, nil, actor.User.ID, actor.User.Email, input.Scope, input.GroupID, input.SwitchIDs)
+	taskID, label, queued, skipped, err := enqueueDeviceTask(r.Context(), tx, input.Kind, nil, actor.User.ID, actor.User.Name, actor.User.Email, input.Scope, input.GroupID, input.SwitchIDs)
 	if err == ErrNotFound {
 		fail(w, 404, "group not found")
 		return
 	}
 	if err == nil {
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO bp_asset_events(actor_id,actor_email,action,object_id,object_name,changes) VALUES ($1,$2,'task.run',$3,$4,jsonb_build_object('kind',$5::text,'queued',$6::int))`,
-			actor.User.ID, actor.User.Email, taskID, label, input.Kind, queued)
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name,changes) VALUES ($1,$2,$7,'task.run',$3,$4,jsonb_build_object('kind',$5::text,'queued',$6::int))`,
+			actor.User.ID, actor.User.Email, taskID, label, input.Kind, queued, actor.User.Name)
 	}
 	if err == nil {
 		err = tx.Commit()
@@ -555,7 +555,7 @@ func (o *OpsHandler) acknowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err == nil {
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO bp_asset_events(actor_id,actor_email,action,object_id,object_name) VALUES ($1,$2,'alert.acknowledge',$3,$4)`, actor.User.ID, actor.User.Email, switchID, fmt.Sprintf("alert %d (%s)", id, kind))
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name) VALUES ($1,$2,$5,'alert.acknowledge',$3,$4)`, actor.User.ID, actor.User.Email, switchID, fmt.Sprintf("alert %d (%s)", id, kind), actor.User.Name)
 	}
 	if err == nil {
 		err = tx.Commit()

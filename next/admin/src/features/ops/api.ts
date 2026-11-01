@@ -32,7 +32,7 @@ export type OpsSwitch = {
 export type Page<T> = { items: T[]; total: number; page_size: number }
 
 export type TaskSummary = {
-  id: string; kind: TaskKind; scope_label: string; actor_email: string | null; schedule_name: string | null; created_at: string
+  id: string; kind: TaskKind; scope_label: string; actor_name: string | null; actor_email: string | null; schedule_name: string | null; created_at: string
   total: number; queued: number; running: number; succeeded: number; failed: number; skipped: number; changed: number; finished_at: string | null
 }
 export type TaskItem = {
@@ -59,7 +59,7 @@ export type Alert = {
   management_ip: string; rule_id: string | null; rule_name: string | null; message: string; status: 'open' | 'acknowledged' | 'resolved'
   opened_at: string; last_seen_at: string; acknowledged_at: string | null; acknowledged_by: string | null; resolved_at: string | null
 }
-export type AuditEvent = { id: number; actor_email: string; action: string; object_id: string; object_name: string; changes: Record<string, unknown>; created_at: string }
+export type AuditEvent = { id: number; actor_name: string | null; actor_email: string; action: string; object_id: string; object_name: string; changes: Record<string, unknown>; created_at: string }
 
 export type Overview = {
   switches: { total: number; enabled: number; reachable: number; unreachable: number; unknown: number }

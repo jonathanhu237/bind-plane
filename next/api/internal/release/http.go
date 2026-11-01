@@ -22,10 +22,13 @@ type StartInput struct {
 	Reason           string `json:"reason"`
 	Force            bool   `json:"force"`
 	SelectedSwitchID string `json:"selected_switch_id,omitempty"`
-	ActorID          string `json:"-"`
-	ActorEmail       string `json:"-"`
+	Actor            Actor  `json:"-"`
 	Admin            bool   `json:"-"`
 }
+
+// Actor is who starts a job. The job keeps their name and email as they were at the time.
+type Actor struct{ ID, Name, Email string }
+
 type JobEvent struct {
 	Phase     string    `json:"phase"`
 	Status    string    `json:"status"`
@@ -40,6 +43,7 @@ type Job struct {
 	SwitchName         string     `json:"switch_name,omitempty"`
 	SwitchManagementIP string     `json:"switch_management_ip,omitempty"`
 	CommandProfileID   string     `json:"command_profile_id,omitempty"`
+	ActorName          string     `json:"actor_name,omitempty"`
 	ActorEmail         string     `json:"actor_email,omitempty"`
 	RetryOfID          *string    `json:"retry_of_id,omitempty"`
 	PreparationJobID   *string    `json:"preparation_job_id,omitempty"` // a release from the old two-step flow: the query it confirmed
@@ -75,7 +79,7 @@ type JobPage struct {
 
 type Store interface {
 	Start(context.Context, StartInput) (Job, error)
-	Retry(context.Context, string, string, string, bool) (Job, error)
+	Retry(context.Context, string, Actor, bool) (Job, error)
 	Job(context.Context, string, string, bool) (Job, error)
 	Jobs(context.Context, string, bool, JobFilter) (JobPage, error)
 }
@@ -178,7 +182,7 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, err.Error())
 		return
 	}
-	input.ActorID, input.ActorEmail, input.Admin = p.User.ID, p.User.Email, admin
+	input.Actor, input.Admin = Actor{ID: p.User.ID, Name: p.User.Name, Email: p.User.Email}, admin
 	job, err := h.store.Start(r.Context(), input)
 	if err != nil {
 		storeError(w, err)
@@ -208,7 +212,7 @@ func (h *handler) retry(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	job, err := h.store.Retry(r.Context(), r.PathValue("id"), p.User.ID, p.User.Email, admin)
+	job, err := h.store.Retry(r.Context(), r.PathValue("id"), Actor{ID: p.User.ID, Name: p.User.Name, Email: p.User.Email}, admin)
 	if err != nil {
 		storeError(w, err)
 		return

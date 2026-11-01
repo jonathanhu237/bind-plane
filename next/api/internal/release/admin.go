@@ -84,7 +84,7 @@ func (a *AdminHandler) createAudited(ctx context.Context, actor domain.Principal
 	if err = tx.QueryRowContext(ctx, statement, args...).Scan(&id); err != nil {
 		return "", err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,action,object_id,object_name) VALUES ($1,$2,$3,$4,$5)`, actor.User.ID, actor.User.Email, action, id, name)
+	_, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name) VALUES ($1,$2,$6,$3,$4,$5)`, actor.User.ID, actor.User.Email, action, id, name, actor.User.Name)
 	if err != nil {
 		return "", err
 	}

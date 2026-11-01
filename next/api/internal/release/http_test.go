@@ -30,7 +30,7 @@ func (f *fakeStore) Start(context.Context, StartInput) (Job, error) {
 	f.calls++
 	return f.started, nil
 }
-func (f *fakeStore) Retry(context.Context, string, string, string, bool) (Job, error) {
+func (f *fakeStore) Retry(context.Context, string, Actor, bool) (Job, error) {
 	f.calls++
 	return Job{Status: "queued"}, nil
 }

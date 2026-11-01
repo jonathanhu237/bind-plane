@@ -261,14 +261,14 @@ def device_task(job, dep, checkpoint_sync):
             if before.entry_type == ArpEntryType.DYNAMIC:
                 checkpoint_sync(
                     phase="finished",
-                    status="cancelled",
+                    status="no_static_binding",
                     message="Dynamic entry is not a static binding",
                     result={"preparation_status": "stopped_dynamic_record"},
                 )
             elif before.entry_type == ArpEntryType.MISSING and not job["force"]:
                 checkpoint_sync(
                     phase="finished",
-                    status="cancelled",
+                    status="no_record",
                     message="No record; operator must stop",
                     result={"preparation_status": "stopped_no_record"},
                 )
@@ -280,16 +280,17 @@ def device_task(job, dep, checkpoint_sync):
                     result={"preparation_status": "ready"},
                 )
             return
+        # Nothing is sent in either case; the status says why.
         if before.entry_type == ArpEntryType.DYNAMIC:
             checkpoint_sync(
                 phase="finished",
-                status="cancelled",
+                status="no_static_binding",
                 message="Dynamic entry is not a static binding",
             )
             return
         if before.entry_type == ArpEntryType.MISSING and not job["force"]:
             checkpoint_sync(
-                phase="finished", status="cancelled", message="No record; release stopped"
+                phase="finished", status="no_record", message="No record; release stopped"
             )
             return
         checkpoint_sync(phase="releasing")

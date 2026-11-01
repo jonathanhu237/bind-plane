@@ -45,8 +45,9 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := NewSQLStore(db)
+	operator := Actor{ID: actor, Name: "Operator", Email: "operator@test.invalid"}
 	start := func(ip string) (Job, error) {
-		return store.Start(ctx, StartInput{TargetIP: ip, Reason: "temporary_test", ActorID: actor, ActorEmail: "operator@test.invalid"})
+		return store.Start(ctx, StartInput{TargetIP: ip, Reason: "temporary_test", Actor: operator})
 	}
 	started, err := start("10.2.1.7")
 	if err != nil {
@@ -56,7 +57,7 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 		t.Fatalf("%+v", started)
 	}
 	detail, err := store.Job(ctx, started.JobID, actor, false)
-	if err != nil || detail.TargetIP != "10.2.1.7" || detail.CommandProfileID != profile || len(detail.Events) != 1 || detail.PreparationJobID != nil {
+	if err != nil || detail.TargetIP != "10.2.1.7" || detail.CommandProfileID != profile || detail.ActorName != "Operator" || len(detail.Events) != 1 || detail.PreparationJobID != nil {
 		t.Fatalf("release evidence: %+v %v", detail, err)
 	}
 	if _, err = store.Job(ctx, started.JobID, "00000000-0000-4000-8000-000000000000", false); err != ErrNotFound {
@@ -72,18 +73,18 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='failed',phase='finished' WHERE id=$1`, started.JobID); err != nil {
 		t.Fatal(err)
 	}
-	retried, err := store.Retry(ctx, started.JobID, actor, "operator@test.invalid", false)
+	retried, err := store.Retry(ctx, started.JobID, operator, false)
 	if err != nil || retried.Kind != "release" || retried.ID == started.JobID {
 		t.Fatalf("retry %+v %v", retried, err)
 	}
-	if _, err = store.Retry(ctx, started.JobID, actor, "operator@test.invalid", false); err != ErrConflict {
+	if _, err = store.Retry(ctx, started.JobID, operator, false); err != ErrConflict {
 		t.Fatalf("second retry while the first is queued: %v", err)
 	}
 	// An uncertain release holds the address and is not retried itself.
 	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='needs_manual_confirmation',phase='finished' WHERE id=$1`, retried.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.Retry(ctx, retried.ID, actor, "operator@test.invalid", false); err != ErrConflict {
+	if _, err = store.Retry(ctx, retried.ID, operator, false); err != ErrConflict {
 		t.Fatalf("retried an uncertain release: %v", err)
 	}
 	if _, err = start("10.2.1.7"); err != ErrConflict {
@@ -91,13 +92,13 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 	}
 	// A query from the old two-step flow stays readable but never becomes a release.
 	var legacy string
-	if err = db.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,
+	if err = db.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,actor_name,
  switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
- SELECT target_ip,'pre_release_query',reason,false,'failed','finished',actor_id,actor_email,
+ SELECT target_ip,'pre_release_query',reason,false,'failed','finished',actor_id,actor_email,actor_name,
  switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip FROM bp_release_jobs WHERE id=$1 RETURNING id::text`, started.JobID).Scan(&legacy); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.Retry(ctx, legacy, actor, "operator@test.invalid", false); err != ErrConflict {
+	if _, err = store.Retry(ctx, legacy, operator, false); err != ErrConflict {
 		t.Fatalf("retried a legacy query: %v", err)
 	}
 	history, err := store.Jobs(ctx, actor, false, JobFilter{Limit: 50})
@@ -105,7 +106,7 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 		t.Fatalf("jobs %+v %v", history, err)
 	}
 	for _, job := range history.Items {
-		if job.CreatedAt == nil || job.ActorEmail != "operator@test.invalid" || job.SwitchManagementIP != "192.0.2.1" {
+		if job.CreatedAt == nil || job.ActorName != "Operator" || job.ActorEmail != "operator@test.invalid" || job.SwitchManagementIP != "192.0.2.1" {
 			t.Fatalf("listed job lacks its context: %+v", job)
 		}
 		if job.ID == retried.ID && (job.RetryOfID == nil || *job.RetryOfID != started.JobID) {

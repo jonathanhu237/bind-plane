@@ -15,7 +15,7 @@ type HistorySearch = { q?: string; status?: string; page?: number }
 const filterKeys = ['q', 'status'] as const
 // A filter set to everything travels as this select value and leaves the search parameter out.
 const ANY = 'any'
-const statuses = ['succeeded', 'failed', 'timeout', 'needs_manual_confirmation', 'cancelled', 'queued', 'running']
+const statuses = ['succeeded', 'no_static_binding', 'no_record', 'failed', 'timeout', 'needs_manual_confirmation', 'queued', 'running']
 
 export const Route = createFileRoute('/_authenticated/releases')({
   validateSearch: (search: Record<string, unknown>): HistorySearch => {
