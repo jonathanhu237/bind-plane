@@ -16,7 +16,7 @@ describe('release job messages', () => {
   it('explains refusals from the release API in the interface language', () => {
     expect(releaseErrorText(new Error('no enabled validated switch owns this IP'), true)).toBe('没有哪台已启用的交换机拥有包含该地址、且已验证的网段。管理员可以在“资产配置”中检查网段。')
     expect(releaseErrorText(new Error('switch configuration changed; try again'), true)).toBe('交换机配置刚刚有变更，请重新解绑。')
-    expect(releaseErrorText(new Error('conflict'), true)).toBe('这个 IP 正在解绑，或上一次解绑的结果需要人工核实。请等它完成，或请管理员核实交换机。')
+    expect(releaseErrorText(new Error('conflict'), true)).toBe('这个 IP 正在解绑，请等它完成后再试。')
     expect(releaseErrorText(new Error('operator role required'), true)).toBe('需要操作员或管理员角色。')
     expect(releaseErrorText(new Error('an unexpected detail'), true)).toBe('an unexpected detail')
     expect(releaseErrorText('not an error', true)).toBe('操作失败，请重试。')
@@ -30,8 +30,8 @@ describe('release job messages', () => {
     expect(statusLabel('no_static_binding', true)).toBe('无静态绑定')
     expect(statusLabel('no_record', true)).toBe('无记录')
     expect(statusLabel('no_record', false)).toBe('No record')
-    expect(statusLabel('needs_manual_confirmation', true)).toBe('需人工核实')
-    expect(statusLabel('needs_manual_confirmation', false)).toBe('Needs manual confirmation')
+    expect(statusLabel('needs_manual_confirmation', true)).toBe('结果未知')
+    expect(statusLabel('needs_manual_confirmation', false)).toBe('Outcome unknown')
     expect(statusLabel('some_new_state', true)).toBe('some new state')
     expect(phaseLabel('querying_after', true)).toBe('正在查询解绑后状态')
     expect(entryLabel('dynamic', true)).toBe('动态记录')
@@ -42,9 +42,10 @@ describe('release job messages', () => {
 })
 
 describe('release jobs', () => {
-  it('offers a fresh release only after a failed or timed-out one', () => {
+  it('offers releasing again after a failed, timed-out or unknown outcome that nothing has followed', () => {
     expect(canRetry({ kind: 'release', status: 'failed', force: false }, false)).toBe(true)
-    expect(canRetry({ kind: 'release', status: 'needs_manual_confirmation', force: false }, true)).toBe(false)
+    expect(canRetry({ kind: 'release', status: 'needs_manual_confirmation', force: false }, false)).toBe(true)
+    expect(canRetry({ kind: 'release', status: 'needs_manual_confirmation', force: false, next_release_id: 'j2' }, true)).toBe(false)
     expect(canRetry({ kind: 'release', status: 'succeeded', force: false }, true)).toBe(false)
     expect(canRetry({ kind: 'release', status: 'timeout', force: true }, false)).toBe(false)
     expect(canRetry({ kind: 'release', status: 'timeout', force: true }, true)).toBe(true)
@@ -54,7 +55,7 @@ describe('release jobs', () => {
   it('asks the history for one page and leaves empty filters out', () => {
     expect(jobsPath({})).toBe('/api/releases/jobs')
     expect(jobsPath({ q: ' 10.0. ', kind: 'release', status: '', page: 1, pageSize: 8 })).toBe('/api/releases/jobs?q=10.0.&kind=release&page_size=8')
-    expect(jobsPath({ status: 'needs_manual_confirmation', page: 3 })).toBe('/api/releases/jobs?status=needs_manual_confirmation&page=3')
+    expect(jobsPath({ status: 'needs_manual_confirmation', latest: true, page: 3 })).toBe('/api/releases/jobs?status=needs_manual_confirmation&latest=1&page=3')
   })
 
   it('lets operators and admins release, and nobody else', () => {

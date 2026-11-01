@@ -110,7 +110,7 @@ const fixed: Record<string, Words> = {
   'Pattern not found': ['Pattern not found in the configuration', '配置中未找到匹配内容'],
   // Release jobs in the API, the worker and its result classifier.
   'Release queued': ['Release queued', '已提交解绑，等待执行'],
-  'Retry queued as a new release': ['Retry queued as a new release', '重试：已重新提交解绑'],
+  'Retry queued as a new release': ['Released again; queued as a new release', '重新解绑：已作为新的解绑排队'],
   'Dynamic entry is not a static binding': ['Only a dynamic entry, no static binding; nothing was sent', '只有动态记录，没有静态绑定，未发送任何命令'],
   'No record; release stopped': ['The switch has no record of this address, so nothing was sent. Check the address; an admin can force the release.', '交换机上查不到这个 IP 的记录，未发送任何命令。请检查 IP 是否输错；管理员可以强制解绑。'],
   'Pre-query could not be parsed; nothing was sent': ['The output before release could not be parsed, so nothing was sent', '无法解析解绑前的查询输出，没有执行解绑'],
@@ -128,7 +128,7 @@ const fixed: Record<string, Words> = {
   'Release command returned an error pattern': ['The release command returned an error pattern', '解绑命令的输出匹配到错误规则'],
   'Static binding is not present after release': ['The static binding is gone after release', '解绑后静态绑定已不存在'],
   'Static binding is still present after release': ['The static binding is still present after release', '解绑后静态绑定仍然存在'],
-  'Post-release state could not be parsed confidently': ['The post-release state could not be parsed confidently', '无法可靠解析解绑后的状态，需要人工核实'],
+  'Post-release state could not be parsed confidently': ['The state after release could not be parsed confidently, so the outcome is unknown', '无法可靠解析解绑后的状态，结果未知'],
 }
 
 const cronFields: Record<string, Words> = { minute: ['minute', '分'], hour: ['hour', '时'], day: ['day', '日'], month: ['month', '月'], weekday: ['weekday', '周'] }

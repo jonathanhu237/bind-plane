@@ -80,15 +80,23 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 	if _, err = store.Retry(ctx, started.JobID, operator, false); err != ErrConflict {
 		t.Fatalf("second retry while the first is queued: %v", err)
 	}
-	// An uncertain release holds the address and is not retried itself.
+	// An unknown outcome does not hold the address: releasing it again queries the switch first.
 	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='needs_manual_confirmation',phase='finished' WHERE id=$1`, retried.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.Retry(ctx, retried.ID, operator, false); err != ErrConflict {
-		t.Fatalf("retried an uncertain release: %v", err)
+	unknown := JobFilter{Status: "needs_manual_confirmation", Latest: true, Limit: 50}
+	if open, err := store.Jobs(ctx, actor, false, unknown); err != nil || len(open.Items) != 1 || open.Items[0].ID != retried.ID {
+		t.Fatalf("unknown outcome not listed as open: %+v %v", open, err)
 	}
-	if _, err = start("10.2.1.7"); err != ErrConflict {
-		t.Fatalf("uncertain prior command allowed: %v", err)
+	again, err := store.Retry(ctx, retried.ID, operator, false)
+	if err != nil || again.Kind != "release" {
+		t.Fatalf("releasing an unknown outcome again: %+v %v", again, err)
+	}
+	if detail, err := store.Job(ctx, retried.ID, actor, false); err != nil || detail.NextReleaseID == nil || *detail.NextReleaseID != again.ID {
+		t.Fatalf("unknown outcome does not link to the next release: %+v %v", detail, err)
+	}
+	if open, err := store.Jobs(ctx, actor, false, unknown); err != nil || len(open.Items) != 0 {
+		t.Fatalf("an unknown outcome released again is still open: %+v %v", open, err)
 	}
 	// A query from the old two-step flow stays readable but never becomes a release.
 	var legacy string
@@ -102,7 +110,7 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 		t.Fatalf("retried a legacy query: %v", err)
 	}
 	history, err := store.Jobs(ctx, actor, false, JobFilter{Limit: 50})
-	if err != nil || len(history.Items) != 3 || history.Total != 3 || history.PageSize != 50 {
+	if err != nil || len(history.Items) != 4 || history.Total != 4 || history.PageSize != 50 {
 		t.Fatalf("jobs %+v %v", history, err)
 	}
 	for _, job := range history.Items {
@@ -118,10 +126,10 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 		filter JobFilter
 		want   int
 	}{
-		{"releases only", JobFilter{Kind: "release", Limit: 50}, 2},
+		{"releases only", JobFilter{Kind: "release", Limit: 50}, 3},
 		{"uncertain", JobFilter{Status: "needs_manual_confirmation", Limit: 50}, 1},
-		{"address prefix", JobFilter{Query: "10.2.1.", Limit: 50}, 3},
-		{"switch name", JobFilter{Query: "TES", Limit: 50}, 3},
+		{"address prefix", JobFilter{Query: "10.2.1.", Limit: 50}, 4},
+		{"switch name", JobFilter{Query: "TES", Limit: 50}, 4},
 		{"no match", JobFilter{Query: "10.9.", Limit: 50}, 0},
 	} {
 		got, err := store.Jobs(ctx, actor, false, tc.filter)
@@ -130,7 +138,7 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 		}
 	}
 	second, err := store.Jobs(ctx, actor, false, JobFilter{Limit: 2, Offset: 2})
-	if err != nil || len(second.Items) != 1 || second.Total != 3 || second.Items[0].ID != history.Items[2].ID {
+	if err != nil || len(second.Items) != 2 || second.Total != 4 || second.Items[0].ID != history.Items[2].ID {
 		t.Fatalf("second page %+v %v", second, err)
 	}
 }

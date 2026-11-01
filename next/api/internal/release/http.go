@@ -48,6 +48,7 @@ type Job struct {
 	RetryOfID          *string    `json:"retry_of_id,omitempty"`
 	PreparationJobID   *string    `json:"preparation_job_id,omitempty"` // a release from the old two-step flow: the query it confirmed
 	ReleaseJobID       *string    `json:"release_job_id,omitempty"`     // a query from the old two-step flow: the release that confirmed it
+	NextReleaseID      *string    `json:"next_release_id,omitempty"`    // the next release of the same address that the reader may see
 	CreatedAt          *time.Time `json:"created_at,omitempty"`
 	StartedAt          *time.Time `json:"started_at,omitempty"`
 	FinishedAt         *time.Time `json:"finished_at,omitempty"`
@@ -66,9 +67,11 @@ type Job struct {
 	ErrorMessage       *string    `json:"error_message,omitempty"`
 }
 
-// JobFilter narrows the release history; empty fields match every job.
+// JobFilter narrows the release history; empty fields match every job. Latest keeps only jobs that
+// no later release of the same address has followed.
 type JobFilter struct {
 	Query, Kind, Status string
+	Latest              bool
 	Limit, Offset       int
 }
 type JobPage struct {
@@ -242,11 +245,11 @@ const jobPageSize = 50
 
 var jobStatus = regexp.MustCompile(`^[a-z_]{1,40}$`)
 
-// jobFilter reads the history's search text, kind, status and page from the query string.
+// jobFilter reads the history's search text, kind, status, latest flag and page from the query string.
 func jobFilter(q url.Values) (JobFilter, bool) {
-	filter := JobFilter{Query: strings.TrimSpace(q.Get("q")), Kind: q.Get("kind"), Status: q.Get("status"), Limit: jobPageSize}
+	filter := JobFilter{Query: strings.TrimSpace(q.Get("q")), Kind: q.Get("kind"), Status: q.Get("status"), Latest: q.Get("latest") == "1", Limit: jobPageSize}
 	if len(filter.Query) > 100 || filter.Kind != "" && filter.Kind != "release" && filter.Kind != "pre_release_query" ||
-		filter.Status != "" && !jobStatus.MatchString(filter.Status) {
+		filter.Status != "" && !jobStatus.MatchString(filter.Status) || q.Get("latest") != "" && !filter.Latest {
 		return JobFilter{}, false
 	}
 	page := 1

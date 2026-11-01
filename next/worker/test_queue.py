@@ -57,7 +57,7 @@ async def test_go_encrypted_credential_is_readable_only_with_worker_key():
 
 
 @pytest.mark.asyncio
-async def test_release_for_same_ip_waits_for_running_and_uncertain_command():
+async def test_release_for_same_ip_waits_only_for_a_running_command():
     dsn = os.getenv("EXECUTOR_TEST_DATABASE_URL")
     if not dsn:
         pytest.skip("isolated migrated test database required")
@@ -81,21 +81,18 @@ async def test_release_for_same_ip_waits_for_running_and_uncertain_command():
                 "UPDATE bp_release_jobs SET lease_until=now()-interval '1 second' WHERE id=$1",
                 first["id"],
             )
+        # The expired release ends with an unknown outcome, which does not hold the address:
+        # the next release queries the switch before it sends anything.
         await sweep_expired(pool)
-        assert await claim(pool) is None
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE bp_release_jobs SET status='failed' WHERE id=$1", first["id"]
-            )
         second = await claim(pool)
         assert second["id"] == ids[1]
-        await checkpoint(pool, second, phase="finished", status="cancelled")
+        await checkpoint(pool, second, phase="finished", status="no_static_binding")
     finally:
         await pool.close()
 
 
 @pytest.mark.asyncio
-async def test_claim_rechecks_manual_barrier_after_waiting_for_ip_lock():
+async def test_claim_rechecks_running_release_after_waiting_for_ip_lock():
     dsn = os.getenv("EXECUTOR_TEST_DATABASE_URL")
     if not dsn:
         pytest.skip("isolated migrated test database required")
@@ -119,8 +116,8 @@ async def test_claim_rechecks_manual_barrier_after_waiting_for_ip_lock():
                     actor,
                     switch["id"],
                     "10.8.8.9",
-                    status="needs_manual_confirmation",
-                    phase="finished",
+                    status="running",
+                    phase="connecting",
                 )
         assert await asyncio.wait_for(pending, timeout=3) is None
         async with pool.acquire() as conn:

@@ -7,9 +7,9 @@ import (
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
 )
 
-// Retry queues a fresh release after a failed or timed-out one. The worker queries the binding again
-// before sending anything, so a release that took effect is not repeated. An uncertain release is not
-// retried: it holds the address until someone checks the switch.
+// Retry queues a fresh release after a failed or timed-out one, or one whose outcome is unknown. The
+// worker queries the binding again before sending anything, so a release that took effect is not
+// repeated: releasing again is how an unknown outcome gets settled.
 // It runs against the switch's current revision; an auto-resolved target is resolved again.
 func (s *SQLStore) Retry(ctx context.Context, original string, actor Actor, admin bool) (Job, error) {
 	if !domain.IsCanonicalUUID(original) {
@@ -37,7 +37,7 @@ func (s *SQLStore) Retry(ctx context.Context, original string, actor Actor, admi
 		return Job{}, ErrConflict
 	}
 	// Queries from the old two-step flow are never turned into releases.
-	if kind != "release" || status != "failed" && status != "timeout" {
+	if kind != "release" || status != "failed" && status != "timeout" && status != "needs_manual_confirmation" {
 		return Job{}, ErrConflict
 	}
 	if resolvedNetwork.Valid {

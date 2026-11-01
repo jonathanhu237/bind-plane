@@ -28,16 +28,20 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
   const [error, setError] = useState('')
   const labels = zh ? {
     release: '解绑', query: '查询', legacy: '这是改版前的查询记录：只查询了交换机上的绑定，没有执行解绑。', viewRelease: '查看之后的解绑',
-    switch: '交换机', reason: '解绑原因', entryType: '绑定类型', queriedAt: '查询时间', retry: '重试',
+    switch: '交换机', reason: '解绑原因', entryType: '绑定类型', queriedAt: '查询时间', retry: '重新解绑',
     actor: '执行人', profile: '命令模板', before: '解绑前', after: '解绑后', forced: '强制解绑', startedAt: '提交时间', finishedAt: '完成时间', yes: '是', no: '否',
-    retryOf: '重试自', original: '查看原任务', events: '执行过程',
-    uncertain: '结果不确定。同一 IP 的后续解绑已暂停；管理员必须先核实原执行器已停止及交换机现状，不要重复发出解绑命令。',
+    retryOf: '原任务', original: '查看原任务', next: '下一次解绑', viewNext: '查看同一 IP 的下一次解绑', events: '执行过程',
+    uncertain: '结果未知：解绑命令可能已经发出，但无法确定静态绑定是否还在。',
+    releaseAgain: '点“重新解绑”会先查询交换机：已删除就不再发送命令，还在就删除。',
+    followed: '这个 IP 之后又解绑过，现状见下一次解绑。',
   } : {
     release: 'Release', query: 'Query', legacy: 'A query from before the one-step release: it read the binding on the switch and released nothing.', viewRelease: 'View the release that followed',
-    switch: 'Switch', reason: 'Reason', entryType: 'Entry type', queriedAt: 'Queried', retry: 'Retry',
+    switch: 'Switch', reason: 'Reason', entryType: 'Entry type', queriedAt: 'Queried', retry: 'Release again',
     actor: 'Actor', profile: 'Command profile', before: 'Before release', after: 'After release', forced: 'Forced', startedAt: 'Started', finishedAt: 'Finished', yes: 'Yes', no: 'No',
-    retryOf: 'Retry of', original: 'View the original job', events: 'Progress',
-    uncertain: 'Outcome uncertain. Further releases for this IP are blocked. An admin must verify the old executor has stopped and inspect the switch before any new command.',
+    retryOf: 'Original', original: 'View the original job', next: 'Next release', viewNext: 'View the next release of this IP', events: 'Progress',
+    uncertain: 'Outcome unknown: a release command may have run, but whether the static binding is gone is unknown.',
+    releaseAgain: 'Release again queries the switch first: nothing is sent if the binding is gone, and it is deleted if not.',
+    followed: 'This IP was released again later; the next release shows where it stands.',
   }
 
   async function retry(original: string) {
@@ -57,6 +61,7 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
   const message = serverText(data.result?.message || data.error_message || lastEventMessage, zh)
   const jobLink = (target: string, text: string) => <Button asChild variant="link" className="h-auto p-0"><Link to="/release" search={{ job: target }}>{text}</Link></Button>
   const retryOf = data.retry_of_id ? <Info label={labels.retryOf}>{jobLink(data.retry_of_id, labels.original)}</Info> : null
+  const next = data.next_release_id ? <Info label={labels.next}>{jobLink(data.next_release_id, labels.viewNext)}</Info> : null
   const events = data.events?.length ? <div className="flex flex-col gap-1">
     <h3 className="text-sm font-medium">{labels.events}</h3>
     <ol className="flex flex-col gap-1 text-xs text-muted-foreground">{data.events.map((event, index) => <li key={`${event.created_at}-${index}`}>
@@ -98,7 +103,7 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
   return <Card aria-live="polite">
     {header(labels.release, isRunning(data) ? phaseLabel(data.phase, zh) : message || phaseLabel(data.phase, zh))}
     <CardContent className="flex flex-col gap-4">
-      {data.status === 'needs_manual_confirmation' ? <Alert variant="warning"><TriangleAlert aria-hidden="true" /><AlertDescription>{labels.uncertain}</AlertDescription></Alert> : null}
+      {data.status === 'needs_manual_confirmation' ? <Alert variant="warning"><TriangleAlert aria-hidden="true" /><AlertDescription>{[labels.uncertain, data.next_release_id ? labels.followed : canRetry(data, admin) ? labels.releaseAgain : ''].filter(Boolean).join(zh ? '' : ' ')}</AlertDescription></Alert> : null}
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
         <Info label={labels.switch}><SwitchName job={data} /></Info>
         <Info label={labels.actor}><ActorName job={data} /></Info>
@@ -110,6 +115,7 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
         <Info label={labels.startedAt} className="tabular-nums">{formatTime(data.created_at, zh)}</Info>
         <Info label={labels.finishedAt} className="tabular-nums">{formatTime(data.finished_at, zh)}</Info>
         {retryOf}
+        {next}
       </dl>
       {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
       {canRetry(data, admin) ? <div><Button type="button" variant="outline" disabled={busy} onClick={() => void retry(data.id)}>{labels.retry}</Button></div> : null}

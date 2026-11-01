@@ -53,7 +53,8 @@ func TestJobsReadsHistoryFilters(t *testing.T) {
 	}{
 		{"", 200, JobFilter{Limit: 50}},
 		{"?page=3&page_size=5", 200, JobFilter{Limit: 5, Offset: 10}},
-		{"?q=+10.0.&kind=release&status=needs_manual_confirmation", 200, JobFilter{Query: "10.0.", Kind: "release", Status: "needs_manual_confirmation", Limit: 50}},
+		{"?q=+10.0.&kind=release&status=needs_manual_confirmation&latest=1", 200, JobFilter{Query: "10.0.", Kind: "release", Status: "needs_manual_confirmation", Latest: true, Limit: 50}},
+		{"?latest=yes", 400, JobFilter{}},
 		{"?page=0", 400, JobFilter{}},
 		{"?page=two", 400, JobFilter{}},
 		{"?page_size=51", 400, JobFilter{}},

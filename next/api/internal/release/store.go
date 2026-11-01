@@ -125,13 +125,14 @@ func selectionJSON(n Network) string {
 }
 
 // addressFree takes the address lock the worker also holds while it claims a release, then refuses
-// another release while one is queued or running, or while an earlier one awaits manual confirmation.
+// another release while one is queued or running. An earlier release with an unknown outcome does not
+// hold the address: the next one queries the switch before it sends anything.
 func addressFree(ctx context.Context, tx *sql.Tx, ip string) error {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(host($1::inet),0))`, ip); err != nil {
 		return err
 	}
 	var busy bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bp_release_jobs WHERE target_ip=$1::inet AND kind='release' AND status IN ('queued','running','needs_manual_confirmation'))`, ip).Scan(&busy); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bp_release_jobs WHERE target_ip=$1::inet AND kind='release' AND status IN ('queued','running'))`, ip).Scan(&busy); err != nil {
 		return err
 	}
 	if busy {
@@ -145,10 +146,12 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	}
 	var job Job
 	var before, after, result []byte
-	var rawBefore, rawRelease, rawAfter, errMessage, retryOf, preparationID, releaseID sql.NullString
+	var rawBefore, rawRelease, rawAfter, errMessage, retryOf, preparationID, releaseID, nextRelease sql.NullString
 	var created time.Time
 	var started, finished sql.NullTime
-	err := s.DB.QueryRowContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.command_profile_id::text,j.kind,j.status,j.phase,j.reason,j.force,j.before_state,j.after_state,j.result,j.raw_before_output,j.raw_release_output,j.raw_after_output,j.error_message,COALESCE(j.actor_name,''),j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.started_at,j.finished_at FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id WHERE j.id=$1 AND ($2 OR j.actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.CommandProfileID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorName, &job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &started, &finished)
+	err := s.DB.QueryRowContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.command_profile_id::text,j.kind,j.status,j.phase,j.reason,j.force,j.before_state,j.after_state,j.result,j.raw_before_output,j.raw_release_output,j.raw_after_output,j.error_message,COALESCE(j.actor_name,''),j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.started_at,j.finished_at,
+ (SELECT n.id::text FROM bp_release_jobs n WHERE n.target_ip=j.target_ip AND n.kind='release' AND n.created_at>j.created_at AND ($2 OR n.actor_id=$3) ORDER BY n.created_at LIMIT 1)
+ FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id WHERE j.id=$1 AND ($2 OR j.actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.CommandProfileID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorName, &job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &started, &finished, &nextRelease)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNotFound
 	}
@@ -170,6 +173,9 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	}
 	if releaseID.Valid {
 		job.ReleaseJobID = &releaseID.String
+	}
+	if nextRelease.Valid {
+		job.NextReleaseID = &nextRelease.String
 	}
 	job.BeforeState = json.RawMessage(before)
 	job.AfterState = json.RawMessage(after)
@@ -217,7 +223,8 @@ func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool, filter Jo
  FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id
  WHERE ($1 OR j.actor_id=$2) AND ($3='' OR host(j.target_ip) LIKE $3||'%' OR j.switch_name ILIKE '%'||$3||'%')
  AND ($4='' OR j.kind=$4) AND ($5='' OR j.status=$5)
- ORDER BY j.created_at DESC,j.id DESC LIMIT $6 OFFSET $7`, admin, actor, filter.Query, filter.Kind, filter.Status, filter.Limit, filter.Offset)
+ AND (NOT $8 OR NOT EXISTS (SELECT 1 FROM bp_release_jobs n WHERE n.target_ip=j.target_ip AND n.kind='release' AND n.created_at>j.created_at))
+ ORDER BY j.created_at DESC,j.id DESC LIMIT $6 OFFSET $7`, admin, actor, filter.Query, filter.Kind, filter.Status, filter.Limit, filter.Offset, filter.Latest)
 	if err != nil {
 		return JobPage{}, err
 	}

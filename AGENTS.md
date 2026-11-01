@@ -13,7 +13,7 @@ Core semantics:
 - The operation deletes the static binding for that IP.
 - The release is successful when the static binding is gone.
 - A dynamic ARP entry after release can still be a successful result.
-- If the final state cannot be determined reliably, store and display `needs_manual_confirmation`.
+- If the final state cannot be determined reliably, record the outcome as unknown (stored as `needs_manual_confirmation`, shown as 结果未知). Nobody confirms it by hand: releasing the address again queries the switch first and settles it either way.
 
 ## Non-Goals
 
@@ -51,7 +51,7 @@ The normal operator flow is:
 9. Worker queries state after release.
 10. Store structured result, raw output, job status, and audit data.
 
-There is no separate confirmation step: choosing Release starts the job, and the state before release is recorded with it. One release per address may be queued or running at a time, and none while an earlier one needs manual confirmation.
+There is no separate confirmation step: choosing Release starts the job, and the state before release is recorded with it. One release per address may be queued or running at a time. An earlier release with an unknown outcome does not hold the address.
 
 Reasons should be quick to select and include a temporary-test option. Ticket IDs are optional for MVP.
 
@@ -70,7 +70,7 @@ Use a background job model:
 - Web API handles authentication, authorization, input validation, job creation, and job status reads.
 - Worker handles credential decryption, Telnet connection, command execution, output parsing, and result persistence.
 - Every real command attempt must have an auditable job record.
-- Retrying a failed job must create a new job linked to the original.
+- Releasing again after a failed, timed-out or unknown outcome must create a new job linked to the original.
 
 Telnet is the MVP protocol because the initial target switches require it. Keep the session layer protocol-aware so SSH can be added later, but do not require SSH for MVP.
 
@@ -121,7 +121,7 @@ Command profiles should support:
 - IP, MAC, and entry-type parsing rules
 - Static/dynamic/unknown classification values
 
-If the output after a release command cannot be parsed confidently, store the raw output and mark the result as needing manual confirmation. If the state before release cannot be parsed, send nothing and fail the job: the binding is untouched, so the address must not be held as an uncertain release.
+If the output after a release command cannot be parsed confidently, store the raw output and record the outcome as unknown. If the state before release cannot be parsed, send nothing and fail the job: the binding is untouched, so the outcome is known.
 
 ## Audit
 
@@ -135,7 +135,7 @@ Every release job must record enough information to answer:
 - Which reason was selected
 - What the before and after states were
 - Which command profile was used
-- Whether it succeeded, failed, timed out, or needs manual confirmation
+- Whether it succeeded, failed, timed out, or ended with an unknown outcome
 - Raw before/after/command output needed for troubleshooting
 
 Records name who acted: release jobs, asset events and device tasks keep the actor's name and email as they were at the time.
@@ -146,7 +146,7 @@ Never log plaintext credentials, decrypted passwords, sensitive environment vari
 
 Everyone lands on the home page after login. It shows where things stand and starts no operations; it is not a marketing page or a generic dashboard:
 
-- Releases whose outcome needs manual confirmation come first, then recent jobs (the operator's own; everyone's for admins).
+- Releases whose outcome is unknown, and that no later release of the same address has followed, come first, each with a Release again (重新解绑) button; then recent jobs (the operator's own; everyone's for admins).
 - Admins also see the device operations summary there; there is no separate overview page.
 - A "New release" (发起解绑) button in its header opens the release console, so the release workflow stays one click away.
 
@@ -159,9 +159,9 @@ Navigation stays small:
 - Device operations (admins): devices, schedules, compliance, alerts, audit log, asset settings (credentials, command profiles, switches, networks)
 - User and system administration
 
-The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 解绑控制台, 解绑记录, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
+The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 重新解绑 on the button that releases an address again, 解绑控制台, 解绑记录, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
 
-Release statuses say what happened on the switch. In Chinese they are 排队中, 进行中, 已解绑 (the static binding was deleted and is gone), 无静态绑定 (only a dynamic entry, so nothing was sent), 无记录 (the switch has no record of the address, so nothing was sent; an admin may force a release), 失败, 超时 and 需人工核实 (a release command may have run, but the outcome is unknown). 确认 means only a person confirming something, never a status.
+Release statuses say what happened on the switch. In Chinese they are 排队中, 进行中, 已解绑 (the static binding was deleted and is gone), 无静态绑定 (only a dynamic entry, so nothing was sent), 无记录 (the switch has no record of the address, so nothing was sent; an admin may force a release), 失败, 超时 and 结果未知 (a release command may have run, but whether the binding is gone is unknown; releasing again checks the switch first). 确认 means only a person confirming something, never a status.
 
 Build a clear, restrained operator-focused tool. Do not block the main release workflow on a polished full admin system.
 

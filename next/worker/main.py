@@ -52,15 +52,15 @@ async def claim(pool):
                         SELECT 1 FROM bp_release_jobs previous
                         WHERE previous.target_ip=j.target_ip AND previous.id<>j.id
                         AND previous.kind='release'
-                        AND previous.status IN ('running','needs_manual_confirmation')
+                        AND previous.status='running'
                     ))
                     ORDER BY j.created_at FOR UPDATE OF j SKIP LOCKED LIMIT 1""")
             if row is None:
                 return None
             if row["kind"] == "release":
                 # Serialize this address through the *recheck*, not merely through
-                # the claim's initial MVCC snapshot. An expired lease may become
-                # uncertain while another claimant waits for this lock.
+                # the claim's initial MVCC snapshot. Another release of it may start
+                # running while this claimant waits for the lock.
                 await conn.execute(
                     "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
                     row["target_ip"],
@@ -68,7 +68,7 @@ async def claim(pool):
                 blocked = await conn.fetchval(
                     """SELECT EXISTS(SELECT 1 FROM bp_release_jobs
                        WHERE target_ip=$1 AND id<>$2 AND kind='release'
-                       AND status IN ('running','needs_manual_confirmation'))""",
+                       AND status='running')""",
                     row["target_ip"],
                     row["id"],
                 )
@@ -227,7 +227,7 @@ def device_task(job, dep, checkpoint_sync):
         session = NetmikoSwitchSession(settings)
     except Exception as exc:
         # Nothing has reached the switch yet: an unusable credential or profile is a
-        # definite failure and must not block later releases as an uncertain one.
+        # definite failure, not an unknown outcome.
         checkpoint_sync(
             phase="finished",
             status="failed",
@@ -249,8 +249,8 @@ def device_task(job, dep, checkpoint_sync):
             before_state=observation_to_dict(before),
         )
         if before.entry_type == ArpEntryType.UNKNOWN:
-            # Nothing has been sent, so the binding is untouched: a definite failure that must
-            # not hold the address as an uncertain release would.
+            # Nothing has been sent, so the binding is untouched: a definite failure, not an
+            # unknown outcome.
             checkpoint_sync(
                 phase="finished",
                 status="failed",
@@ -356,8 +356,8 @@ async def execute(pool, job):
         dep = await load_dependencies(pool, job)
         problem = dependency_problem(job, dep)
         if problem:
-            # No switch session was opened, so this is a definite failure. Marking it
-            # uncertain would block every later release for this address.
+            # No switch session was opened, so this is a definite failure, not an unknown
+            # outcome.
             await checkpoint(
                 pool,
                 job,

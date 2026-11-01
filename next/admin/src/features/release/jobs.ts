@@ -6,13 +6,14 @@ export type Job = {
   before_state?: { entry_type?: string; mac?: string }; after_state?: { entry_type?: string }
   result?: { message?: string; preparation_status?: string }; error_message?: string
   raw_before_output?: string; raw_release_output?: string; raw_after_output?: string
-  actor_name?: string; actor_email?: string; retry_of_id?: string; preparation_job_id?: string; release_job_id?: string; created_at?: string; started_at?: string; finished_at?: string
+  actor_name?: string; actor_email?: string; retry_of_id?: string; preparation_job_id?: string; release_job_id?: string; next_release_id?: string; created_at?: string; started_at?: string; finished_at?: string
   events?: { phase: string; status: string; message?: string; created_at: string }[]
 }
 /** What starting a release returns: the queued job, or only a status when no switch could take it. */
 export type Started = Pick<Job, 'job_id' | 'status'>
 export type JobPage = { items: Job[]; total: number; page_size: number }
-export type JobFilter = { q?: string; kind?: string; status?: string; page?: number; pageSize?: number }
+/** latest keeps only jobs that no later release of the same address has followed. */
+export type JobFilter = { q?: string; kind?: string; status?: string; latest?: boolean; page?: number; pageSize?: number }
 /** Switches and profiles from the admin asset list, for the force-release switch and profile names. */
 export type AssetOptions = { switches: { id: string; name: string; is_enabled: boolean }[]; profiles: { id: string; name: string }[] }
 
@@ -31,11 +32,12 @@ export async function request<T>(path: string, body?: unknown): Promise<T> {
 }
 
 /** The history endpoint for one page of jobs; empty filters are left out. */
-export function jobsPath({ q, kind, status, page, pageSize }: JobFilter): string {
+export function jobsPath({ q, kind, status, latest, page, pageSize }: JobFilter): string {
   const params = new URLSearchParams()
   if (q?.trim()) params.set('q', q.trim())
   if (kind) params.set('kind', kind)
   if (status) params.set('status', status)
+  if (latest) params.set('latest', '1')
   if (page && page > 1) params.set('page', String(page))
   if (pageSize) params.set('page_size', String(pageSize))
   const query = params.toString()
@@ -52,11 +54,12 @@ export const canRelease = (user: User) => Boolean(user.superAdmin || user.roles?
 export const isRunning = (job: Pick<Job, 'status'> | undefined) => job?.status === 'queued' || job?.status === 'running'
 
 /**
- * A failed or timed-out release can be started again; a forced one only by an admin. An uncertain
- * release holds its address until someone checks the switch, and old queries are never retried.
+ * A failed or timed-out release, or one whose outcome is unknown, can be released again: the new
+ * release queries the switch first. A forced one only by an admin; not once a later release of the
+ * address has followed, and old queries never.
  */
-export const canRetry = (job: Pick<Job, 'kind' | 'status' | 'force'>, admin: boolean) =>
-  job.kind === 'release' && ['failed', 'timeout'].includes(job.status) && (!job.force || admin)
+export const canRetry = (job: Pick<Job, 'kind' | 'status' | 'force' | 'next_release_id'>, admin: boolean) =>
+  job.kind === 'release' && ['failed', 'timeout', 'needs_manual_confirmation'].includes(job.status) && !job.next_release_id && (!job.force || admin)
 
 type Words = [english: string, chinese: string]
 const say = (words: Words | undefined, zh: boolean, fallback: string) => (words ? words[zh ? 1 : 0] : fallback)
@@ -77,8 +80,8 @@ const releaseErrors: Record<string, Words> = {
   'no enabled validated switch owns this IP': noSwitch,
   'multiple equally specific switches own this IP': ambiguousSwitch,
   conflict: [
-    'This address is already being released, or its last release needs a manual check. Wait for it to finish, or ask an admin to check the switch.',
-    '这个 IP 正在解绑，或上一次解绑的结果需要人工核实。请等它完成，或请管理员核实交换机。',
+    'This address is already being released. Wait for that release to finish.',
+    '这个 IP 正在解绑，请等它完成后再试。',
   ],
   'not found': ['This job no longer exists, or it belongs to someone else.', '任务不存在，或不属于你。'],
 }
@@ -101,10 +104,11 @@ export function targetIPProblem(value: string, zh: boolean): string {
 // Job states, phases, binding types and reasons arrive as codes; unknown codes are shown as sent.
 // A release status says what happened on the switch. Nothing is sent when the address has only a
 // dynamic entry (no_static_binding) or no record at all (no_record).
-// Only the user's own "确认" exists in Chinese; an uncertain outcome is something to check (核实).
+// An unknown outcome is still stored as needs_manual_confirmation, but nobody confirms it by hand:
+// releasing the address again settles it. In Chinese, 确认 is only a person confirming something.
 const statuses: Record<string, Words> = {
   queued: ['Queued', '排队中'], running: ['In progress', '进行中'], succeeded: ['Released', '已解绑'],
-  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], no_static_binding: ['No static binding', '无静态绑定'], no_record: ['No record', '无记录'], needs_manual_confirmation: ['Needs manual confirmation', '需人工核实'],
+  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], no_static_binding: ['No static binding', '无静态绑定'], no_record: ['No record', '无记录'], needs_manual_confirmation: ['Outcome unknown', '结果未知'],
   stopped_no_switch: ['No switch matched', '未匹配到交换机'], stopped_ambiguous_switch: ['Several switches matched', '匹配到多台交换机'],
   // A query from the old two-step flow that finished.
   waiting_confirmation: ['Queried', '已查询'],
