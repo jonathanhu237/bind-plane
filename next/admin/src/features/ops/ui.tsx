@@ -39,12 +39,9 @@ export function Time({ value, zh, className }: { value: string | null | undefine
   return <time dateTime={value} title={formatTime(value, zh)} className={cn('tabular-nums', className)}>{relative(value, zh)}</time>
 }
 
-export function PageHeader({ title, description, children }: { title: string; description: React.ReactNode; children?: React.ReactNode }) {
-  return <header className="flex flex-wrap items-end justify-between gap-4">
-    <div className="flex flex-col gap-1.5">
-      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-      <p className="max-w-[70ch] text-sm text-muted-foreground">{description}</p>
-    </div>
+export function PageHeader({ title, children }: { title: string; children?: React.ReactNode }) {
+  return <header className="flex flex-wrap items-center justify-between gap-4">
+    <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
     {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
   </header>
 }

@@ -156,7 +156,7 @@ function SchedulesPage() {
   if (!admin) return <AdminOnly zh={zh} />
   const timezone = schedules.data?.timezone ?? 'Asia/Shanghai'
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-    <PageHeader title={pick(zh, '计划任务', 'Schedules')} description={pick(zh, '定时备份配置或检测连通性，并查看每次执行的逐台结果。只有配置发生变化时才会保存新版本。', 'Back up configurations or check reachability on a schedule, and review each run switch by switch. A new configuration version is stored only when something changed.')}>
+    <PageHeader title={pick(zh, '计划任务', 'Schedules')}>
       <Button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '新建计划', 'New schedule')}</Button>
     </PageHeader>
     <ErrorNote error={schedules.error ?? tasks.error} zh={zh} />

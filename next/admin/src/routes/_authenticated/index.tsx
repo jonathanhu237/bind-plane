@@ -15,9 +15,7 @@ function HomePage() {
   const zh = useZh()
   const admin = isAdmin(user)
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-    <PageHeader title={pick(zh, '首页', 'Home')} description={admin
-      ? pick(zh, '跟进解绑任务，查看交换机的运维状态。', 'Follow up on release jobs and check on your switches.')
-      : pick(zh, '跟进你的解绑任务。', 'Follow up on your release jobs.')}>
+    <PageHeader title={pick(zh, '首页', 'Home')}>
       {canRelease(user) ? <Button asChild><Link to="/release"><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '发起解绑', 'New release')}</Link></Button> : null}
     </PageHeader>
     {canRelease(user) ? <>

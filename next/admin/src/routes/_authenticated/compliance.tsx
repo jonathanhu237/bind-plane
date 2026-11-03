@@ -117,7 +117,7 @@ function CompliancePage() {
   const summary = results.data?.summary
   const rate = summary && summary.passed + summary.failed ? Math.round((summary.passed / (summary.passed + summary.failed)) * 1000) / 10 : null
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-    <PageHeader title={pick(zh, '合规检查', 'Compliance')} description={pick(zh, '用基线规则检查每台设备的最新配置。新的备份或规则改动会在几十秒内重新评估。', 'Baseline rules checked against each switch’s latest configuration. New backups and rule changes are re-evaluated within seconds.')}>
+    <PageHeader title={pick(zh, '合规检查', 'Compliance')}>
       <Button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '新建规则', 'New rule')}</Button>
     </PageHeader>
     <ErrorNote error={rules.error ?? results.error} zh={zh} />

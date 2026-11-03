@@ -192,7 +192,7 @@ function DevicesPage() {
     </Select>
   const filtered = filterKeys.some((key) => search[key])
   return <main className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-    <PageHeader title={pick(zh, '设备', 'Devices')} description={pick(zh, '交换机清单、连通性和配置备份状态。点击一行查看配置版本、对比和合规结果。', 'Switch inventory with reachability and backup status. Select a row for configuration versions, diffs and compliance results.')}>
+    <PageHeader title={pick(zh, '设备', 'Devices')}>
       <Button type="button" variant="outline" onClick={() => setImporting(true)}><Upload aria-hidden="true" data-icon="inline-start" />{pick(zh, '批量导入', 'Import CSV')}</Button>
       <Button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '添加交换机', 'Add switch')}</Button>
     </PageHeader>

@@ -1,4 +1,4 @@
-import { Link, createFileRoute, useLoaderData } from '@tanstack/react-router'
+import { createFileRoute, useLoaderData } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { CircleAlert, Lock } from 'lucide-react'
 import { useState } from 'react'
@@ -99,12 +99,7 @@ function Assets() {
     if (required.check()) save()
   }
   return <main className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-    <PageHeader title={zh ? '资产配置' : 'Asset settings'} description={<>
-      {zh ? '凭据、命令模板、分组和网段。交换机本身在' : 'Credentials, command profiles, groups and networks. Switches themselves are on the '}
-      <Link to="/devices" className="underline underline-offset-4">{zh ? '设备' : 'Devices'}</Link>
-      {zh ? '页面管理；所有变更记录见' : ' page; every change is in the '}
-      <Link to="/audit" className="underline underline-offset-4">{zh ? '审计日志' : 'audit log'}</Link>{zh ? '。' : '.'}
-    </>} />
+    <PageHeader title={zh ? '资产配置' : 'Asset settings'} />
     <div className="grid gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader><CardTitle>{zh ? '凭据' : 'Credentials'}</CardTitle><CardDescription>{zh ? '登录交换机所用的账号，加密保存，不会回显。' : 'Accounts for signing in to switches, stored encrypted and never shown again.'}</CardDescription></CardHeader>

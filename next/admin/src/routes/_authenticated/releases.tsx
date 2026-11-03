@@ -71,9 +71,7 @@ function ReleaseHistoryPage() {
     </Select>
   const filtered = filterKeys.some((key) => search[key])
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-    <PageHeader title={pick(zh, '解绑记录', 'Release history')} description={admin
-      ? pick(zh, '所有人的解绑，最新的在前。点击 IP 查看详情和原始输出。', 'Every release, newest first. Select an IP for its details and raw output.')
-      : pick(zh, '你的解绑，最新的在前。点击 IP 查看详情和原始输出。', 'Your releases, newest first. Select an IP for its details and raw output.')}>
+    <PageHeader title={pick(zh, '解绑记录', 'Release history')}>
       <Button asChild><Link to="/release"><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '发起解绑', 'New release')}</Link></Button>
     </PageHeader>
     <div className="flex flex-wrap items-center gap-2">

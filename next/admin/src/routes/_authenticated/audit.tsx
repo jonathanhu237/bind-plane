@@ -39,7 +39,7 @@ function AuditPage() {
     : describeChanges(event.changes, zh)
   const rows = events.data?.pages.flatMap((page) => page.events) ?? []
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-    <PageHeader title={pick(zh, '审计日志', 'Audit log')} description={pick(zh, '所有资产变更、导入、计划和规则调整、手动任务、配置查看与告警确认。永久保留，不会自动清理；密码类字段只记录“已更换”。', 'Every asset change, import, schedule and rule edit, manual task, configuration read and alert acknowledgement. Kept indefinitely; secrets are only ever recorded as replaced.')} />
+    <PageHeader title={pick(zh, '审计日志', 'Audit log')} />
     <div className="flex flex-wrap items-center gap-2">
       <Select value={action || ALL} onValueChange={(value) => setAction(value === ALL ? '' : value)}>
         <SelectTrigger aria-label={pick(zh, '操作类别', 'Category')} className="w-auto min-w-36"><SelectValue /></SelectTrigger>

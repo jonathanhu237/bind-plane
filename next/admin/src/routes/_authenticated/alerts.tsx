@@ -32,7 +32,7 @@ function AlertsPage() {
   if (!admin) return <AdminOnly zh={zh} />
   const kindName = (kind: Alert['kind']) => ({ device_unreachable: pick(zh, '设备不可达', 'Unreachable'), backup_failed: pick(zh, '备份失败', 'Backup failed'), compliance_violation: pick(zh, '违反合规规则', 'Compliance violation') })[kind]
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-    <PageHeader title={pick(zh, '告警', 'Alerts')} description={pick(zh, '告警在问题消失时自动解决：设备恢复可达、下一次备份成功或配置重新合规。确认表示已有人在处理。', 'Alerts resolve themselves when the cause clears: the switch is reachable again, the next backup succeeds, or the configuration complies. Acknowledging says someone is on it.')} />
+    <PageHeader title={pick(zh, '告警', 'Alerts')} />
     <Tabs value={status} onValueChange={(value) => setStatus(value as AlertState)} className="flex flex-col gap-4">
       <TabsList aria-label={pick(zh, '告警状态', 'Alert state')} className="w-fit">
         <TabsTrigger value="active">{pick(zh, '未解决', 'Active')}</TabsTrigger>

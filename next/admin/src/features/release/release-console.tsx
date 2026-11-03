@@ -13,7 +13,7 @@ export function ReleaseConsole({ user, jobID, onJob }: { user: User; jobID?: str
   const zh = useZh()
   const admin = isAdmin(user)
   return <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-    <PageHeader title={pick(zh, '解绑控制台', 'Release console')} description={pick(zh, '输入一个 IPv4 地址，选好原因后点“解绑”。系统会先查询交换机上的绑定，只有静态绑定才会被删除。', 'Enter one IPv4 address and a reason, then choose Release. The switch is queried first, and only a static binding is deleted.')}>
+    <PageHeader title={pick(zh, '解绑控制台', 'Release console')}>
       <Button asChild variant="outline"><Link to="/releases"><ListChecks aria-hidden="true" data-icon="inline-start" />{pick(zh, '解绑记录', 'Release history')}</Link></Button>
     </PageHeader>
     {!canRelease(user)
