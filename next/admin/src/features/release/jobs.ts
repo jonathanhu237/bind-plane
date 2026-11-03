@@ -108,7 +108,7 @@ export function targetIPProblem(value: string, zh: boolean): string {
 // releasing the address again settles it. In Chinese, 确认 is only a person confirming something.
 const statuses: Record<string, Words> = {
   queued: ['Queued', '排队中'], running: ['In progress', '进行中'], succeeded: ['Released', '已解绑'],
-  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], no_static_binding: ['Not bound', '无绑定'], no_record: ['No record', '无记录'], needs_manual_confirmation: ['Outcome unknown', '结果未知'],
+  failed: ['Failed', '失败'], timeout: ['Timed out', '超时'], no_static_binding: ['Not bound', '无绑定'], no_record: ['Not found', '查无此 IP'], needs_manual_confirmation: ['Outcome unknown', '结果未知'],
   stopped_no_switch: ['No switch matched', '未匹配到交换机'], stopped_ambiguous_switch: ['Several switches matched', '匹配到多台交换机'],
   // A query from the old two-step flow that finished.
   waiting_confirmation: ['Queried', '已查询'],
@@ -118,7 +118,7 @@ const phases: Record<string, Words> = {
   waiting_confirmation: ['Queried', '查询完成'], releasing: ['Releasing', '正在解绑'], querying_after: ['Querying after release', '正在查询解绑后状态'],
   classifying: ['Judging the result', '正在判定结果'], finished: ['Finished', '已结束'],
 }
-const entryTypes: Record<string, Words> = { static: ['Static binding', '静态绑定'], dynamic: ['Dynamic entry', '动态记录'], missing: ['No record', '无记录'], unknown: ['Unclear', '无法判断'] }
+const entryTypes: Record<string, Words> = { static: ['Static binding', '静态绑定'], dynamic: ['Dynamic entry', '动态记录'], missing: ['Not found', '查无此 IP'], unknown: ['Unclear', '无法判断'] }
 export const reasons = ['temporary_test', 'user_report', 'ip_mac_change', 'wrong_binding_fix', 'security_response', 'other'] as const
 const reasonWords: Record<(typeof reasons)[number], Words> = {
   temporary_test: ['Temporary test', '临时测试'], user_report: ['User report', '用户反馈'], ip_mac_change: ['IP / MAC change', 'IP / MAC 变更'],

@@ -14,33 +14,29 @@ type TableProps = {
   jobs: Job[]
   zh: boolean
   admin: boolean
-  /** The full history adds the reason column and a retry action. */
-  onRetry?: (job: Job) => void
-  busy?: boolean
+  /** The full history adds the reason column. */
+  reasons?: boolean
 }
 
-/** Releases newest first; each address opens the release in the console. */
-export function JobTable({ jobs, zh, admin, onRetry, busy = false }: TableProps) {
+/** Releases newest first; each address opens the release in the console, where it can be released again. */
+export function JobTable({ jobs, zh, admin, reasons = false }: TableProps) {
   return <div className="overflow-x-auto rounded-xl border [&_th]:whitespace-nowrap">
     <Table>
       <TableHeader><TableRow>
         <TableHead>{pick(zh, '时间', 'Time')}</TableHead>
         <TableHead>IP</TableHead>
         <TableHead>{pick(zh, '交换机', 'Switch')}</TableHead>
-        {onRetry ? <TableHead>{pick(zh, '原因', 'Reason')}</TableHead> : null}
+        {reasons ? <TableHead>{pick(zh, '原因', 'Reason')}</TableHead> : null}
         {admin ? <TableHead>{pick(zh, '执行人', 'Actor')}</TableHead> : null}
         <TableHead>{pick(zh, '状态', 'Status')}</TableHead>
-        {onRetry ? <TableHead className="text-right">{pick(zh, '操作', 'Actions')}</TableHead> : null}
       </TableRow></TableHeader>
       <TableBody>{jobs.map((job) => <TableRow key={job.id}>
         <TableCell className="whitespace-nowrap text-muted-foreground"><Time value={job.created_at} zh={zh} /></TableCell>
         <TableCell><Button asChild variant="link" className="h-auto p-0 font-mono"><Link to="/release" search={{ job: job.id }}>{job.target_ip}</Link></Button></TableCell>
         <TableCell className="whitespace-nowrap text-muted-foreground" title={job.switch_management_ip}>{job.switch_name ?? '—'}</TableCell>
-        {onRetry ? <TableCell className="whitespace-nowrap">{reasonLabel(job.reason, zh)}</TableCell> : null}
+        {reasons ? <TableCell className="whitespace-nowrap">{reasonLabel(job.reason, zh)}</TableCell> : null}
         {admin ? <TableCell className="max-w-48 truncate" title={job.actor_email}>{actorText(job.actor_name, job.actor_email)}</TableCell> : null}
         <TableCell className="whitespace-nowrap"><JobStatusBadge job={job} zh={zh} />{job.force ? <span className="ml-2 text-xs text-warning">{pick(zh, '强制', 'Forced')}</span> : null}</TableCell>
-        {onRetry ? <TableCell className="text-right">{canRetry(job)
-          ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => onRetry(job)}>{pick(zh, '重新解绑', 'Release again')}</Button> : null}</TableCell> : null}
       </TableRow>)}</TableBody>
     </Table>
   </div>
