@@ -70,12 +70,16 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 	if _, err = start("10.2.1.7"); err != ErrConflict {
 		t.Fatalf("second release while one is queued: %v", err)
 	}
-	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='failed',phase='finished' WHERE id=$1`, started.JobID); err != nil {
+	// A release forced before forced release was removed is released again as a normal one.
+	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='failed',phase='finished',force=true WHERE id=$1`, started.JobID); err != nil {
 		t.Fatal(err)
 	}
 	retried, err := store.Retry(ctx, started.JobID, operator, false)
 	if err != nil || retried.Kind != "release" || retried.ID == started.JobID {
 		t.Fatalf("retry %+v %v", retried, err)
+	}
+	if detail, err := store.Job(ctx, retried.ID, actor, false); err != nil || detail.Force {
+		t.Fatalf("released a forced job again as forced: %+v %v", detail, err)
 	}
 	if _, err = store.Retry(ctx, started.JobID, operator, false); err != ErrConflict {
 		t.Fatalf("second retry while the first is queued: %v", err)

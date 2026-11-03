@@ -14,7 +14,7 @@ export type Started = Pick<Job, 'job_id' | 'status'>
 export type JobPage = { items: Job[]; total: number; page_size: number }
 /** latest keeps only jobs that no later release of the same address has followed. */
 export type JobFilter = { q?: string; kind?: string; status?: string; latest?: boolean; page?: number; pageSize?: number }
-/** Switches and profiles from the admin asset list, for the force-release switch and profile names. */
+/** Switches and profiles from the admin asset list, for profile names. */
 export type AssetOptions = { switches: { id: string; name: string; is_enabled: boolean }[]; profiles: { id: string; name: string }[] }
 
 export async function request<T>(path: string, body?: unknown): Promise<T> {
@@ -55,11 +55,11 @@ export const isRunning = (job: Pick<Job, 'status'> | undefined) => job?.status =
 
 /**
  * A failed or timed-out release, or one whose outcome is unknown, can be released again: the new
- * release queries the switch first. A forced one only by an admin; not once a later release of the
- * address has followed, and old queries never.
+ * release queries the switch first. Not once a later release of the address has followed, and old
+ * queries never.
  */
-export const canRetry = (job: Pick<Job, 'kind' | 'status' | 'force' | 'next_release_id'>, admin: boolean) =>
-  job.kind === 'release' && ['failed', 'timeout', 'needs_manual_confirmation'].includes(job.status) && !job.next_release_id && (!job.force || admin)
+export const canRetry = (job: Pick<Job, 'kind' | 'status' | 'next_release_id'>) =>
+  job.kind === 'release' && ['failed', 'timeout', 'needs_manual_confirmation'].includes(job.status) && !job.next_release_id
 
 type Words = [english: string, chinese: string]
 const say = (words: Words | undefined, zh: boolean, fallback: string) => (words ? words[zh ? 1 : 0] : fallback)

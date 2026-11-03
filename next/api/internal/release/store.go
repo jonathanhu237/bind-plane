@@ -50,7 +50,7 @@ func activeNetworks(ctx context.Context, q querier) ([]Network, error) {
 }
 
 // Start queues a release job. The worker queries the binding first and changes nothing unless it is
-// static, or missing on an admin's forced release. When no switch, or several equally specific ones,
+// static. When no switch, or several equally specific ones,
 // own the address, it returns that stop as a status and queues nothing.
 func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	if !ValidReason(input.Reason) {
@@ -60,7 +60,7 @@ func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 		return Job{}, err
 	}
 	stopped := func(status string) (Job, error) {
-		return Job{Status: status, TargetIP: input.TargetIP, Reason: input.Reason, Force: input.Force}, nil
+		return Job{Status: status, TargetIP: input.TargetIP, Reason: input.Reason}, nil
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -75,35 +75,21 @@ func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	if err == ErrAmbiguous {
 		return stopped("stopped_ambiguous_switch")
 	}
-	if err == ErrNoSwitch && input.SelectedSwitchID != "" && input.Force && input.Admin {
-		if !domain.IsCanonicalUUID(input.SelectedSwitchID) {
-			return Job{}, ErrNoSwitch
-		}
-		err = tx.QueryRowContext(ctx, `SELECT s.id::text FROM `+usableSwitch+` WHERE s.id=$1 AND `+switchUsable, input.SelectedSwitchID).Scan(&selected.SwitchID)
-		if err == sql.ErrNoRows {
-			return Job{}, ErrNoSwitch
-		}
-		if err != nil {
-			return Job{}, err
-		}
-		selected.ID = ""
-	} else if err == ErrNoSwitch {
+	if err == ErrNoSwitch {
 		return stopped("stopped_no_switch")
-	} else if err != nil {
-		return Job{}, err
 	}
-	if input.SelectedSwitchID != "" && selected.ID != "" {
-		return Job{}, ErrConflict
+	if err != nil {
+		return Job{}, err
 	}
 	if err = addressFree(ctx, tx, input.TargetIP); err != nil {
 		return Job{}, err
 	}
 	var id, switchName, managementIP string
-	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,force,status,phase,actor_id,actor_email,actor_name,result,resolved_network_id,
+	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,status,phase,actor_id,actor_email,actor_name,result,resolved_network_id,
  switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
- SELECT $1,'release',$2,$3,'queued','queued',$4,$5,$9,$6::jsonb,NULLIF($7,'')::uuid,`+pinnedColumns+`
- FROM `+usableSwitch+` WHERE `+switchUsable+` AND s.id=$8
- RETURNING id::text,switch_name,host(switch_management_ip)`, input.TargetIP, input.Reason, input.Force, input.Actor.ID, input.Actor.Email, selectionJSON(selected), selected.ID, selected.SwitchID, input.Actor.Name).Scan(&id, &switchName, &managementIP)
+ SELECT $1,'release',$2,'queued','queued',$3,$4,$8,$5::jsonb,NULLIF($6,'')::uuid,`+pinnedColumns+`
+ FROM `+usableSwitch+` WHERE `+switchUsable+` AND s.id=$7
+ RETURNING id::text,switch_name,host(switch_management_ip)`, input.TargetIP, input.Reason, input.Actor.ID, input.Actor.Email, selectionJSON(selected), selected.ID, selected.SwitchID, input.Actor.Name).Scan(&id, &switchName, &managementIP)
 	if err == sql.ErrNoRows {
 		// The switch was disabled between resolution and insertion.
 		return Job{}, ErrAssetChanged
@@ -117,7 +103,7 @@ func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	if err = tx.Commit(); err != nil {
 		return Job{}, err
 	}
-	return Job{ID: id, JobID: id, TargetIP: input.TargetIP, SwitchID: selected.SwitchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Status: "queued", Phase: "queued", Reason: input.Reason, Force: input.Force}, nil
+	return Job{ID: id, JobID: id, TargetIP: input.TargetIP, SwitchID: selected.SwitchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Status: "queued", Phase: "queued", Reason: input.Reason}, nil
 }
 func selectionJSON(n Network) string {
 	b, _ := json.Marshal(map[string]string{"network_id": n.ID, "cidr": n.CIDR})

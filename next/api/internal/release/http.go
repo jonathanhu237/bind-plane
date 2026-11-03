@@ -16,14 +16,11 @@ import (
 )
 
 // StartInput asks for the release of one address. The worker queries the binding first and changes
-// nothing unless it is static, or missing on an admin's forced release.
+// nothing unless it is static.
 type StartInput struct {
-	TargetIP         string `json:"target_ip"`
-	Reason           string `json:"reason"`
-	Force            bool   `json:"force"`
-	SelectedSwitchID string `json:"selected_switch_id,omitempty"`
-	Actor            Actor  `json:"-"`
-	Admin            bool   `json:"-"`
+	TargetIP string `json:"target_ip"`
+	Reason   string `json:"reason"`
+	Actor    Actor  `json:"-"`
 }
 
 // Actor is who starts a job. The job keeps their name and email as they were at the time.
@@ -57,7 +54,7 @@ type Job struct {
 	Status             string     `json:"status"`
 	Phase              string     `json:"phase,omitempty"`
 	Reason             string     `json:"reason,omitempty"`
-	Force              bool       `json:"force"`
+	Force              bool       `json:"force"` // forced past a missing record, before forced release was removed
 	BeforeState        any        `json:"before_state,omitempty"`
 	AfterState         any        `json:"after_state,omitempty"`
 	Result             any        `json:"result,omitempty"`
@@ -164,17 +161,13 @@ func (h *handler) principal(w http.ResponseWriter, r *http.Request, mutate bool)
 	return p, admin, true
 }
 func (h *handler) start(w http.ResponseWriter, r *http.Request) {
-	p, admin, ok := h.principal(w, r, true)
+	p, _, ok := h.principal(w, r, true)
 	if !ok {
 		return
 	}
 	var input StartInput
 	if err := decode(r, &input); err != nil {
 		fail(w, 400, "invalid request")
-		return
-	}
-	if input.Force && !admin || input.SelectedSwitchID != "" && (!admin || !input.Force) {
-		fail(w, 403, "admin force required")
 		return
 	}
 	if !ValidReason(input.Reason) {
@@ -185,7 +178,7 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, err.Error())
 		return
 	}
-	input.Actor, input.Admin = Actor{ID: p.User.ID, Name: p.User.Name, Email: p.User.Email}, admin
+	input.Actor = Actor{ID: p.User.ID, Name: p.User.Name, Email: p.User.Email}
 	job, err := h.store.Start(r.Context(), input)
 	if err != nil {
 		storeError(w, err)

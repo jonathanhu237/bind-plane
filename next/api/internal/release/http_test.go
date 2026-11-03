@@ -130,18 +130,19 @@ func TestStartWithoutSwitchQueuesNothing(t *testing.T) {
 	}
 }
 
-func TestOperatorCannotForceRelease(t *testing.T) {
+// Nobody forces a release or picks its switch, an admin included: both fields are unknown.
+func TestStartRefusesForceAndSwitchChoice(t *testing.T) {
 	for _, body := range []string{
 		`{"target_ip":"10.0.0.1","reason":"temporary_test","force":true}`,
 		`{"target_ip":"10.0.0.1","reason":"temporary_test","selected_switch_id":"00000000-0000-4000-8000-000000000001"}`,
 	} {
 		store := &fakeStore{}
-		h := NewHandler(store, fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Operator"}}}}, "session", "http://localhost:5173")
+		h := NewHandler(store, fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Admin"}}}}, "session", "http://localhost:5173")
 		r := startRequest(body)
 		r.AddCookie(&http.Cookie{Name: "session", Value: "token"})
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
-		if w.Code != 403 || store.calls != 0 {
+		if w.Code != 400 || store.calls != 0 {
 			t.Fatalf("%s: status %d calls %d", body, w.Code, store.calls)
 		}
 	}

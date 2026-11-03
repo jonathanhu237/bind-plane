@@ -66,7 +66,7 @@ def test_release_after_dynamic_entry_is_success():
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
-            {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED},
+            {"target_ip": "10.1.2.3", "kind": "release", **PINNED},
             dependency(),
             lambda **data: events.append(data),
         )
@@ -88,7 +88,7 @@ def test_dynamic_record_never_sends_release_command():
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
-            {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED},
+            {"target_ip": "10.1.2.3", "kind": "release", **PINNED},
             dependency(),
             lambda **data: events.append(data),
         )
@@ -109,7 +109,7 @@ def test_missing_record_never_sends_release_command():
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
-            {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED},
+            {"target_ip": "10.1.2.3", "kind": "release", **PINNED},
             dependency(),
             lambda **data: events.append(data),
         )
@@ -126,7 +126,7 @@ def test_prequery_never_sends_release_command():
         patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
     ):
         device_task(
-            {"target_ip": "10.1.2.3", "kind": "pre_release_query", "force": False, **PINNED},
+            {"target_ip": "10.1.2.3", "kind": "pre_release_query", **PINNED},
             dependency(),
             lambda **data: events.append(data),
         )
@@ -135,7 +135,7 @@ def test_prequery_never_sends_release_command():
 
 
 def test_changed_revision_never_reaches_the_switch():
-    job = {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED}
+    job = {"target_ip": "10.1.2.3", "kind": "release", **PINNED}
     edited = {**dependency(), "switch_version": 2}
     assert dependency_problem(job, edited).startswith("Switch configuration changed")
     assert dependency_problem(job, {**dependency(), "profile_version": 3}) is not None
@@ -153,7 +153,7 @@ def test_unusable_configuration_is_a_definite_failure():
         patch("worker.main.legacy_encrypted_secret", side_effect=ValueError("bad key")),
     ):
         device_task(
-            {"target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED},
+            {"target_ip": "10.1.2.3", "kind": "release", **PINNED},
             dependency(),
             lambda **data: events.append(data),
         )
@@ -164,7 +164,7 @@ def test_unusable_configuration_is_a_definite_failure():
 
 @pytest.mark.asyncio
 async def test_precondition_failure_does_not_block_the_address():
-    job = {"id": "job", "target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED}
+    job = {"id": "job", "target_ip": "10.1.2.3", "kind": "release", **PINNED}
     saved = AsyncMock()
     edited = AsyncMock(return_value={**dependency(), "switch_version": 2})
     with (
@@ -180,7 +180,7 @@ async def test_precondition_failure_does_not_block_the_address():
 
 @pytest.mark.asyncio
 async def test_dependency_load_failure_is_not_uncertain():
-    job = {"id": "job", "target_ip": "10.1.2.3", "kind": "release", "force": False, **PINNED}
+    job = {"id": "job", "target_ip": "10.1.2.3", "kind": "release", **PINNED}
     saved = AsyncMock()
     with (
         patch("worker.main.heartbeat", AsyncMock()),

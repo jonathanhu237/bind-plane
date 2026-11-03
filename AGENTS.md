@@ -22,6 +22,8 @@ Do not add these unless the project owner explicitly changes scope:
 - Binding creation
 - IPv6/NDP support
 - Batch release
+- Forced release (sending the release command when the switch has no record of the address)
+- Choosing a switch by hand instead of resolving it
 - Approval flows
 - SSO
 - Public registration
@@ -54,12 +56,6 @@ The normal operator flow is:
 There is no separate confirmation step: choosing Release starts the job, and the state before release is recorded with it. One release per address may be queued or running at a time. An earlier release with an unknown outcome does not hold the address.
 
 Reasons should be quick to select and include a temporary-test option. Ticket IDs are optional for MVP.
-
-## Forced Release
-
-If the query before release finds no record, the release stops. An `admin` may instead start a forced release, which runs the release command even when no record is found. It is allowed only after automatic switch resolution or explicit switch selection.
-
-Forced releases must require confirmation before the job is created, require a reason, store `force = true`, preserve raw before/after output, and be clearly marked in job details and audit logs.
 
 ## Execution Architecture
 
@@ -95,11 +91,11 @@ Credentials must be encrypted at rest. App user passwords must use a strong one-
 
 ## Switch Resolution
 
-Operators should not manually select switches in the normal flow. Resolve the switch from local asset and network data.
+Nobody selects a switch by hand. Resolve the switch from local asset and network data.
 
 Only enabled and validated network data may participate in production resolution.
 
-If no switch matches, stop the normal workflow.
+If no switch matches, stop; the fix is to register the address's network.
 
 If multiple equally specific matches exist, stop and require admin data correction.
 
@@ -131,14 +127,13 @@ Every release job must record enough information to answer:
 - When it started and finished
 - Which IP was targeted
 - Which switch was resolved or selected
-- Whether it was forced
 - Which reason was selected
 - What the before and after states were
 - Which command profile was used
 - Whether it succeeded, failed, timed out, or ended with an unknown outcome
 - Raw before/after/command output needed for troubleshooting
 
-Records name who acted: release jobs, asset events and device tasks keep the actor's name and email as they were at the time.
+Records name who acted: release jobs, asset events and device tasks keep the actor's name and email as they were at the time. Releases forced before forced release was removed keep `force = true` and their mark.
 
 Never log plaintext credentials, decrypted passwords, sensitive environment variables, or full connection strings.
 
@@ -150,7 +145,7 @@ Everyone lands on the home page after login. It shows where things stand and sta
 - Admins also see the device operations summary there; there is no separate overview page.
 - A "New release" (发起解绑) button in its header opens the release console, so the release workflow stays one click away.
 
-Every release starts in the release console; do not add a second release form elsewhere. It is a focused page for one job at a time: address and reason, then the result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Admin force release lives here. Release history is its own page, with filters and pagination.
+Every release starts in the release console; do not add a second release form elsewhere. It is a focused page for one job at a time: address and reason, then the result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Release history is its own page, with filters and pagination.
 
 Navigation stays small:
 
@@ -159,9 +154,9 @@ Navigation stays small:
 - Device operations (admins): devices, schedules, compliance, alerts, audit log, asset settings (credentials, command profiles, switches, networks)
 - User and system administration
 
-The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 重新解绑 on the button that releases an address again, 解绑控制台, 解绑记录, 强制解绑. Never mix in 释放. The English interface and the code keep "release".
+The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 重新解绑 on the button that releases an address again, 解绑控制台, 解绑记录. Never mix in 释放. The English interface and the code keep "release".
 
-Release statuses say what happened on the switch. In Chinese they are 排队中, 进行中, 已解绑 (the static binding was deleted and is gone), 无绑定 (only a dynamic entry, so nothing was sent; 绑定 always means a static binding, and a dynamic entry is a 动态记录), 无记录 (the switch has no record of the address, so nothing was sent; an admin may force a release), 失败, 超时 and 结果未知 (a release command may have run, but whether the binding is gone is unknown; releasing again checks the switch first). 确认 means only a person confirming something, never a status.
+Release statuses say what happened on the switch. In Chinese they are 排队中, 进行中, 已解绑 (the static binding was deleted and is gone), 无绑定 (only a dynamic entry, so nothing was sent; 绑定 always means a static binding, and a dynamic entry is a 动态记录), 无记录 (the switch has no record of the address, so nothing was sent; check the address and its network's switch and command profile), 失败, 超时 and 结果未知 (a release command may have run, but whether the binding is gone is unknown; releasing again checks the switch first). 确认 means only a person confirming something, never a status.
 
 Build a clear, restrained operator-focused tool. Do not block the main release workflow on a polished full admin system.
 

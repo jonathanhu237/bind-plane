@@ -10,7 +10,8 @@ import (
 // Retry queues a fresh release after a failed or timed-out one, or one whose outcome is unknown. The
 // worker queries the binding again before sending anything, so a release that took effect is not
 // repeated: releasing again is how an unknown outcome gets settled.
-// It runs against the switch's current revision; an auto-resolved target is resolved again.
+// The address is resolved again and the job pins the switch's current revision. A release forced, or
+// sent to a switch picked by hand, before both were removed is released again as a normal one.
 func (s *SQLStore) Retry(ctx context.Context, original string, actor Actor, admin bool) (Job, error) {
 	if !domain.IsCanonicalUUID(original) {
 		return Job{}, ErrNotFound
@@ -20,10 +21,8 @@ func (s *SQLStore) Retry(ctx context.Context, original string, actor Actor, admi
 		return Job{}, err
 	}
 	defer tx.Rollback()
-	var kind, status, owner, ip, switchID string
-	var resolvedNetwork sql.NullString
-	var forced bool
-	err = tx.QueryRowContext(ctx, `SELECT kind,status,actor_id::text,force,host(target_ip),switch_id::text,resolved_network_id::text FROM bp_release_jobs WHERE id=$1 FOR UPDATE`, original).Scan(&kind, &status, &owner, &forced, &ip, &switchID, &resolvedNetwork)
+	var kind, status, owner, ip string
+	err = tx.QueryRowContext(ctx, `SELECT kind,status,actor_id::text,host(target_ip) FROM bp_release_jobs WHERE id=$1 FOR UPDATE`, original).Scan(&kind, &status, &owner, &ip)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNotFound
 	}
@@ -33,33 +32,27 @@ func (s *SQLStore) Retry(ctx context.Context, original string, actor Actor, admi
 	if !admin && owner != actor.ID {
 		return Job{}, ErrNotFound
 	}
-	if forced && !admin {
-		return Job{}, ErrConflict
-	}
 	// Queries from the old two-step flow are never turned into releases.
 	if kind != "release" || status != "failed" && status != "timeout" && status != "needs_manual_confirmation" {
 		return Job{}, ErrConflict
 	}
-	if resolvedNetwork.Valid {
-		networks, err := activeNetworks(ctx, tx)
-		if err != nil {
-			return Job{}, err
-		}
-		selected, err := ResolveNetwork(ip, networks)
-		if err != nil {
-			return Job{}, err
-		}
-		switchID, resolvedNetwork.String = selected.SwitchID, selected.ID
+	networks, err := activeNetworks(ctx, tx)
+	if err != nil {
+		return Job{}, err
+	}
+	selected, err := ResolveNetwork(ip, networks)
+	if err != nil {
+		return Job{}, err
 	}
 	if err = addressFree(ctx, tx, ip); err != nil {
 		return Job{}, err
 	}
 	var id, reason, switchName, managementIP string
-	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,ticket_id,force,status,phase,actor_id,actor_email,actor_name,retry_of_id,resolved_network_id,
+	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,ticket_id,status,phase,actor_id,actor_email,actor_name,retry_of_id,resolved_network_id,
  switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
- SELECT j.target_ip,'release',j.reason,j.ticket_id,j.force,'queued','queued',$1,$2,$6,j.id,$4::uuid,`+pinnedColumns+`
+ SELECT j.target_ip,'release',j.reason,j.ticket_id,'queued','queued',$1,$2,$6,j.id,$4::uuid,`+pinnedColumns+`
  FROM bp_release_jobs j, `+usableSwitch+` WHERE j.id=$3 AND s.id=$5 AND `+switchUsable+`
- RETURNING id::text,reason,switch_name,host(switch_management_ip)`, actor.ID, actor.Email, original, nullable(resolvedNetwork), switchID, actor.Name).Scan(&id, &reason, &switchName, &managementIP)
+ RETURNING id::text,reason,switch_name,host(switch_management_ip)`, actor.ID, actor.Email, original, selected.ID, selected.SwitchID, actor.Name).Scan(&id, &reason, &switchName, &managementIP)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrAssetChanged
 	}
@@ -72,12 +65,5 @@ func (s *SQLStore) Retry(ctx context.Context, original string, actor Actor, admi
 	if err = tx.Commit(); err != nil {
 		return Job{}, err
 	}
-	return Job{ID: id, JobID: id, TargetIP: ip, SwitchID: switchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Status: "queued", Phase: "queued", Reason: reason, Force: forced}, nil
-}
-
-func nullable(value sql.NullString) any {
-	if !value.Valid {
-		return nil
-	}
-	return value.String
+	return Job{ID: id, JobID: id, TargetIP: ip, SwitchID: selected.SwitchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Status: "queued", Phase: "queued", Reason: reason}, nil
 }

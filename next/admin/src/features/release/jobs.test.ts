@@ -44,13 +44,12 @@ describe('release job messages', () => {
 
 describe('release jobs', () => {
   it('offers releasing again after a failed, timed-out or unknown outcome that nothing has followed', () => {
-    expect(canRetry({ kind: 'release', status: 'failed', force: false }, false)).toBe(true)
-    expect(canRetry({ kind: 'release', status: 'needs_manual_confirmation', force: false }, false)).toBe(true)
-    expect(canRetry({ kind: 'release', status: 'needs_manual_confirmation', force: false, next_release_id: 'j2' }, true)).toBe(false)
-    expect(canRetry({ kind: 'release', status: 'succeeded', force: false }, true)).toBe(false)
-    expect(canRetry({ kind: 'release', status: 'timeout', force: true }, false)).toBe(false)
-    expect(canRetry({ kind: 'release', status: 'timeout', force: true }, true)).toBe(true)
-    expect(canRetry({ kind: 'pre_release_query', status: 'failed', force: false }, true)).toBe(false)
+    expect(canRetry({ kind: 'release', status: 'failed' })).toBe(true)
+    expect(canRetry({ kind: 'release', status: 'timeout' })).toBe(true)
+    expect(canRetry({ kind: 'release', status: 'needs_manual_confirmation' })).toBe(true)
+    expect(canRetry({ kind: 'release', status: 'needs_manual_confirmation', next_release_id: 'j2' })).toBe(false)
+    expect(canRetry({ kind: 'release', status: 'succeeded' })).toBe(false)
+    expect(canRetry({ kind: 'pre_release_query', status: 'failed' })).toBe(false)
   })
 
   it('asks the history for one page and leaves empty filters out', () => {

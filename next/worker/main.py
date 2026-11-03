@@ -78,7 +78,7 @@ async def claim(pool):
                 """UPDATE bp_release_jobs SET status='running',phase='connecting',
                     started_at=now(),updated_at=now(),lease_token=gen_random_uuid(),
                     lease_until=now()+interval '90 seconds' WHERE id=$1
-                    RETURNING id,lease_token,kind,host(target_ip) AS target_ip,force,
+                    RETURNING id,lease_token,kind,host(target_ip) AS target_ip,
                         switch_id,command_profile_id,switch_version,command_profile_version""",
                 row["id"],
             )
@@ -265,7 +265,7 @@ def device_task(job, dep, checkpoint_sync):
                     message="Dynamic entry is not a static binding",
                     result={"preparation_status": "stopped_dynamic_record"},
                 )
-            elif before.entry_type == ArpEntryType.MISSING and not job["force"]:
+            elif before.entry_type == ArpEntryType.MISSING:
                 checkpoint_sync(
                     phase="finished",
                     status="no_record",
@@ -288,7 +288,7 @@ def device_task(job, dep, checkpoint_sync):
                 message="Dynamic entry is not a static binding",
             )
             return
-        if before.entry_type == ArpEntryType.MISSING and not job["force"]:
+        if before.entry_type == ArpEntryType.MISSING:
             checkpoint_sync(
                 phase="finished", status="no_record", message="No record; release stopped"
             )

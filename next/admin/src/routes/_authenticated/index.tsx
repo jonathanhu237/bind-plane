@@ -19,7 +19,7 @@ function HomePage() {
       {canRelease(user) ? <Button asChild><Link to="/release"><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '发起解绑', 'New release')}</Link></Button> : null}
     </PageHeader>
     {canRelease(user) ? <>
-      <UncertainReleases zh={zh} admin={admin} />
+      <UncertainReleases zh={zh} />
       <RecentJobs zh={zh} admin={admin} />
     </> : <Alert><Lock aria-hidden="true" /><AlertDescription>{pick(zh, '你的账号没有解绑权限。需要解绑 IP 时，请联系管理员分配操作员角色。', 'Your account cannot release bindings. Ask an admin for the Operator role if you need to.')}</AlertDescription></Alert>}
     {admin ? <OpsOverview zh={zh} /> : null}

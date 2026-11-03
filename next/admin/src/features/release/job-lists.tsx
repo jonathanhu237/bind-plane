@@ -39,7 +39,7 @@ export function JobTable({ jobs, zh, admin, onRetry, busy = false }: TableProps)
         {onRetry ? <TableCell className="whitespace-nowrap">{reasonLabel(job.reason, zh)}</TableCell> : null}
         {admin ? <TableCell className="max-w-48 truncate" title={job.actor_email}>{actorText(job.actor_name, job.actor_email)}</TableCell> : null}
         <TableCell className="whitespace-nowrap"><JobStatusBadge job={job} zh={zh} />{job.force ? <span className="ml-2 text-xs text-warning">{pick(zh, '强制', 'Forced')}</span> : null}</TableCell>
-        {onRetry ? <TableCell className="text-right">{canRetry(job, admin)
+        {onRetry ? <TableCell className="text-right">{canRetry(job)
           ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => onRetry(job)}>{pick(zh, '重新解绑', 'Release again')}</Button> : null}</TableCell> : null}
       </TableRow>)}</TableBody>
     </Table>
@@ -65,7 +65,7 @@ const unknownOutcomes = { kind: 'release', status: 'needs_manual_confirmation' }
  * Releases whose outcome is unknown and that no later release of the address has followed, each with
  * a way to release it again. Nothing when there are none.
  */
-export function UncertainReleases({ zh, admin }: { zh: boolean; admin: boolean }) {
+export function UncertainReleases({ zh }: { zh: boolean }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
@@ -92,7 +92,7 @@ export function UncertainReleases({ zh, admin }: { zh: boolean; admin: boolean }
         <Link to="/release" search={{ job: job.id }} className="font-mono font-medium underline underline-offset-4">{job.target_ip}</Link>
         <span>{job.switch_name}</span>
         <Time value={job.created_at} zh={zh} />
-        {canRetry(job, admin) ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void releaseAgain(job)}>{pick(zh, '重新解绑', 'Release again')}</Button> : null}
+        {canRetry(job) ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void releaseAgain(job)}>{pick(zh, '重新解绑', 'Release again')}</Button> : null}
       </li>)}</ul>
       {error ? <p role="alert">{error}</p> : null}
       {count > page.items.length ? <Link to="/releases" search={unknownOutcomes} className="self-start underline underline-offset-4">{pick(zh, '查看所有结果未知的解绑', 'View every release with an unknown outcome')}</Link> : null}
