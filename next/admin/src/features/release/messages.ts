@@ -71,6 +71,12 @@ const fixed: Record<string, Words> = {
   'credential not found (give its exact name, or choose a default)': ['Credential not found. Give its exact name, or choose a default.', '找不到凭据。请填写准确名称，或选择默认凭据。'],
   'command profile not found (give its exact name, or choose a default)': ['Command profile not found. Give its exact name, or choose a default.', '找不到命令模板。请填写准确名称，或选择默认模板。'],
   'a switch with this management IP already exists': ['A switch with this management IP already exists.', '已存在相同管理 IP 的交换机。'],
+  'already up to date': ['Already matches the CSV.', '与 CSV 一致，无需修改。'],
+  'switches and exactly one change (group, site or enabled) required': ['Choose switches and one change to make.', '请选择设备和一项要做的修改。'],
+  'group is used by schedules or compliance rules': [
+    'A schedule or compliance rule targets this group. Change them first; otherwise they would run on every switch.',
+    '有计划任务或合规规则限定在这个分组。请先修改它们，否则它们会变成对所有交换机生效。',
+  ],
   'the database rejected this row': rejectedRow, 'row rejected by the database': rejectedRow,
   'validated must be true or false': ['"validated" must be true or false.', '“已验证”必须是 true 或 false。'],
   'cidr must be an IPv4 network such as 10.0.0.0/24': ['The network must be an IPv4 network, such as 10.0.0.0/24.', '网段必须是 IPv4 网段，例如 10.0.0.0/24。'],
@@ -88,6 +94,7 @@ const fixed: Record<string, Words> = {
   'Switch is disabled': ['Switch is disabled', '设备已停用'],
   'Worker stopped before finishing': ['The worker stopped before finishing', '工作进程中断，未完成'],
   'Unexpected worker error': ['Unexpected worker error', '工作进程异常'],
+  'Signed in': ['Signed in and out; nothing was sent', '登录成功，未执行任何命令'],
   'Credential or command profile is disabled': ['Credential or command profile is disabled', '凭据或命令模板已停用'],
   'Command profile has no config_backup command': ['The command profile has no config_backup command', '命令模板未配置 config_backup 命令'],
   'Backup output is too short to be a configuration': tooShort, 'Backup output is too short': tooShort,
@@ -146,6 +153,14 @@ const shaped: [RegExp, (zh: boolean, ...parts: string[]) => string][] = [
     zh ? `${what === 'network' ? '网段' : '管理 IP '}与第 ${line} 行重复。` : `${what === 'network' ? 'Network' : 'Management IP'} repeats line ${line}.`],
   [/^cidr has host bits set; did you mean (.+)\?$/, (zh, network) => (zh ? `网段的主机位不为 0，是否应为 ${network}？` : `The network has host bits set; did you mean ${network}?`)],
   [/^Port (\d+) unreachable: (.+)$/s, (zh, port, why) => (zh ? `端口 ${port} 不可达：${serverText(why, zh)}` : `Port ${port} unreachable: ${serverText(why, zh)}`)],
+  [/^changes: (.+)$/, (zh, fields) => {
+    const names: Record<string, Words> = {
+      name: ['name', '名称'], vendor: ['vendor', '厂商'], model: ['model', '型号'], group: ['group', '分组'], site: ['site', '校区'],
+      protocol: ['protocol', '协议'], port: ['port', '端口'], credential: ['credential', '凭据'], profile: ['command profile', '命令模板'], description: ['description', '描述'],
+    }
+    const list = fields.split(', ').map((field) => names[field]?.[zh ? 1 : 0] ?? field)
+    return zh ? `将修改：${list.join('、')}` : `Changes: ${list.join(', ')}`
+  }],
   [/^Backup failed: (.+)$/s, (zh, why) => (zh ? `配置备份失败：${serverText(why, zh)}` : `Backup failed: ${serverText(why, zh)}`)],
   [/^Rule "(.*)" failed: (.+)$/s, (zh, rule, detail) => (zh ? `规则「${rule}」未通过：${serverText(detail, zh)}` : `Rule "${rule}" failed: ${serverText(detail, zh)}`)],
   [/^Line (\d+): (.*)$/s, (zh, line, excerpt) => (zh ? `第 ${line} 行：${excerpt}` : `Line ${line}: ${excerpt}`)],

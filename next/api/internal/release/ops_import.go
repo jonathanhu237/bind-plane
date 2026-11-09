@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -22,7 +23,7 @@ const (
 
 type importRow struct {
 	Line    int    `json:"line"`
-	Status  string `json:"status"` // create, skip or error
+	Status  string `json:"status"` // create, update, skip or error
 	Label   string `json:"label"`
 	Message string `json:"message,omitempty"`
 }
@@ -32,6 +33,7 @@ type importReport struct {
 	DryRun    bool        `json:"dry_run"`
 	Committed bool        `json:"committed"`
 	Created   int         `json:"created"`
+	Updated   int         `json:"updated"`
 	Skipped   int         `json:"skipped"`
 	Errors    int         `json:"errors"`
 	NewGroups []string    `json:"new_groups"`
@@ -42,6 +44,8 @@ func (report *importReport) add(row importRow) {
 	switch row.Status {
 	case "create":
 		report.Created++
+	case "update":
+		report.Updated++
 	case "skip":
 		report.Skipped++
 	default:
@@ -55,12 +59,14 @@ type csvRecord struct {
 	fields map[string]string
 }
 
-// Headers from this tool's template, plus the Chinese headings other inventory exports use.
+// Headers from this tool's template and export, the Chinese headings other inventory exports
+// use, and NetSwitch Pro's English template. Any other column, such as an export's status
+// columns, is ignored.
 var importHeaderAliases = map[string]string{
-	"ip": "management_ip", "management_ip": "management_ip", "管理ip": "management_ip", "ip地址": "management_ip",
+	"ip": "management_ip", "management_ip": "management_ip", "ip_address": "management_ip", "管理ip": "management_ip", "ip地址": "management_ip", "管理地址": "management_ip",
 	"name": "name", "设备名称": "name", "名称": "name", "vendor": "vendor", "厂商": "vendor", "model": "model", "型号": "model",
-	"group": "group", "分组": "group", "site": "site", "校区": "site", "站点": "site", "protocol": "protocol", "协议": "protocol",
-	"port": "port", "端口": "port", "credential": "credential", "凭据": "credential", "profile": "profile", "命令模板": "profile",
+	"group": "group", "group_name": "group", "分组": "group", "site": "site", "region": "site", "校区": "site", "站点": "site", "protocol": "protocol", "协议": "protocol",
+	"port": "port", "ssh_port": "port", "端口": "port", "credential": "credential", "凭据": "credential", "profile": "profile", "命令模板": "profile",
 	"description": "description", "描述": "description", "备注": "description", "cidr": "cidr", "网段": "cidr",
 	"switch": "switch", "交换机": "switch", "vlan": "vlan", "validated": "validated", "已验证": "validated",
 }
@@ -97,8 +103,13 @@ func readImportCSV(text string) ([]csvRecord, error) {
 		blank := true
 		for i, value := range values {
 			if i < len(columns) && columns[i] != "" {
-				record.fields[columns[i]] = strings.TrimSpace(value)
-				blank = blank && strings.TrimSpace(value) == ""
+				value = strings.TrimSpace(value)
+				// An export quotes cells that a spreadsheet would read as formulas.
+				if len(value) > 1 && value[0] == '\'' && strings.ContainsRune("=+-@", rune(value[1])) {
+					value = value[1:]
+				}
+				record.fields[columns[i]] = value
+				blank = blank && value == ""
 			}
 		}
 		if !blank {
@@ -147,6 +158,7 @@ func (a *AdminHandler) importAssets(w http.ResponseWriter, r *http.Request) {
 		DryRun              bool   `json:"dry_run"`
 		DefaultCredentialID string `json:"default_credential_id"`
 		DefaultProfileID    string `json:"default_profile_id"`
+		Mode                string `json:"mode"` // update changes switches whose management IP exists; anything else skips them
 	}
 	if err := decodeLimit(r, &input, importBodyLimit); err != nil || input.Kind != "switches" && input.Kind != "networks" {
 		fail(w, 422, "kind (switches or networks) and CSV text required")
@@ -165,7 +177,7 @@ func (a *AdminHandler) importAssets(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 	report := importReport{Kind: input.Kind, DryRun: input.DryRun, NewGroups: []string{}, Rows: []importRow{}}
 	if input.Kind == "switches" {
-		err = importSwitches(r.Context(), tx, actor, records, input.DefaultCredentialID, input.DefaultProfileID, &report)
+		err = importSwitches(r.Context(), tx, actor, records, input.DefaultCredentialID, input.DefaultProfileID, input.Mode == "update", &report)
 	} else {
 		err = importNetworks(r.Context(), tx, actor, records, &report)
 	}
@@ -174,7 +186,7 @@ func (a *AdminHandler) importAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Rows are inserted for real either way, so a dry run reports exactly what a commit would do.
-	if report.Errors == 0 && !input.DryRun && report.Created > 0 {
+	if report.Errors == 0 && !input.DryRun && report.Created+report.Updated > 0 {
 		if err = tx.Commit(); err != nil {
 			fail(w, 503, "asset store unavailable")
 			return
@@ -205,7 +217,15 @@ func importInsert(ctx context.Context, tx *sql.Tx, actor domain.Principal, actio
 
 var errImportRow = errors.New("row rejected by the database")
 
-func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, records []csvRecord, defaultCredential, defaultProfile string, report *importReport) error {
+// importChangeNames are the template's names for the switch columns an update can change.
+var importChangeNames = map[string]string{
+	"name": "name", "vendor": "vendor", "model": "model", "group_id": "group", "site": "site", "protocol": "protocol",
+	"port": "port", "credential_id": "credential", "command_profile_id": "profile", "description": "description",
+}
+
+// importSwitches creates the switches whose management IP is new. A switch that exists is
+// skipped, or with update set, given the row's non-empty cells; an empty cell keeps its value.
+func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, records []csvRecord, defaultCredential, defaultProfile string, update bool, report *importReport) error {
 	credentials, err := namedIDs(ctx, tx, `SELECT name,id::text FROM bp_credentials`)
 	if err != nil {
 		return err
@@ -222,14 +242,29 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 	if err != nil {
 		return err
 	}
+	groupID := func(name string) (string, error) {
+		if name == "" || groups[name] != "" {
+			return groups[name], nil
+		}
+		var id string
+		if err := tx.QueryRowContext(ctx, `INSERT INTO bp_switch_groups(name) VALUES ($1) RETURNING id::text`, name).Scan(&id); err != nil {
+			return "", err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name) VALUES ($1,$2,$5,'group.create',$3,$4)`, actor.User.ID, actor.User.Email, id, name, actor.User.Name); err != nil {
+			return "", err
+		}
+		groups[name] = id
+		report.NewGroups = append(report.NewGroups, name)
+		return id, nil
+	}
 	seen := map[string]int{}
 	for _, record := range records {
 		f := record.fields
-		row := importRow{Line: record.line, Label: f["name"]}
-		reject := func(message string) { row.Status, row.Message = "error", message; report.add(row) }
 		ip := f["management_ip"]
-		vendor, knownVendor := vendorAliases[strings.ToLower(defaultString(f["vendor"], "other"))]
-		protocol := strings.ToLower(defaultString(f["protocol"], "telnet"))
+		row := importRow{Line: record.line, Label: defaultString(f["name"], ip)}
+		reject := func(message string) { row.Status, row.Message = "error", message; report.add(row) }
+		vendor, knownVendor := vendorAliases[strings.ToLower(f["vendor"])]
+		protocol := strings.ToLower(f["protocol"])
 		var port *int
 		if f["port"] != "" {
 			n, err := strconv.Atoi(f["port"])
@@ -240,6 +275,70 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			port = &n
 		}
 		credentialID, profileID := credentials[f["credential"]], profiles[f["profile"]]
+		switch {
+		case !validIPv4(ip):
+			reject("management_ip must be one canonical IPv4 address")
+			continue
+		case seen[ip] != 0:
+			reject(fmt.Sprintf("management_ip repeats line %d", seen[ip]))
+			continue
+		case f["vendor"] != "" && !knownVendor:
+			reject("vendor must be huawei, h3c, ruijie, cisco or other")
+			continue
+		case protocol != "" && protocol != "telnet" && protocol != "ssh":
+			reject("protocol must be telnet or ssh")
+			continue
+		case f["credential"] != "" && !domain.IsCanonicalUUID(credentialID):
+			reject("credential not found (give its exact name, or choose a default)")
+			continue
+		case f["profile"] != "" && !domain.IsCanonicalUUID(profileID):
+			reject("command profile not found (give its exact name, or choose a default)")
+			continue
+		}
+		seen[ip] = record.line
+		if id := existing[ip]; id != "" {
+			if !update {
+				row.Status, row.Message = "skip", "a switch with this management IP already exists"
+				report.add(row)
+				continue
+			}
+			next := map[string]any{}
+			for column, value := range map[string]string{"name": f["name"], "vendor": vendor, "model": f["model"], "site": f["site"],
+				"protocol": protocol, "credential_id": credentialID, "command_profile_id": profileID, "description": f["description"]} {
+				if value != "" {
+					next[column] = value
+				}
+			}
+			if port != nil {
+				next["port"] = *port
+			}
+			if f["group"] != "" {
+				if next["group_id"], err = groupID(f["group"]); err != nil {
+					return err
+				}
+			}
+			changes, err := importUpdate(ctx, tx, actor, id, next)
+			if errors.Is(err, errImportRow) {
+				reject("the database rejected this row")
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if len(changes) == 0 {
+				row.Status, row.Message = "skip", "already up to date"
+				report.add(row)
+				continue
+			}
+			names := []string{}
+			for column := range changes {
+				names = append(names, importChangeNames[column])
+			}
+			sort.Strings(names)
+			row.Status, row.Message = "update", "changes: "+strings.Join(names, ", ")
+			report.add(row)
+			continue
+		}
 		if f["credential"] == "" {
 			credentialID = defaultCredential
 		}
@@ -247,20 +346,8 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			profileID = defaultProfile
 		}
 		switch {
-		case row.Label == "":
+		case f["name"] == "":
 			reject("name is required")
-			continue
-		case !validIPv4(ip):
-			reject("management_ip must be one canonical IPv4 address")
-			continue
-		case seen[ip] != 0:
-			reject(fmt.Sprintf("management_ip repeats line %d", seen[ip]))
-			continue
-		case !knownVendor:
-			reject("vendor must be huawei, h3c, ruijie, cisco or other")
-			continue
-		case protocol != "telnet" && protocol != "ssh":
-			reject("protocol must be telnet or ssh")
 			continue
 		case !domain.IsCanonicalUUID(credentialID):
 			reject("credential not found (give its exact name, or choose a default)")
@@ -269,29 +356,14 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			reject("command profile not found (give its exact name, or choose a default)")
 			continue
 		}
-		seen[ip] = record.line
-		if existing[ip] != "" {
-			row.Status, row.Message = "skip", "a switch with this management IP already exists"
-			report.add(row)
-			continue
-		}
-		groupID := ""
-		if name := f["group"]; name != "" {
-			if groupID = groups[name]; groupID == "" {
-				if err = tx.QueryRowContext(ctx, `INSERT INTO bp_switch_groups(name) VALUES ($1) RETURNING id::text`, name).Scan(&groupID); err != nil {
-					return err
-				}
-				if _, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name) VALUES ($1,$2,$5,'group.create',$3,$4)`, actor.User.ID, actor.User.Email, groupID, name, actor.User.Name); err != nil {
-					return err
-				}
-				groups[name] = groupID
-				report.NewGroups = append(report.NewGroups, name)
-			}
+		group, err := groupID(f["group"])
+		if err != nil {
+			return err
 		}
 		err = importInsert(ctx, tx, actor, "switch.import", row.Label,
 			`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port)
  VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11) RETURNING id::text`,
-			row.Label, ip, credentialID, profileID, vendor, f["model"], f["site"], f["description"], groupID, protocol, port)
+			row.Label, ip, credentialID, profileID, defaultString(vendor, "other"), f["model"], f["site"], f["description"], group, defaultString(protocol, "telnet"), port)
 		if errors.Is(err, errImportRow) {
 			reject("the database rejected this row")
 			continue
@@ -303,6 +375,23 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 		report.add(row)
 	}
 	return nil
+}
+
+// importUpdate changes one existing switch inside a savepoint, so a rejected row leaves the
+// rest of the import intact. It records the change exactly as an edit would.
+func importUpdate(ctx context.Context, tx *sql.Tx, actor domain.Principal, id string, next map[string]any) (map[string]any, error) {
+	if _, err := tx.ExecContext(ctx, `SAVEPOINT import_row`); err != nil {
+		return nil, err
+	}
+	_, changes, err := updateRow(ctx, tx, actor, switchFields, id, 0, next)
+	if err != nil {
+		if _, rollbackErr := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT import_row`); rollbackErr != nil {
+			return nil, rollbackErr
+		}
+		return nil, fmt.Errorf("%w: %v", errImportRow, err)
+	}
+	_, err = tx.ExecContext(ctx, `RELEASE SAVEPOINT import_row`)
+	return changes, err
 }
 
 func importNetworks(ctx context.Context, tx *sql.Tx, actor domain.Principal, records []csvRecord, report *importReport) error {

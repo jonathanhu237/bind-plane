@@ -1,4 +1,4 @@
-import type { Vendor } from '@/features/release/asset-editors'
+import type { NetworkAsset, Vendor } from '@/features/release/asset-editors'
 
 export class OpsRequestError extends Error {
   status: number
@@ -20,16 +20,20 @@ export async function opsRequest<T>(path: string, body?: unknown, method = body 
   return data as T
 }
 
-export type TaskKind = 'config_backup' | 'reachability'
+export type TaskKind = 'config_backup' | 'reachability' | 'login_check'
 
 export type OpsSwitch = {
   id: string; name: string; management_ip: string; vendor: Vendor; model: string | null; site: string | null; description: string | null
   group_id: string | null; group_name: string | null; protocol: 'telnet' | 'ssh'; port: number | null; is_enabled: boolean; version: number
   credential_id: string; credential_name: string; command_profile_id: string; profile_name: string
   reachable: boolean | null; reachability_checked_at: string | null; reachability_latency_ms: number | null; reachability_error: string | null
-  config_checked_at: string | null; config_error: string | null; latest_backup_id: number | null; latest_backup_at: string | null; compliance_failed: number
+  login_ok: boolean | null; login_checked_at: string | null; login_error: string | null
+  config_checked_at: string | null; config_succeeded_at: string | null; config_error: string | null; compliance_failed: number
+  /** Enabled, validated networks: the ones release resolution can use. */
+  networks: number
 }
 export type Page<T> = { items: T[]; total: number; page_size: number }
+export type SwitchPage = Page<OpsSwitch> & { sites: string[] }
 
 export type TaskSummary = {
   id: string; kind: TaskKind; scope_label: string; actor_name: string | null; actor_email: string | null; schedule_name: string | null; created_at: string
@@ -72,13 +76,16 @@ export type Overview = {
 }
 
 export type BackupMeta = { id: number; captured_at: string; size_bytes: number; line_count: number; sha256: string }
-export type SwitchDetail = Omit<OpsSwitch, 'group_id' | 'credential_id' | 'command_profile_id' | 'version' | 'latest_backup_id' | 'latest_backup_at' | 'compliance_failed'> & {
+export type HistoryEvent = { id: number; action: string; actor_name: string | null; actor_email: string; object_name: string; changes: Record<string, unknown>; created_at: string }
+export type SwitchDetail = Omit<OpsSwitch, 'group_id' | 'credential_id' | 'command_profile_id' | 'version' | 'compliance_failed' | 'networks'> & {
   reachability_changed_at: string | null
   backups: BackupMeta[]
   compliance: { rule_id: string; rule_name: string; severity: Severity; mode: string; passed: boolean; detail: string | null; evaluated_at: string; backup_id: number }[]
   recent_items: { id: number; kind: TaskKind; status: TaskItem['status']; message: string | null; changed: boolean | null; backup_id: number | null; created_at: string; finished_at: string | null }[]
   alerts: { id: number; kind: Alert['kind']; severity: Severity; message: string; status: Alert['status']; opened_at: string }[]
-  networks: { id: string; cidr: string; vlan: string | null; is_enabled: boolean; is_validated: boolean }[]
+  networks: NetworkAsset[]
+  /** Changes to the switch and to the networks it owns, newest first. */
+  history: HistoryEvent[]
 }
 export type DiffLine = { kind: 'context' | 'add' | 'remove'; text: string }
 export type DiffResponse = {

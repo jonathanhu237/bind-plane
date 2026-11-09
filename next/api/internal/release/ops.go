@@ -1,12 +1,15 @@
 package release
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +35,7 @@ func NewOpsHandler(db *sql.DB, identity Identity, cookie, origin string, loc *ti
 	routes := map[string]http.HandlerFunc{
 		"GET /api/ops/overview":                 o.overview,
 		"GET /api/ops/switches":                 o.switches,
+		"GET /api/ops/switches/export":          o.exportSwitches,
 		"GET /api/ops/switches/{id}":            o.switchDetail,
 		"GET /api/ops/backups/{id}":             o.backup,
 		"GET /api/ops/backups/{id}/diff":        o.backupDiff,
@@ -191,36 +195,140 @@ func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// switchFilter is the condition the device list and its export share; its arguments start at $1.
+// A backup is overdue when the last successful one is more than seven days old. "No networks"
+// means none that release resolution can use: enabled and validated.
+const switchFilter = `($1='' OR s.name ILIKE '%'||$1||'%' OR host(s.management_ip) LIKE $1||'%' OR s.site ILIKE '%'||$1||'%')
+ AND ($2='' OR $2='none' AND s.group_id IS NULL OR s.group_id::text=$2) AND ($3='' OR s.vendor=$3) AND ($4='' OR s.site=$4)
+ AND ($5='' OR $5='reachable' AND s.reachable OR $5='unreachable' AND NOT s.reachable OR $5='unknown' AND s.reachable IS NULL
+  OR $5='login_failed' AND s.reachable AND NOT s.login_ok)
+ AND ($6='' OR $6='failed' AND s.config_error IS NOT NULL OR $6='never' AND s.config_succeeded_at IS NULL
+  OR $6='ok' AND s.config_error IS NULL AND s.config_succeeded_at IS NOT NULL
+  OR $6='overdue' AND s.config_succeeded_at < now()-interval '7 days')
+ AND ($7='' OR $7='none' AND NOT EXISTS (SELECT 1 FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated))
+ AND ($8='' OR $8='enabled' AND s.is_enabled OR $8='disabled' AND NOT s.is_enabled)`
+
+func switchFilterArgs(q url.Values) []any {
+	return []any{strings.TrimSpace(q.Get("q")), q.Get("group"), q.Get("vendor"), q.Get("site"), q.Get("reachability"), q.Get("backup"), q.Get("networks"), q.Get("state")}
+}
+
 func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 	if _, ok := o.authorize(w, r, false); !ok {
 		return
 	}
-	q := r.URL.Query()
 	limit, offset := pageArgs(r)
 	items, err := o.rows(r.Context(), []string{"id", "name", "management_ip", "vendor", "model", "site", "description", "group_id", "group_name",
 		"protocol", "port", "is_enabled", "version", "credential_id", "credential_name", "command_profile_id", "profile_name",
-		"reachable", "reachability_checked_at", "reachability_latency_ms", "reachability_error", "config_checked_at", "config_error",
-		"latest_backup_id", "latest_backup_at", "compliance_failed", "total"},
+		"reachable", "reachability_checked_at", "reachability_latency_ms", "reachability_error", "login_ok", "login_checked_at", "login_error",
+		"config_checked_at", "config_succeeded_at", "config_error", "compliance_failed", "networks", "total"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,s.group_id::text,g.name,
  s.protocol,s.port,s.is_enabled,s.version,s.credential_id::text,c.name,s.command_profile_id::text,p.name,
- s.reachable,s.reachability_checked_at,s.reachability_latency_ms,s.reachability_error,s.config_checked_at,s.config_error,
- b.id,b.captured_at,(SELECT count(*) FROM bp_compliance_results r WHERE r.switch_id=s.id AND NOT r.passed),count(*) OVER()
+ s.reachable,s.reachability_checked_at,s.reachability_latency_ms,s.reachability_error,s.login_ok,s.login_checked_at,s.login_error,
+ s.config_checked_at,s.config_succeeded_at,s.config_error,(SELECT count(*) FROM bp_compliance_results r WHERE r.switch_id=s.id AND NOT r.passed),
+ (SELECT count(*) FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated),count(*) OVER()
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id
- LEFT JOIN LATERAL (SELECT id,captured_at FROM bp_config_backups WHERE switch_id=s.id ORDER BY captured_at DESC,id DESC LIMIT 1) b ON true
- WHERE ($1='' OR s.name ILIKE '%'||$1||'%' OR host(s.management_ip) LIKE $1||'%' OR s.site ILIKE '%'||$1||'%')
- AND ($2='' OR s.group_id::text=$2) AND ($3='' OR s.vendor=$3)
- AND ($4='' OR $4='reachable' AND s.reachable OR $4='unreachable' AND NOT s.reachable OR $4='unknown' AND s.reachable IS NULL)
- AND ($5='' OR $5='failed' AND s.config_error IS NOT NULL OR $5='never' AND b.id IS NULL OR $5='ok' AND b.id IS NOT NULL AND s.config_error IS NULL)
- AND ($6='' OR $6='enabled' AND s.is_enabled OR $6='disabled' AND NOT s.is_enabled)
- ORDER BY s.name,s.id LIMIT $7 OFFSET $8`,
-		strings.TrimSpace(q.Get("q")), q.Get("group"), q.Get("vendor"), q.Get("reachability"), q.Get("backup"), q.Get("state"), limit, offset)
+ WHERE `+switchFilter+` ORDER BY s.name,s.id LIMIT $9 OFFSET $10`, append(switchFilterArgs(r.URL.Query()), limit, offset)...)
 	if err != nil {
 		o.unavailable(w, err)
 		return
 	}
 	total, items := paged(items)
-	write(w, 200, map[string]any{"items": items, "total": total, "page_size": limit})
+	sites := []string{}
+	rows, err := o.db.QueryContext(r.Context(), `SELECT DISTINCT site FROM bp_switches WHERE site IS NOT NULL ORDER BY site`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var site string
+			if err = rows.Scan(&site); err != nil {
+				break
+			}
+			sites = append(sites, site)
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+	}
+	if err != nil {
+		o.unavailable(w, err)
+		return
+	}
+	write(w, 200, map[string]any{"items": items, "total": total, "page_size": limit, "sites": sites})
+}
+
+var exportHeader = []string{"name", "management_ip", "vendor", "model", "group", "site", "protocol", "port", "credential", "profile", "description",
+	"enabled", "reachable", "login", "last_backup"}
+
+// spreadsheetSafe keeps a cell from being read as a formula; the importer drops the quote again.
+func spreadsheetSafe(value string) string {
+	if value != "" && strings.ContainsRune("=+-@\t\r", rune(value[0])) {
+		return "'" + value
+	}
+	return value
+}
+
+// exportSwitches writes the filtered inventory as CSV. Its first eleven columns are the import
+// template's, so an edited export imports back as updates; the status columns are only read.
+func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
+	if _, ok := o.authorize(w, r, false); !ok {
+		return
+	}
+	rows, err := o.db.QueryContext(r.Context(), `SELECT s.name,host(s.management_ip),s.vendor,COALESCE(s.model,''),COALESCE(g.name,''),COALESCE(s.site,''),
+ s.protocol,COALESCE(s.port::text,''),c.name,p.name,COALESCE(s.description,''),s.is_enabled,s.reachable,s.login_ok,s.config_succeeded_at
+ FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
+ LEFT JOIN bp_switch_groups g ON g.id=s.group_id
+ WHERE `+switchFilter+` ORDER BY s.name,s.id`, switchFilterArgs(r.URL.Query())...)
+	if err != nil {
+		o.unavailable(w, err)
+		return
+	}
+	defer rows.Close()
+	var body bytes.Buffer
+	body.WriteString("\ufeff") // spreadsheets read UTF-8 only with a BOM
+	out := csv.NewWriter(&body)
+	_ = out.Write(exportHeader)
+	yesNo := func(value sql.NullBool, yes, no string) string {
+		if !value.Valid {
+			return ""
+		}
+		if value.Bool {
+			return yes
+		}
+		return no
+	}
+	for rows.Next() {
+		record := make([]string, 11)
+		var enabled bool
+		var reachable, login sql.NullBool
+		var backup sql.NullTime
+		targets := []any{}
+		for i := range record {
+			targets = append(targets, &record[i])
+		}
+		if err = rows.Scan(append(targets, &enabled, &reachable, &login, &backup)...); err != nil {
+			o.unavailable(w, err)
+			return
+		}
+		last := ""
+		if backup.Valid {
+			last = backup.Time.In(o.loc).Format("2006-01-02 15:04")
+		}
+		record = append(record, strconv.FormatBool(enabled), yesNo(reachable, "yes", "no"), yesNo(login, "ok", "failed"), last)
+		for i := range record {
+			record[i] = spreadsheetSafe(record[i])
+		}
+		_ = out.Write(record)
+	}
+	if err = rows.Err(); err != nil {
+		o.unavailable(w, err)
+		return
+	}
+	out.Flush()
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="switches-`+time.Now().In(o.loc).Format("20060102")+`.csv"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(200)
+	_, _ = w.Write(body.Bytes())
 }
 
 func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
@@ -235,9 +343,10 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	found, err := o.rows(ctx, []string{"id", "name", "management_ip", "vendor", "model", "site", "description", "group_name", "protocol", "port", "is_enabled",
 		"credential_name", "profile_name", "reachable", "reachability_checked_at", "reachability_changed_at", "reachability_latency_ms", "reachability_error",
-		"config_checked_at", "config_error"},
+		"login_ok", "login_checked_at", "login_error", "config_checked_at", "config_succeeded_at", "config_error"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,g.name,s.protocol,s.port,s.is_enabled,c.name,p.name,
- s.reachable,s.reachability_checked_at,s.reachability_changed_at,s.reachability_latency_ms,s.reachability_error,s.config_checked_at,s.config_error
+ s.reachable,s.reachability_checked_at,s.reachability_changed_at,s.reachability_latency_ms,s.reachability_error,
+ s.login_ok,s.login_checked_at,s.login_error,s.config_checked_at,s.config_succeeded_at,s.config_error
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id WHERE s.id=$1`, id)
 	if err != nil {
@@ -262,8 +371,14 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
 			[]string{"id", "kind", "status", "message", "changed", "backup_id", "created_at", "finished_at"}},
 		{"alerts", `SELECT id,kind,severity,message,status,opened_at FROM bp_alerts WHERE switch_id=$1 AND status<>'resolved' ORDER BY opened_at DESC`,
 			[]string{"id", "kind", "severity", "message", "status", "opened_at"}},
-		{"networks", `SELECT id::text,cidr::text,vlan,is_enabled,is_validated FROM bp_networks WHERE switch_id=$1 ORDER BY cidr`,
-			[]string{"id", "cidr", "vlan", "is_enabled", "is_validated"}},
+		{"networks", `SELECT id::text,switch_id::text,cidr::text,vlan,description,is_enabled,is_validated,version FROM bp_networks WHERE switch_id=$1 ORDER BY cidr`,
+			[]string{"id", "switch_id", "cidr", "vlan", "description", "is_enabled", "is_validated", "version"}},
+		// Changes to the switch and to the networks it owns now; a network moved away takes its history along.
+		{"history", `SELECT e.id,e.action,e.actor_name,e.actor_email,e.object_name,e.changes::text,e.created_at FROM bp_asset_events e
+ WHERE e.object_id=$1 AND e.action IN ('switch.create','switch.import','switch.update')
+ OR e.action IN ('network.create','network.import','network.update') AND e.object_id IN (SELECT id FROM bp_networks WHERE switch_id=$1)
+ ORDER BY e.id DESC LIMIT 50`,
+			[]string{"id", "action", "actor_name", "actor_email", "object_name", "changes", "created_at"}},
 	}
 	for _, section := range sections {
 		if detail[section.key], err = o.rows(ctx, section.columns, section.query, id); err != nil {
@@ -413,7 +528,12 @@ func (o *OpsHandler) task(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, detail)
 }
 
-var deviceTaskKinds = map[string]bool{"config_backup": true, "reachability": true}
+// deviceTaskKinds can be started by hand. A connection test signs in to every switch it covers,
+// so schedules keep to the port check and backups (scheduleKinds).
+var (
+	deviceTaskKinds = map[string]bool{"config_backup": true, "reachability": true, "login_check": true}
+	scheduleKinds   = map[string]bool{"config_backup": true, "reachability": true}
+)
 
 // enqueueDeviceTask queues one item per enabled switch in scope. A switch that already has a
 // pending operation of this kind is recorded as skipped instead of queued twice.

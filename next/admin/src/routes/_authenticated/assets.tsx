@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { GroupManager } from '@/features/ops/group-manager'
 import { Empty, PageHeader } from '@/features/ops/ui'
 import {
   AssetEditDialog, AssetRequestError, AssetRow, DisableAssetDialog, UnvalidatedBadge, callAssets, editorLabels, isOn,
@@ -37,7 +38,6 @@ function Assets() {
   const inventory = useQuery({ queryKey: ['release-assets', user.id], queryFn: () => callAssets<Inventory>('assets'), enabled: admin })
   const [credential, setCredential] = useState({ name: '', username: '', password: '', secret: '' })
   const [profile, setProfile] = useState(emptyProfile)
-  const [group, setGroup] = useState({ name: '', description: '' })
   const [network, setNetwork] = useState({ switch_id: '', cidr: '', is_validated: false })
   const [errors, setErrors] = useState<Partial<Record<AssetKind, string>>>({})
   const [busy, setBusy] = useState(false)
@@ -51,7 +51,6 @@ function Assets() {
     { id: 'credential-password', label: zh ? '设备密码' : 'Device password', value: credential.password },
   ])
   const profileRequired = useRequiredFields(zh, [{ id: 'profile-name', label: name, value: profile.name }])
-  const groupRequired = useRequiredFields(zh, [{ id: 'group-name', label: name, value: group.name }])
   const networkRequired = useRequiredFields(zh, [
     { id: 'network-switch', label: zh ? '所属交换机' : 'Switch', value: network.switch_id, choose: true },
     { id: 'network-cidr', label: 'IPv4 CIDR', value: network.cidr },
@@ -157,24 +156,8 @@ function Assets() {
       </Card>
       <Card>
         <CardHeader><CardTitle>{zh ? '分组' : 'Groups'}</CardTitle><CardDescription>{labels.hint.groups}</CardDescription></CardHeader>
-        <CardContent className="flex flex-col gap-6">
-          <form noValidate className="flex flex-col gap-6" onSubmit={onSubmit(groupRequired, () => void submit('groups', group, () => { setGroup({ name: '', description: '' }); groupRequired.reset() }))}>
-            <FieldGroup>
-              {text(groupRequired, 'group-name', name, group.name, (v) => setGroup({ ...group, name: v }))}
-              <Field>
-                <FieldLabel htmlFor="group-description">{zh ? '描述（可选）' : 'Description (optional)'}</FieldLabel>
-                <Input id="group-description" value={group.description} onChange={(event) => setGroup({ ...group, description: event.target.value })} />
-              </Field>
-            </FieldGroup>
-            {failure('groups')}
-            <Button type="submit" className="self-start" disabled={busy}>{zh ? '保存分组' : 'Save group'}</Button>
-          </form>
-          <Separator />
-          {rows('groups', (data?.groups ?? []).map((item) => {
-            const count = data?.switches.filter((s) => s.group_id === item.id).length ?? 0
-            return <AssetRow key={item.id} title={item.name} on busy={busy} labels={labels} onEdit={() => setEditing({ kind: 'groups', item })}
-              detail={[item.description, zh ? `${count} 台交换机` : `${count} switch${count === 1 ? '' : 'es'}`].filter(Boolean).join(' · ')} />
-          }))}
+        <CardContent>
+          <GroupManager zh={zh} inventory={data} onChanged={refresh} />
         </CardContent>
       </Card>
       <Card>

@@ -1,6 +1,6 @@
-"""Device operations: reachability checks and configuration backups.
+"""Device operations: reachability checks, connection tests and configuration backups.
 
-Both only read from switches, so a lost lease fails the item instead of risking a
+All of them only read from switches, so a lost lease fails the item instead of risking a
 duplicate change, and the next scheduled run tries again.
 """
 
@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from bind_plane.services.command_profiles import output_matches_any
 from bind_plane.worker.sessions import (
     NetmikoSwitchSession,
+    SwitchAuthenticationError,
     SwitchConnectionTimeoutError,
     SwitchSessionError,
 )
@@ -131,9 +132,9 @@ class BackupRejected(Exception):
     pass
 
 
-def read_switch_configuration(dep, settings_builder) -> str:
-    """Blocking Netmiko session; runs in a worker thread."""
-    profile = SimpleNamespace(
+def switch_profile(dep) -> SimpleNamespace:
+    """The parts of a switch's command profile that a read-only session needs."""
+    return SimpleNamespace(
         **{
             key: _mapping(dep[key])
             for key in (
@@ -147,6 +148,21 @@ def read_switch_configuration(dep, settings_builder) -> str:
         error_patterns=_list(dep["error_patterns"]),
         success_patterns=[],
     )
+
+
+def sign_in(dep, settings_builder) -> None:
+    """Blocking Netmiko login and logout, sending no command; runs in a worker thread."""
+    session = NetmikoSwitchSession(settings_builder(dep, switch_profile(dep)))
+    try:
+        session.connect()
+    finally:
+        with suppress(Exception):
+            session.close()
+
+
+def read_switch_configuration(dep, settings_builder) -> str:
+    """Blocking Netmiko session; runs in a worker thread."""
+    profile = switch_profile(dep)
     command = profile.command_templates.get("config_backup")
     if not isinstance(command, str) or not command.strip():
         raise BackupRejected("Command profile has no config_backup command")
@@ -226,7 +242,8 @@ async def claim_device_items(pool, limit):
         return await conn.fetch(
             """UPDATE bp_device_task_items SET status='running',started_at=now(),
             lease_token=gen_random_uuid(),lease_until=now()+CASE kind
-                WHEN 'config_backup' THEN interval '10 minutes' ELSE interval '2 minutes' END
+                WHEN 'config_backup' THEN interval '10 minutes'
+                WHEN 'login_check' THEN interval '3 minutes' ELSE interval '2 minutes' END
             WHERE id IN (SELECT id FROM bp_device_task_items WHERE status='queued' ORDER BY id
                          FOR UPDATE SKIP LOCKED LIMIT $1)
             RETURNING id,lease_token,kind,switch_id""",
@@ -264,46 +281,93 @@ async def load_device(pool, switch_id):
         )
 
 
-async def check_reachability(pool, item, dep):
+async def probe_port(dep) -> tuple[int, int | None, str | None]:
+    """Opens and closes one TCP connection to the management port: (port, latency, error)."""
     _, port = resolve_transport(dep, dep["prompt_patterns"])
     started = time.monotonic()
-    latency, error = None, None
     try:
         _, writer = await asyncio.wait_for(
             asyncio.open_connection(dep["management_ip"], port), timeout=REACHABILITY_TIMEOUT
         )
-        latency = round((time.monotonic() - started) * 1000)
-        writer.close()
-        with suppress(Exception):
-            await writer.wait_closed()
     except (OSError, TimeoutError) as exc:
-        error = describe_failure(exc)
+        return port, None, describe_failure(exc)
+    latency = round((time.monotonic() - started) * 1000)
+    writer.close()
+    with suppress(Exception):
+        await writer.wait_closed()
+    return port, latency, None
+
+
+async def record_reachability(conn, dep, port, latency, error):
     reachable = error is None
     key = f"device_unreachable:{dep['id']}"
-    async with pool.acquire() as conn, conn.transaction():
-        if not await finish_item(conn, item, "succeeded", None if reachable else error):
-            return
-        await conn.execute(
-            """UPDATE bp_switches SET reachable=$2,reachability_checked_at=now(),
-            reachability_changed_at=CASE WHEN reachable IS DISTINCT FROM $2 THEN now()
-                ELSE reachability_changed_at END,
-            reachability_latency_ms=$3,reachability_error=$4 WHERE id=$1""",
+    await conn.execute(
+        """UPDATE bp_switches SET reachable=$2,reachability_checked_at=now(),
+        reachability_changed_at=CASE WHEN reachable IS DISTINCT FROM $2 THEN now()
+            ELSE reachability_changed_at END,
+        reachability_latency_ms=$3,reachability_error=$4 WHERE id=$1""",
+        dep["id"],
+        reachable,
+        latency,
+        error,
+    )
+    if reachable:
+        await resolve_alert(conn, key)
+    else:
+        await upsert_alert(
+            conn,
+            "device_unreachable",
+            "warning",
             dep["id"],
-            reachable,
-            latency,
-            error,
+            f"Port {port} unreachable: {error}",
+            key,
         )
-        if reachable:
-            await resolve_alert(conn, key)
-        else:
-            await upsert_alert(
-                conn,
-                "device_unreachable",
-                "warning",
-                dep["id"],
-                f"Port {port} unreachable: {error}",
-                key,
-            )
+
+
+async def record_login(conn, switch_id, error):
+    await conn.execute(
+        """UPDATE bp_switches SET login_ok=$2,login_checked_at=now(),login_error=$3
+        WHERE id=$1""",
+        switch_id,
+        error is None,
+        error,
+    )
+
+
+async def check_reachability(pool, item, dep):
+    port, latency, error = await probe_port(dep)
+    async with pool.acquire() as conn, conn.transaction():
+        if await finish_item(conn, item, "succeeded", error):
+            await record_reachability(conn, dep, port, latency, error)
+
+
+async def check_login(pool, item, dep, settings_builder):
+    """Connection test: the port must answer, then the switch's credential must sign in.
+
+    An unreachable port leaves the last login result alone; nothing new was learned about it.
+    """
+    port, latency, error = await probe_port(dep)
+    login_error = None
+    if error is None:
+        try:
+            if not (dep["credential_active"] and dep["profile_active"]):
+                raise BackupRejected("Credential or command profile is disabled")
+            await asyncio.to_thread(sign_in, dep, settings_builder)
+        except Exception as exc:  # every failure is recorded on the item, never raised past it
+            login_error = describe_failure(exc)
+            if not isinstance(exc, (BackupRejected, SwitchSessionError, OSError)):
+                logger.exception("connection test of switch %s failed", dep["id"])
+    if error is not None:
+        message = f"Port {port} unreachable: {error}"
+    else:
+        message = login_error or "Signed in"
+    status = "succeeded" if message == "Signed in" else "failed"
+    async with pool.acquire() as conn, conn.transaction():
+        if not await finish_item(conn, item, status, message):
+            return
+        await record_reachability(conn, dep, port, latency, error)
+        if error is None:
+            await record_login(conn, dep["id"], login_error)
 
 
 async def back_up(pool, item, dep, settings_builder, key):
@@ -323,6 +387,8 @@ async def back_up(pool, item, dep, settings_builder, key):
                     dep["id"],
                     message,
                 )
+                if isinstance(exc, SwitchAuthenticationError):
+                    await record_login(conn, dep["id"], message)
                 await upsert_alert(
                     conn,
                     "backup_failed",
@@ -359,9 +425,11 @@ async def back_up(pool, item, dep, settings_builder, key):
         ):
             raise RuntimeError("lost device item lease")  # rolls the new version back
         await conn.execute(
-            "UPDATE bp_switches SET config_checked_at=now(),config_error=NULL WHERE id=$1",
+            """UPDATE bp_switches SET config_checked_at=now(),config_succeeded_at=now(),
+            config_error=NULL WHERE id=$1""",
             dep["id"],
         )
+        await record_login(conn, dep["id"], None)  # the backup signed in
         await resolve_alert(conn, alert_key)
 
 
@@ -374,6 +442,8 @@ async def process_device_item(pool, item, settings_builder, key):
             return
         if item["kind"] == "reachability":
             await check_reachability(pool, item, dep)
+        elif item["kind"] == "login_check":
+            await check_login(pool, item, dep, settings_builder)
         else:
             await back_up(pool, item, dep, settings_builder, key)
     except Exception:

@@ -59,6 +59,8 @@ func NewAdminHandler(db *sql.DB, identity Identity, cookie, origin string) (http
 	mux.HandleFunc("PATCH /api/releases/admin/networks/{id}", a.editNetwork)
 	mux.HandleFunc("POST /api/releases/admin/groups", a.group)
 	mux.HandleFunc("PATCH /api/releases/admin/groups/{id}", a.editGroup)
+	mux.HandleFunc("DELETE /api/releases/admin/groups/{id}", a.deleteGroup)
+	mux.HandleFunc("POST /api/releases/admin/switches/bulk", a.bulkSwitches)
 	mux.HandleFunc("POST /api/releases/admin/import", a.importAssets)
 	return mux, nil
 }
@@ -263,9 +265,11 @@ func (a *AdminHandler) network(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		SwitchID  string `json:"switch_id"`
-		CIDR      string `json:"cidr"`
-		Validated bool   `json:"is_validated"`
+		SwitchID    string `json:"switch_id"`
+		CIDR        string `json:"cidr"`
+		Validated   bool   `json:"is_validated"`
+		VLAN        string `json:"vlan"`
+		Description string `json:"description"`
 	}
 	if err := decode(r, &input); err != nil || !validID(input.SwitchID) {
 		fail(w, 422, "invalid network")
@@ -277,7 +281,8 @@ func (a *AdminHandler) network(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, err := a.createAudited(r.Context(), actor, "network.create", input.CIDR,
-		`INSERT INTO bp_networks(switch_id,cidr,is_validated) VALUES($1,$2,$3) RETURNING id::text`, input.SwitchID, input.CIDR, input.Validated)
+		`INSERT INTO bp_networks(switch_id,cidr,is_validated,vlan,description) VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,'')) RETURNING id::text`,
+		input.SwitchID, input.CIDR, input.Validated, strings.TrimSpace(input.VLAN), strings.TrimSpace(input.Description))
 	if err != nil {
 		fail(w, 409, "network could not be saved")
 		return

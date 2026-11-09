@@ -196,9 +196,77 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	if obj(overview["compliance"])["passed"].(float64) < 1 {
 		t.Fatalf("overview %v", overview)
 	}
-	if list := obj(call(ops, "GET", "/api/ops/switches?q=OPS-&backup=never", "", 200)); list["total"] != float64(1) {
-		t.Fatalf("switch filter %v", list)
+	// A backup is overdue a week after the last success, and "never" means no success at all.
+	// Neither switch has a network that resolution can use.
+	if _, err = db.Exec(`UPDATE bp_switches SET config_succeeded_at=now()-interval '8 days' WHERE id=$1`, switchA); err != nil {
+		t.Fatal(err)
 	}
+	listed := func(filter string) float64 {
+		t.Helper()
+		return obj(call(ops, "GET", "/api/ops/switches?q=OPS-&"+filter, "", 200))["total"].(float64)
+	}
+	for filter, want := range map[string]float64{"backup=never": 1, "backup=overdue": 1, "networks=none": 2, "site=SZ": 2, "group=none": 0} {
+		if got := listed(filter); got != want {
+			t.Fatalf("%s lists %v switches, want %v", filter, got, want)
+		}
+	}
+	call(assets, "POST", "/api/releases/admin/networks", jsonBody(map[string]any{"switch_id": switchA, "cidr": "10.78.0.0/24", "is_validated": true, "vlan": "78", "description": "Lab"}), 201)
+	if got := listed("networks=none"); got != 1 {
+		t.Fatalf("a validated network still lists switch A as having none (%v)", got)
+	}
+
+	// NetSwitch Pro's template imports, updating the switches that exist. Empty cells keep their
+	// values, and a cell an export quoted against formulas loses the quote.
+	updated := obj(call(assets, "POST", "/api/releases/admin/import", jsonBody(map[string]any{"kind": "switches", "mode": "update", "default_credential_id": credential, "default_profile_id": profile,
+		"csv": "name,ip_address,vendor,model,device_type,group_name,protocol,ssh_port,snmp_community_ro,region,tags\n" +
+			"OPS-A,192.0.2.101,huawei,S5720,switch,Edge,ssh,2222,public,SZ,x\n,192.0.2.102,,,,,,,,'-Lab,\nOPS-C,192.0.2.103,huawei,,,,,,,,\n"}), 200))
+	if updated["updated"] != float64(2) || updated["created"] != float64(1) || updated["committed"] != true || !strings.Contains(fmt.Sprint(updated["rows"]), "changes: group, model, port") {
+		t.Fatalf("update import %v", updated)
+	}
+	var siteB, nameB string
+	if err = db.QueryRow(`SELECT site,name FROM bp_switches WHERE id=$1`, switchB).Scan(&siteB, &nameB); err != nil || siteB != "-Lab" || nameB != "OPS-B" {
+		t.Fatalf("switch B after the update import: %q %q %v", siteB, nameB, err)
+	}
+	exported := httptest.NewRecorder()
+	exportRequest := httptest.NewRequest("GET", "/api/ops/switches/export?q=OPS-", nil)
+	exportRequest.AddCookie(&http.Cookie{Name: "session", Value: "token"})
+	ops.ServeHTTP(exported, exportRequest)
+	if body := exported.Body.String(); exported.Code != 200 || !strings.HasPrefix(body, "\ufeffname,management_ip,vendor") || !strings.Contains(body, "OPS-B,192.0.2.102,h3c,,Core,'-Lab,telnet") || strings.Count(body, "\n") != 4 {
+		t.Fatalf("export %d: %s", exported.Code, body)
+	}
+
+	// One change on many switches, recorded per switch; anything but exactly one change is refused.
+	if bulk := obj(call(assets, "POST", "/api/releases/admin/switches/bulk", jsonBody(map[string]any{"ids": []string{switchA, switchB, switchB}, "site": "HQ"}), 200)); bulk["changed"] != float64(2) || bulk["unchanged"] != float64(0) {
+		t.Fatalf("bulk %v", bulk)
+	}
+	if bulk := obj(call(assets, "POST", "/api/releases/admin/switches/bulk", jsonBody(map[string]any{"ids": []string{switchA}, "site": "HQ"}), 200)); bulk["changed"] != float64(0) || bulk["unchanged"] != float64(1) {
+		t.Fatalf("repeated bulk %v", bulk)
+	}
+	call(assets, "POST", "/api/releases/admin/switches/bulk", jsonBody(map[string]any{"ids": []string{switchA}, "site": "HQ", "is_enabled": false}), 422)
+
+	// A group a rule targets stays; deleting another ungroups its switches, one audit record each.
+	var edge string
+	if err = db.QueryRow(`SELECT id::text FROM bp_switch_groups WHERE name='Edge'`).Scan(&edge); err != nil {
+		t.Fatal(err)
+	}
+	call(ops, "POST", "/api/ops/compliance/rules", jsonBody(map[string]any{"name": "Edge only", "pattern": "^sysname", "mode": "must_contain", "group_id": edge}), 201)
+	call(assets, "DELETE", "/api/releases/admin/groups/"+edge, "", 409)
+	if deleted := obj(call(assets, "DELETE", "/api/releases/admin/groups/"+groupID, "", 200)); deleted["ungrouped"] != float64(1) {
+		t.Fatalf("group delete %v", deleted)
+	}
+	if got := listed("group=none"); got != 2 {
+		t.Fatalf("group=none lists %v switches, want switch B and the new switch C", got)
+	}
+	detail := obj(call(ops, "GET", "/api/ops/switches/"+switchB, "", 200))
+	if history := fmt.Sprint(detail["history"]); strings.Count(history, "switch.update") != 3 || !strings.Contains(history, "group_id") {
+		t.Fatalf("switch B history %v", history)
+	}
+
+	// A connection test starts by hand; schedules keep to port checks and backups.
+	if test := obj(call(ops, "POST", "/api/ops/tasks", jsonBody(map[string]any{"kind": "login_check", "scope": "switches", "switch_ids": []string{switchA}}), 202)); test["queued"] != float64(1) {
+		t.Fatalf("connection test %v", test)
+	}
+	call(ops, "POST", "/api/ops/schedules", `{"name":"Sign in hourly","kind":"login_check","cron":"0 * * * *","scope":"all"}`, 422)
 	operator, err := NewOpsHandler(db, fakeIdentity{principal: domain.Principal{User: domain.User{ID: actorID}, Roles: []domain.Role{{Name: "Operator"}}}}, "session", "http://localhost:5173", zone)
 	if err != nil {
 		t.Fatal(err)

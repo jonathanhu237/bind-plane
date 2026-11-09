@@ -10,12 +10,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { callAssets, type Inventory } from '@/features/release/asset-editors'
 import { errorText, serverText } from '@/features/release/messages'
 import { FileButton } from '@/shared/file-button'
+import { decodeCSV } from './csv'
 import { ToneBadge, pick } from './ui'
 
 type ImportKind = 'switches' | 'networks'
+type ImportMode = 'create' | 'update'
 type ImportReport = {
-  dry_run: boolean; committed: boolean; created: number; skipped: number; errors: number; new_groups: string[]
-  rows: { line: number; status: 'create' | 'skip' | 'error'; label: string; message?: string }[]
+  dry_run: boolean; committed: boolean; created: number; updated: number; skipped: number; errors: number; new_groups: string[]
+  rows: { line: number; status: 'create' | 'update' | 'skip' | 'error'; label: string; message?: string }[]
 }
 
 const templates: Record<ImportKind, string> = {
@@ -29,6 +31,7 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
   open: boolean; zh: boolean; inventory?: Inventory; onClose: () => void; onImported: () => void
 }) {
   const [kind, setKind] = useState<ImportKind>('switches')
+  const [mode, setMode] = useState<ImportMode>('create')
   const [csv, setCsv] = useState('')
   const [fileName, setFileName] = useState('')
   const [credential, setCredential] = useState('')
@@ -37,13 +40,14 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
   const [previewed, setPreviewed] = useState('') // the exact request the clean preview was made for
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const request = JSON.stringify({ kind, csv, default_credential_id: credential, default_profile_id: profile })
-  const canCommit = report !== null && report.dry_run && report.errors === 0 && report.created > 0 && previewed === request
+  const body = { kind, csv, mode: kind === 'switches' ? mode : 'create', default_credential_id: credential, default_profile_id: profile }
+  const request = JSON.stringify(body)
+  const canCommit = report !== null && report.dry_run && report.errors === 0 && report.created + report.updated > 0 && previewed === request
 
   async function send(dryRun: boolean) {
     setBusy(true); setError('')
     try {
-      const result = await callAssets<ImportReport>('import', { kind, csv, dry_run: dryRun, default_credential_id: credential, default_profile_id: profile })
+      const result = await callAssets<ImportReport>('import', { ...body, dry_run: dryRun })
       setReport(result)
       setPreviewed(dryRun ? request : '')
       if (result.committed) onImported()
@@ -52,9 +56,9 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
   }
   function readFile(file: File | undefined) {
     if (!file) return
-    void file.text().then((text) => { setCsv(text); setFileName(file.name); setReport(null) })
+    void file.arrayBuffer().then((bytes) => { setCsv(decodeCSV(bytes)); setFileName(file.name); setReport(null) })
   }
-  const statusLabel = { create: pick(zh, '新建', 'Create'), skip: pick(zh, '跳过', 'Skip'), error: pick(zh, '错误', 'Error') }
+  const statusLabel = { create: pick(zh, '新建', 'Create'), update: pick(zh, '更新', 'Update'), skip: pick(zh, '跳过', 'Skip'), error: pick(zh, '错误', 'Error') }
   const defaultSelect = (id: string, label: string, value: string, onChange: (value: string) => void, items: { id: string; name: string }[]) =>
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -71,7 +75,7 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
     <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="flex max-h-[90dvh] flex-col gap-6 overflow-y-auto sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle>{pick(zh, '批量导入', 'Bulk import')}</DialogTitle>
-        <DialogDescription>{pick(zh, '先检查再导入：检查会完整模拟一次导入但不保存。任何一行有错误都不会写入；已存在的设备或网段会被跳过，不会被覆盖。', 'Preview first: it runs the whole import without saving. Nothing is written while any row has an error, and existing switches or networks are skipped, never overwritten.')}</DialogDescription>
+        <DialogDescription>{pick(zh, '先检查再导入：检查会完整模拟一次导入但不保存，任何一行有错误都不会写入。导出的设备清单改完后可以直接导回来。', 'Preview first: it runs the whole import without saving, and nothing is written while any row has an error. An edited device export imports straight back.')}</DialogDescription>
       </DialogHeader>
       <FieldGroup>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -89,6 +93,19 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
             <FileButton id="import-file" accept=".csv,text/csv" label={pick(zh, '选择 CSV 文件', 'Choose a CSV file')} status={fileName || pick(zh, '未选择文件', 'No file chosen')} onFile={readFile} />
           </Field>
           {kind === 'switches' ? <>
+            <Field className="sm:col-span-2">
+              <FieldLabel htmlFor="import-mode">{pick(zh, '已存在的交换机（按管理 IP 识别）', 'Switches that exist (matched by management IP)')}</FieldLabel>
+              <Select value={mode} onValueChange={(value) => { setMode(value as ImportMode); setReport(null) }}>
+                <SelectTrigger id="import-mode" aria-describedby="import-mode-hint"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectGroup>
+                  <SelectItem value="create">{pick(zh, '跳过，只新建', 'Skip them; only create new ones')}</SelectItem>
+                  <SelectItem value="update">{pick(zh, '用 CSV 更新', 'Update them from the CSV')}</SelectItem>
+                </SelectGroup></SelectContent>
+              </Select>
+              <FieldDescription id="import-mode-hint">{mode === 'update'
+                ? pick(zh, '只改 CSV 里填了的列，空单元格保留原值。启用状态不会被导入修改。', 'Only filled-in cells change anything; empty cells keep the stored value. Import never enables or disables a switch.')
+                : pick(zh, '已存在的交换机保持不变。', 'Switches that exist stay as they are.')}</FieldDescription>
+            </Field>
             {defaultSelect('import-credential', pick(zh, '默认凭据（CSV 未填写时使用）', 'Default credential (when the CSV has none)'), credential, setCredential, inventory?.credentials ?? [])}
             {defaultSelect('import-profile', pick(zh, '默认命令模板（CSV 未填写时使用）', 'Default profile (when the CSV has none)'), profile, setProfile, inventory?.profiles ?? [])}
           </> : null}
@@ -99,19 +116,19 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
             <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => { setCsv(templates[kind]); setReport(null) }}>{pick(zh, '填入模板', 'Insert template')}</Button>
           </div>
           <Textarea id="import-csv" className="font-mono" rows={8} spellCheck={false} aria-describedby="import-csv-hint" value={csv} onChange={(event) => setCsv(event.target.value)} />
-          <FieldDescription id="import-csv-hint">{pick(zh, '首行为表头。也接受其他系统导出的中文表头，如“设备名称、IP地址、厂商、分组、校区、协议”。', 'The first row is the header. Chinese headings from other inventory exports, such as 设备名称 and IP地址, are accepted too.')}</FieldDescription>
+          <FieldDescription id="import-csv-hint">{pick(zh, '首行为表头。也接受其他系统导出的表头，如“设备名称、IP地址、校区”和 NetSwitch Pro 的 ip_address、group_name、region；用不到的列会被忽略。文件可以是 UTF-8 或 GBK 编码。', 'The first row is the header. Headings from other inventories, such as 设备名称 and IP地址 or NetSwitch Pro’s ip_address, group_name and region, work too; unused columns are ignored. Files may be UTF-8 or GBK.')}</FieldDescription>
         </Field>
       </FieldGroup>
       {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
       {report ? <div className="flex flex-col gap-2" aria-live="polite">
         <p className="text-sm">{report.committed ? pick(zh, '已导入。', 'Imported.') : report.errors ? pick(zh, '有错误，未写入任何数据。', 'Nothing was written because some rows have errors.') : pick(zh, '检查通过，尚未写入。', 'Preview passed. Nothing has been written yet.')}
-          <span className="ml-2 text-muted-foreground tabular-nums">{pick(zh, `新建 ${report.created} · 跳过 ${report.skipped} · 错误 ${report.errors}`, `${report.created} to create · ${report.skipped} skipped · ${report.errors} errors`)}</span></p>
+          <span className="ml-2 text-muted-foreground tabular-nums">{pick(zh, `新建 ${report.created} · 更新 ${report.updated} · 跳过 ${report.skipped} · 错误 ${report.errors}`, `${report.created} to create · ${report.updated} to update · ${report.skipped} skipped · ${report.errors} errors`)}</span></p>
         {report.new_groups.length ? <p className="text-xs text-muted-foreground">{pick(zh, '将创建分组：', 'Groups to create: ')}{report.new_groups.join(zh ? '、' : ', ')}</p> : null}
         <div className="max-h-64 overflow-auto rounded-md border"><Table>
           <TableHeader><TableRow><TableHead>{pick(zh, '行', 'Line')}</TableHead><TableHead>{pick(zh, '结果', 'Result')}</TableHead><TableHead>{pick(zh, '对象', 'Object')}</TableHead><TableHead>{pick(zh, '说明', 'Note')}</TableHead></TableRow></TableHeader>
           <TableBody>{report.rows.map((row) => <TableRow key={row.line}>
             <TableCell className="tabular-nums">{row.line}</TableCell>
-            <TableCell><ToneBadge kind={row.status === 'error' ? 'bad' : row.status === 'create' ? 'good' : 'muted'}>{statusLabel[row.status]}</ToneBadge></TableCell>
+            <TableCell><ToneBadge kind={row.status === 'error' ? 'bad' : row.status === 'skip' ? 'muted' : 'good'}>{statusLabel[row.status]}</ToneBadge></TableCell>
             <TableCell>{row.label}</TableCell>
             <TableCell className="text-muted-foreground">{serverText(row.message, zh)}</TableCell>
           </TableRow>)}</TableBody>

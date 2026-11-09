@@ -488,9 +488,11 @@ const fieldNames: Record<string, [string, string]> = {
   switch_id: ['switch', '所属交换机'], cidr: ['CIDR', '网段'], vlan: ['VLAN', 'VLAN'], is_validated: ['validation', '验证状态'],
   vendor: ['vendor', '厂商'], model: ['model', '型号'], site: ['site', '站点'], protocol: ['protocol', '协议'], port: ['port', '端口'],
   group_id: ['group', '分组'], kind: ['task type', '任务类型'], cron: ['schedule', '执行时间'], scope: ['scope', '范围'],
-  pattern: ['pattern', '匹配规则'], mode: ['mode', '判定方式'], severity: ['severity', '严重级别'],
+  pattern: ['pattern', '匹配规则'], mode: ['mode', '判定方式'], severity: ['severity', '严重级别'], switches: ['switches ungrouped', '移出分组的交换机'],
   ...Object.fromEntries(profileRuleKeys.map((key) => [key, [ruleText[key].label[0].toLowerCase(), ruleText[key].label[1]] as [string, string]])),
 }
+
+export const fieldName = (key: string, zh: boolean) => fieldNames[key]?.[zh ? 1 : 0] ?? key
 
 // describeChanges summarizes an audit record without repeating any stored value.
 export function describeChanges(changes: Record<string, unknown> | undefined, zh: boolean): string {
@@ -513,7 +515,7 @@ const actionNames: Record<string, [string, string]> = {
   'switch.create': ['Switch created', '新建交换机'], 'switch.update': ['Switch changed', '修改交换机'],
   'network.create': ['Network created', '新建网段'], 'network.update': ['Network changed', '修改网段'],
   'switch.import': ['Switch imported', '导入交换机'], 'network.import': ['Network imported', '导入网段'],
-  'group.create': ['Group created', '新建分组'], 'group.update': ['Group changed', '修改分组'],
+  'group.create': ['Group created', '新建分组'], 'group.update': ['Group changed', '修改分组'], 'group.delete': ['Group deleted', '删除分组'],
   'schedule.create': ['Schedule created', '新建计划任务'], 'schedule.update': ['Schedule changed', '修改计划任务'], 'schedule.run': ['Schedule run manually', '手动执行计划'],
   'rule.create': ['Compliance rule created', '新建合规规则'], 'rule.update': ['Compliance rule changed', '修改合规规则'],
   'task.run': ['Task started', '发起任务'], 'config.view': ['Configuration viewed', '查看配置'], 'config.diff': ['Configurations compared', '对比配置'],

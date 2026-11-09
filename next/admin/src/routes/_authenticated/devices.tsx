@@ -1,6 +1,6 @@
 import { createFileRoute, useLoaderData } from '@tanstack/react-router'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleAlert, HardDriveDownload, Pencil, Plus, Power, PowerOff, Upload, Wifi } from 'lucide-react'
+import { CircleAlert, Download, FolderTree, HardDriveDownload, MapPin, Pencil, Plus, PlugZap, Power, PowerOff, Upload, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -8,15 +8,17 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { opsRequest, type OpsSwitch, type Page, type TaskKind } from '@/features/ops/api'
+import { opsRequest, type SwitchPage, type TaskKind } from '@/features/ops/api'
 import { DeviceDetailSheet } from '@/features/ops/device-detail'
+import { GroupManager } from '@/features/ops/group-manager'
 import { ImportDialog } from '@/features/ops/import-dialog'
-import { AdminOnly, Empty, ErrorNote, PageHeader, Pager, ReachabilityBadge, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
+import { AdminOnly, Empty, ErrorNote, LoginBadge, PageHeader, Pager, ReachabilityBadge, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import {
   AssetEditDialog, AssetRequestError, DisableAssetDialog, NO_GROUP, callAssets, statusBody, vendorName, vendors, type EditTarget, type Inventory,
 } from '@/features/release/asset-editors'
@@ -24,10 +26,12 @@ import { errorText, serverText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
 import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 
-type DeviceSearch = { q?: string; group?: string; vendor?: string; reachability?: string; backup?: string; state?: string; page?: number }
-const filterKeys = ['q', 'group', 'vendor', 'reachability', 'backup', 'state'] as const
+type DeviceSearch = { q?: string; group?: string; vendor?: string; site?: string; reachability?: string; backup?: string; networks?: string; state?: string; page?: number }
+const filterKeys = ['q', 'group', 'vendor', 'site', 'reachability', 'backup', 'networks', 'state'] as const
 // A filter set to everything travels as this select value and leaves the search parameter out.
 const ANY = 'any'
+// Disabled switches stay out of the list unless asked for; "all" shows both.
+const ALL_STATES = 'all'
 
 export const Route = createFileRoute('/_authenticated/devices')({
   validateSearch: (search: Record<string, unknown>): DeviceSearch => {
@@ -43,6 +47,14 @@ export const Route = createFileRoute('/_authenticated/devices')({
 })
 
 const protocolName = (protocol: string) => (protocol === 'ssh' ? 'SSH' : 'Telnet')
+
+/** The list and export query for the current filters; the state defaults to enabled switches. */
+function filterParams(search: DeviceSearch): URLSearchParams {
+  const params = new URLSearchParams()
+  for (const key of filterKeys) if (search[key] && key !== 'state') params.set(key, search[key])
+  if (search.state !== ALL_STATES) params.set('state', search.state ?? 'enabled')
+  return params
+}
 
 function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open: boolean; zh: boolean; inventory?: Inventory; onClose: () => void; onCreated: () => void }) {
   const empty = { name: '', management_ip: '', credential_id: '', command_profile_id: '', vendor: 'huawei', model: '', protocol: 'ssh', port: '', group_id: '', site: '', description: '' }
@@ -127,6 +139,9 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
   </Dialog>
 }
 
+/** A confirmation for a change to many switches; `run` happens only on the action button. */
+type Pending = { title: string; description: string; action: string; run: () => void }
+
 function DevicesPage() {
   const { user } = useLoaderData({ from: '/_authenticated' })
   const zh = useZh()
@@ -143,11 +158,18 @@ function DevicesPage() {
   const [disabling, setDisabling] = useState<EditTarget | null>(null)
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [bulk, setBulk] = useState<TaskKind | null>(null)
-  const params = new URLSearchParams()
-  for (const key of filterKeys) if (search[key]) params.set(key, search[key])
+  const [managingGroups, setManagingGroups] = useState(false)
+  const [settingSite, setSettingSite] = useState(false)
+  const [site, setSite] = useState('')
+  const [pending, setPending] = useState<Pending | null>(null)
+  const params = filterParams(search)
+  const exportPath = `/api/ops/switches/export?${params}`
   params.set('page', String(page))
-  const list = useQuery({ queryKey: ['ops-switches', params.toString()], queryFn: () => opsRequest<Page<OpsSwitch>>(`switches?${params}`), enabled: admin, placeholderData: keepPreviousData, refetchInterval: 10_000 })
+  const listKey = params.toString()
+  // A selection belongs to the page it was made on; new filters or another page start empty.
+  const [selection, setSelection] = useState<{ key: string; ids: Set<string> }>({ key: '', ids: new Set() })
+  const selected = selection.key === listKey ? selection.ids : new Set<string>()
+  const list = useQuery({ queryKey: ['ops-switches', listKey], queryFn: () => opsRequest<SwitchPage>(`switches?${listKey}`), enabled: admin, placeholderData: keepPreviousData, refetchInterval: 10_000 })
   const inventory = useQuery({ queryKey: ['release-assets', user.id], queryFn: () => callAssets<Inventory>('assets'), enabled: admin, staleTime: 60_000 })
 
   const filter = (patch: DeviceSearch) => void navigate({ search: (previous) => ({ ...previous, ...patch, page: undefined }), replace: true })
@@ -168,6 +190,15 @@ function DevicesPage() {
     } catch (cause) { failed(cause) }
     finally { setBusy(false) }
   }
+  async function bulk(change: Record<string, unknown>) {
+    setBusy(true)
+    try {
+      const result = await callAssets<{ changed: number; unchanged: number; missing: number }>('switches/bulk', { ids: [...selected], ...change })
+      notifySuccess(pick(zh, `已修改 ${result.changed} 台${result.unchanged ? `，${result.unchanged} 台原本就是这样` : ''}。`, `${result.changed} switch${result.changed === 1 ? '' : 'es'} changed${result.unchanged ? `; ${result.unchanged} already matched` : ''}.`))
+      setSelection({ key: '', ids: new Set() })
+    } catch (cause) { failed(cause) }
+    finally { await refresh(); setBusy(false) }
+  }
   async function saveEdit(path: string, body: Record<string, unknown>) {
     try { await callAssets(path, body, 'PATCH') }
     catch (error) { if (error instanceof AssetRequestError && error.status === 409) await refresh(); throw error }
@@ -180,62 +211,125 @@ function DevicesPage() {
     finally { await refresh(); setBusy(false) }
   }
   if (!admin) return <AdminOnly zh={zh} />
-  const groupName = inventory.data?.groups.find((group) => group.id === search.group)?.name
+
+  const rows = list.data?.items ?? []
+  const groups = inventory.data?.groups ?? []
+  const groupName = groups.find((group) => group.id === search.group)?.name
   const scopeLabel = groupName ? pick(zh, `分组“${groupName}”中所有启用的交换机`, `every enabled switch in group “${groupName}”`) : pick(zh, '所有启用的交换机', 'every enabled switch')
-  const filterSelect = (key: (typeof filterKeys)[number], label: string, options: [string, string][]) =>
+  const count = selected.size
+  const chosen = pick(zh, `选中的 ${count} 台交换机`, `the ${count} selected switch${count === 1 ? '' : 'es'}`)
+  const allChosen = rows.length > 0 && rows.every((row) => selected.has(row.id))
+  const choose = (ids: string[], on: boolean) => {
+    const next = new Set(selected)
+    for (const id of ids) if (on) next.add(id); else next.delete(id)
+    setSelection({ key: listKey, ids: next })
+  }
+  const filterSelect = (key: Exclude<(typeof filterKeys)[number], 'q' | 'state'>, label: string, options: [string, string][]) =>
     <Select value={search[key] ?? ANY} onValueChange={(value) => filter({ [key]: value === ANY ? undefined : value })}>
-      <SelectTrigger aria-label={label} className="w-auto min-w-36"><SelectValue /></SelectTrigger>
+      <SelectTrigger aria-label={label} className="w-auto min-w-32"><SelectValue /></SelectTrigger>
       <SelectContent><SelectGroup>
         <SelectItem value={ANY}>{label}</SelectItem>
         {options.map(([value, name]) => <SelectItem key={value} value={value}>{name}</SelectItem>)}
       </SelectGroup></SelectContent>
     </Select>
   const filtered = filterKeys.some((key) => search[key])
+  const sites = list.data?.sites ?? []
   return <main className="mx-auto flex w-full max-w-7xl flex-col gap-6">
     <PageHeader title={pick(zh, '设备', 'Devices')}>
+      <Button asChild variant="outline"><a href={exportPath} download><Download aria-hidden="true" data-icon="inline-start" />{pick(zh, '导出', 'Export')}</a></Button>
+      <Button type="button" variant="outline" onClick={() => setManagingGroups(true)}><FolderTree aria-hidden="true" data-icon="inline-start" />{pick(zh, '管理分组', 'Groups')}</Button>
       <Button type="button" variant="outline" onClick={() => setImporting(true)}><Upload aria-hidden="true" data-icon="inline-start" />{pick(zh, '批量导入', 'Import CSV')}</Button>
       <Button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '添加交换机', 'Add switch')}</Button>
     </PageHeader>
     <div className="flex flex-wrap items-center gap-2">
-      <Input aria-label={pick(zh, '搜索名称、IP 或站点', 'Search name, IP or site')} placeholder={pick(zh, '搜索名称、IP 或站点', 'Search name, IP or site')} value={text} onChange={(event) => setText(event.target.value)} className="w-full sm:w-64" />
-      {filterSelect('group', pick(zh, '全部分组', 'All groups'), inventory.data?.groups.map((g) => [g.id, g.name]) ?? [])}
+      <Input aria-label={pick(zh, '搜索名称、IP 或校区', 'Search name, IP or campus')} placeholder={pick(zh, '搜索名称、IP 或校区', 'Search name, IP or campus')} value={text} onChange={(event) => setText(event.target.value)} className="w-full sm:w-56" />
+      {filterSelect('group', pick(zh, '全部分组', 'All groups'), [['none', pick(zh, '未分组', 'No group')], ...groups.map((g): [string, string] => [g.id, g.name])])}
+      {sites.length ? filterSelect('site', pick(zh, '全部校区', 'All campuses'), sites.map((value): [string, string] => [value, value])) : null}
       {filterSelect('vendor', pick(zh, '全部厂商', 'All vendors'), vendors.map((v) => [v, vendorName(v, zh)]))}
-      {filterSelect('reachability', pick(zh, '全部连通性', 'Any reachability'), [['reachable', pick(zh, '在线', 'Reachable')], ['unreachable', pick(zh, '不可达', 'Unreachable')], ['unknown', pick(zh, '未检测', 'Not checked')]])}
-      {filterSelect('backup', pick(zh, '全部备份状态', 'Any backup state'), [['ok', pick(zh, '备份正常', 'Backed up')], ['failed', pick(zh, '备份失败', 'Last backup failed')], ['never', pick(zh, '从未备份', 'Never backed up')]])}
-      {filterSelect('state', pick(zh, '启用与停用', 'Enabled and disabled'), [['enabled', pick(zh, '仅启用', 'Enabled only')], ['disabled', pick(zh, '仅停用', 'Disabled only')]])}
+      {filterSelect('reachability', pick(zh, '全部连接状态', 'Any connection'), [['reachable', pick(zh, '在线', 'Reachable')], ['unreachable', pick(zh, '不可达', 'Unreachable')], ['login_failed', pick(zh, '登录失败', 'Sign-in fails')], ['unknown', pick(zh, '未检测', 'Not checked')]])}
+      {filterSelect('backup', pick(zh, '全部备份状态', 'Any backup state'), [['ok', pick(zh, '备份正常', 'Backed up')], ['failed', pick(zh, '最近一次失败', 'Last backup failed')], ['overdue', pick(zh, '逾期（超过 7 天）', 'Overdue (over 7 days)')], ['never', pick(zh, '从未成功', 'Never succeeded')]])}
+      {filterSelect('networks', pick(zh, '全部网段状态', 'Any networks'), [['none', pick(zh, '无可用网段', 'No usable network')]])}
+      <Select value={search.state ?? 'enabled'} onValueChange={(value) => filter({ state: value === 'enabled' ? undefined : value })}>
+        <SelectTrigger aria-label={pick(zh, '启用状态', 'Enabled state')} className="w-auto min-w-28"><SelectValue /></SelectTrigger>
+        <SelectContent><SelectGroup>
+          <SelectItem value="enabled">{pick(zh, '仅启用', 'Enabled')}</SelectItem>
+          <SelectItem value="disabled">{pick(zh, '仅停用', 'Disabled')}</SelectItem>
+          <SelectItem value={ALL_STATES}>{pick(zh, '启用和停用', 'Enabled and disabled')}</SelectItem>
+        </SelectGroup></SelectContent>
+      </Select>
       <div className="ml-auto flex gap-2">
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setBulk('reachability')}><Wifi aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部检测', 'Check all')}</Button>
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setBulk('config_backup')}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部备份', 'Back up all')}</Button>
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setPending({
+          title: pick(zh, `测试${scopeLabel}的连接？`, `Test the connection to ${scopeLabel}?`),
+          description: pick(zh, '工作进程会逐台登录一次再退出，确认能连上、账号密码正确，不执行任何命令。大量设备会排队分批执行。', 'The worker signs in to each switch once and out again, checking it answers and its credential works; no command is sent. Large inventories are worked through in batches.'),
+          action: pick(zh, '开始', 'Start'), run: () => void run('login_check', search.group && search.group !== 'none' ? { scope: 'group', group_id: search.group } : { scope: 'all' }),
+        })}><PlugZap aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部测试', 'Test all')}</Button>
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setPending({
+          title: pick(zh, `备份${scopeLabel}的配置？`, `Back up ${scopeLabel}?`),
+          description: pick(zh, '工作进程会逐台登录并读取运行配置，只读取、不修改。大量设备会排队分批执行。', 'The worker signs in to each switch and reads its running configuration; nothing is changed. Large inventories are worked through in batches.'),
+          action: pick(zh, '开始', 'Start'), run: () => void run('config_backup', search.group && search.group !== 'none' ? { scope: 'group', group_id: search.group } : { scope: 'all' }),
+        })}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部备份', 'Back up all')}</Button>
       </div>
     </div>
+    {count ? <div role="region" aria-label={pick(zh, '批量操作', 'Bulk actions')} className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2">
+      <span className="text-sm font-medium tabular-nums">{pick(zh, `已选 ${count} 台`, `${count} selected`)}</span>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run('login_check', { scope: 'switches', switch_ids: [...selected] })}><PlugZap aria-hidden="true" data-icon="inline-start" />{pick(zh, '测试连接', 'Test connection')}</Button>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run('config_backup', { scope: 'switches', switch_ids: [...selected] })}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '立即备份', 'Back up now')}</Button>
+      <Select value="" onValueChange={(value) => {
+        const name = value === NO_GROUP ? '' : groups.find((group) => group.id === value)?.name ?? ''
+        setPending({
+          title: name ? pick(zh, `把${chosen}移动到分组“${name}”？`, `Move ${chosen} to group “${name}”?`) : pick(zh, `把${chosen}移出分组？`, `Remove ${chosen} from their groups?`),
+          description: pick(zh, '只改变分组，不影响解绑和设备连接。', 'Only the group changes; releases and connections are unaffected.'),
+          action: pick(zh, '移动', 'Move'), run: () => void bulk({ group_id: value === NO_GROUP ? '' : value }),
+        })
+      }}>
+        <SelectTrigger aria-label={pick(zh, '移动到分组', 'Move to group')} className="h-9 w-auto min-w-32" disabled={busy}><SelectValue placeholder={pick(zh, '移动到分组…', 'Move to group…')} /></SelectTrigger>
+        <SelectContent><SelectGroup>
+          {groups.map((group) => <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>)}
+          <SelectItem value={NO_GROUP}>{pick(zh, '移出分组', 'No group')}</SelectItem>
+        </SelectGroup></SelectContent>
+      </Select>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setSite(''); setSettingSite(true) }}><MapPin aria-hidden="true" data-icon="inline-start" />{pick(zh, '设置校区', 'Set campus')}</Button>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void bulk({ is_enabled: true })}><Power aria-hidden="true" data-icon="inline-start" />{pick(zh, '启用', 'Enable')}</Button>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setPending({
+        title: pick(zh, `停用${chosen}？`, `Disable ${chosen}?`),
+        description: pick(zh, '它们网段内的地址将不再解析到这些交换机，排队中的任务会直接失败，不会连接交换机。停用的设备不参与任何检测和备份。', 'Addresses in their networks stop resolving to them, and their queued jobs fail without contacting the switch. Disabled switches take part in no check or backup.'),
+        action: pick(zh, '停用', 'Disable'), run: () => void bulk({ is_enabled: false }),
+      })}><PowerOff aria-hidden="true" data-icon="inline-start" />{pick(zh, '停用', 'Disable')}</Button>
+      <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => setSelection({ key: '', ids: new Set() })}><X aria-hidden="true" data-icon="inline-start" />{pick(zh, '取消选择', 'Clear selection')}</Button>
+    </div> : null}
     <ErrorNote error={list.error} zh={zh} />
-    {list.data && !list.data.items.length
-      ? <Empty>{filtered ? pick(zh, '没有符合筛选条件的交换机。', 'No switch matches these filters.') : pick(zh, '还没有交换机。可以逐台添加，或用 CSV 批量导入。', 'No switches yet. Add them one by one or import a CSV.')}</Empty>
-      : <div className="overflow-x-auto rounded-xl border">
+    {list.data && !rows.length
+      ? <Empty>{filtered ? pick(zh, '没有符合筛选条件的交换机。', 'No switch matches these filters.') : pick(zh, '还没有启用的交换机。可以逐台添加，或用 CSV 批量导入。', 'No enabled switches yet. Add them one by one or import a CSV.')}</Empty>
+      : <div className="overflow-x-auto rounded-xl border [&_th]:whitespace-nowrap">
         <Table>
           <TableHeader><TableRow>
+            <TableHead className="w-10"><Checkbox aria-label={pick(zh, '选择本页全部', 'Select this page')} checked={allChosen ? true : count ? 'indeterminate' : false} disabled={!rows.length}
+              onCheckedChange={(checked) => choose(rows.map((row) => row.id), checked === true)} /></TableHead>
             <TableHead>{pick(zh, '设备', 'Switch')}</TableHead><TableHead>{pick(zh, '管理地址', 'Management')}</TableHead><TableHead>{pick(zh, '厂商 / 分组', 'Vendor / group')}</TableHead>
-            <TableHead>{pick(zh, '连通性', 'Reachability')}</TableHead><TableHead>{pick(zh, '最近备份', 'Latest backup')}</TableHead><TableHead>{pick(zh, '合规', 'Compliance')}</TableHead>
+            <TableHead>{pick(zh, '连接', 'Connection')}</TableHead><TableHead>{pick(zh, '最近成功备份', 'Last backup')}</TableHead><TableHead>{pick(zh, '网段', 'Networks')}</TableHead><TableHead>{pick(zh, '合规', 'Compliance')}</TableHead>
             <TableHead className="text-right">{pick(zh, '操作', 'Actions')}</TableHead>
           </TableRow></TableHeader>
           <TableBody>
-            {list.data?.items.map((row) => {
+            {rows.map((row) => {
               const target: EditTarget = { kind: 'switches', item: row }
               const backupError = serverText(row.config_error, zh)
-              return <TableRow key={row.id} className="cursor-pointer" onClick={() => setDetail(row.id)}>
-                <TableCell className="max-w-56"><div className="flex flex-wrap items-center gap-2"><span className={row.is_enabled ? 'font-medium' : 'font-medium text-muted-foreground'}>{row.name}</span>{row.is_enabled ? null : <ToneBadge kind="muted">{pick(zh, '已停用', 'Disabled')}</ToneBadge>}</div>
+              return <TableRow key={row.id} className="cursor-pointer" data-state={selected.has(row.id) ? 'selected' : undefined} onClick={() => setDetail(row.id)}>
+                <TableCell onClick={(event) => event.stopPropagation()}><Checkbox aria-label={pick(zh, `选择 ${row.name}`, `Select ${row.name}`)} checked={selected.has(row.id)} onCheckedChange={(checked) => choose([row.id], checked === true)} /></TableCell>
+                <TableCell className="max-w-52"><div className="flex flex-wrap items-center gap-2"><span className={row.is_enabled ? 'font-medium' : 'font-medium text-muted-foreground'}>{row.name}</span>{row.is_enabled ? null : <ToneBadge kind="muted">{pick(zh, '已停用', 'Disabled')}</ToneBadge>}</div>
                   {row.site || row.description ? <p className="truncate text-xs text-muted-foreground">{[row.site, row.description].filter(Boolean).join(' · ')}</p> : null}</TableCell>
                 <TableCell className="whitespace-nowrap"><span className="font-mono text-xs">{row.management_ip}</span><p className="text-xs text-muted-foreground">{protocolName(row.protocol)} {row.port ?? (row.protocol === 'ssh' ? 22 : 23)}</p></TableCell>
                 <TableCell className="whitespace-nowrap text-sm">{vendorName(row.vendor, zh)}{row.model ? <span className="text-muted-foreground"> · {row.model}</span> : null}<p className="text-xs text-muted-foreground">{row.group_name ?? pick(zh, '未分组', 'No group')}</p></TableCell>
-                <TableCell className="whitespace-nowrap"><ReachabilityBadge reachable={row.reachable} latency={row.reachability_latency_ms} error={row.reachability_error} zh={zh} /><p className="mt-0.5 text-xs text-muted-foreground"><Time value={row.reachability_checked_at} zh={zh} /></p></TableCell>
-                <TableCell className="max-w-56">{backupError ? <ToneBadge kind="bad" title={backupError}>{pick(zh, '失败', 'Failed')}</ToneBadge> : row.latest_backup_at ? <Time value={row.latest_backup_at} zh={zh} className="text-sm" /> : <ToneBadge kind="warn">{pick(zh, '从未备份', 'Never')}</ToneBadge>}
-                  {backupError ? <p className="truncate text-xs text-muted-foreground" title={backupError}>{backupError}</p> : null}</TableCell>
+                <TableCell className="whitespace-nowrap"><div className="flex flex-wrap gap-1"><ReachabilityBadge reachable={row.reachable} latency={row.reachability_latency_ms} error={row.reachability_error} zh={zh} /><LoginBadge reachable={row.reachable} ok={row.login_ok} error={row.login_error} zh={zh} /></div>
+                  <p className="mt-0.5 text-xs text-muted-foreground"><Time value={row.reachability_checked_at} zh={zh} /></p></TableCell>
+                <TableCell>{row.config_succeeded_at ? <Time value={row.config_succeeded_at} zh={zh} className="text-sm" /> : <ToneBadge kind="warn">{pick(zh, '从未成功', 'Never')}</ToneBadge>}
+                  {backupError ? <p className="text-xs whitespace-nowrap text-destructive" title={backupError}>{pick(zh, '最近一次失败', 'Last attempt failed')}</p> : null}</TableCell>
+                <TableCell>{row.networks ? <span className="text-sm tabular-nums">{row.networks}</span> : <ToneBadge kind="warn">{pick(zh, '无', 'None')}</ToneBadge>}</TableCell>
                 <TableCell>{row.compliance_failed ? <ToneBadge kind="bad">{pick(zh, `${row.compliance_failed} 项未通过`, `${row.compliance_failed} failing`)}</ToneBadge> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
-                <TableCell className="text-right"><div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
-                  <Button type="button" variant="ghost" size="sm" disabled={busy || !row.is_enabled} title={pick(zh, '检测连通性', 'Check reachability')} aria-label={`${pick(zh, '检测连通性', 'Check reachability')} ${row.name}`} onClick={() => void run('reachability', { scope: 'switches', switch_ids: [row.id] })}><Wifi aria-hidden="true" /></Button>
-                  <Button type="button" variant="ghost" size="sm" disabled={busy || !row.is_enabled} title={pick(zh, '立即备份', 'Back up now')} aria-label={`${pick(zh, '立即备份', 'Back up now')} ${row.name}`} onClick={() => void run('config_backup', { scope: 'switches', switch_ids: [row.id] })}><HardDriveDownload aria-hidden="true" /></Button>
-                  <Button type="button" variant="ghost" size="sm" disabled={busy} title={pick(zh, '编辑', 'Edit')} aria-label={`${pick(zh, '编辑', 'Edit')} ${row.name}`} onClick={() => setEditing(target)}><Pencil aria-hidden="true" /></Button>
-                  <Button type="button" variant="ghost" size="sm" disabled={busy} title={row.is_enabled ? pick(zh, '停用', 'Disable') : pick(zh, '启用', 'Enable')} aria-label={`${row.is_enabled ? pick(zh, '停用', 'Disable') : pick(zh, '启用', 'Enable')} ${row.name}`} onClick={() => row.is_enabled ? setDisabling(target) : void setEnabled(target, true)}>{row.is_enabled ? <PowerOff aria-hidden="true" /> : <Power aria-hidden="true" />}</Button>
+                <TableCell className="text-right"><div className="flex justify-end gap-0.5" onClick={(event) => event.stopPropagation()}>
+                  <Button type="button" variant="ghost" size="sm" className="size-8 p-0" disabled={busy || !row.is_enabled} title={pick(zh, '测试连接：登录一次再退出', 'Test connection: sign in and out once')} aria-label={`${pick(zh, '测试连接', 'Test connection')} ${row.name}`} onClick={() => void run('login_check', { scope: 'switches', switch_ids: [row.id] })}><PlugZap aria-hidden="true" /></Button>
+                  <Button type="button" variant="ghost" size="sm" className="size-8 p-0" disabled={busy || !row.is_enabled} title={pick(zh, '立即备份', 'Back up now')} aria-label={`${pick(zh, '立即备份', 'Back up now')} ${row.name}`} onClick={() => void run('config_backup', { scope: 'switches', switch_ids: [row.id] })}><HardDriveDownload aria-hidden="true" /></Button>
+                  <Button type="button" variant="ghost" size="sm" className="size-8 p-0" disabled={busy} title={pick(zh, '编辑', 'Edit')} aria-label={`${pick(zh, '编辑', 'Edit')} ${row.name}`} onClick={() => setEditing(target)}><Pencil aria-hidden="true" /></Button>
+                  <Button type="button" variant="ghost" size="sm" className="size-8 p-0" disabled={busy} title={row.is_enabled ? pick(zh, '停用', 'Disable') : pick(zh, '启用', 'Enable')} aria-label={`${row.is_enabled ? pick(zh, '停用', 'Disable') : pick(zh, '启用', 'Enable')} ${row.name}`} onClick={() => row.is_enabled ? setDisabling(target) : void setEnabled(target, true)}>{row.is_enabled ? <PowerOff aria-hidden="true" /> : <Power aria-hidden="true" />}</Button>
                 </div></TableCell>
               </TableRow>
             })}
@@ -243,20 +337,45 @@ function DevicesPage() {
         </Table>
       </div>}
     {list.data ? <Pager page={page} total={list.data.total} pageSize={list.data.page_size} zh={zh} onPage={(next) => void navigate({ search: (previous) => ({ ...previous, page: next > 1 ? next : undefined }) })} /> : null}
-    <DeviceDetailSheet switchId={detail} zh={zh} busy={busy} onClose={() => setDetail(null)} onRun={(kind, id) => void run(kind, { scope: 'switches', switch_ids: [id] })} />
+    <DeviceDetailSheet switchId={detail} zh={zh} busy={busy} inventory={inventory.data} onClose={() => setDetail(null)} onRun={(kind, id) => void run(kind, { scope: 'switches', switch_ids: [id] })} onChanged={refresh} />
     <AssetEditDialog target={editing} inventory={inventory.data} zh={zh} onClose={() => setEditing(null)} onSave={saveEdit} />
     <DisableAssetDialog target={disabling} inventory={inventory.data} zh={zh} onCancel={() => setDisabling(null)} onConfirm={(target) => void setEnabled(target, false)} />
     <CreateSwitchDialog open={creating} zh={zh} inventory={inventory.data} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); notifySuccess(pick(zh, '交换机已添加。', 'Switch added.')); void refresh() }} />
     <ImportDialog open={importing} zh={zh} inventory={inventory.data} onClose={() => setImporting(false)} onImported={() => void refresh()} />
-    <AlertDialog open={bulk !== null} onOpenChange={(open) => { if (!open) setBulk(null) }}>
+    <Dialog open={managingGroups} onOpenChange={setManagingGroups}>
+      <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{pick(zh, '管理分组', 'Groups')}</DialogTitle>
+          <DialogDescription>{pick(zh, '分组用于筛选设备、限定计划任务和合规规则的范围。删除分组后，组里的设备变为未分组。', 'Groups filter devices and scope schedules and compliance rules. Deleting a group leaves its switches ungrouped.')}</DialogDescription>
+        </DialogHeader>
+        <GroupManager zh={zh} inventory={inventory.data} onChanged={refresh} />
+      </DialogContent>
+    </Dialog>
+    <Dialog open={settingSite} onOpenChange={setSettingSite}>
+      <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="sm:max-w-md">
+        <form className="flex flex-col gap-6" noValidate onSubmit={(event) => { event.preventDefault(); setSettingSite(false); void bulk({ site: site.trim() }) }}>
+          <DialogHeader>
+            <DialogTitle>{pick(zh, `设置${chosen}的校区`, `Set the campus of ${chosen}`)}</DialogTitle>
+            <DialogDescription>{pick(zh, '留空则清除校区。', 'Leave it empty to clear the campus.')}</DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor="bulk-site">{pick(zh, '校区', 'Campus')}</FieldLabel>
+            <Input id="bulk-site" list="bulk-site-options" value={site} onChange={(event) => setSite(event.target.value)} autoComplete="off" autoFocus />
+            <datalist id="bulk-site-options">{sites.map((value) => <option key={value} value={value} />)}</datalist>
+          </Field>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setSettingSite(false)}>{pick(zh, '取消', 'Cancel')}</Button><Button type="submit">{pick(zh, '设置', 'Set')}</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+    <AlertDialog open={pending !== null} onOpenChange={(open) => { if (!open) setPending(null) }}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{bulk ? pick(zh, `对${scopeLabel}执行${kindLabel(bulk, zh)}？`, `Run a ${kindLabel(bulk, zh).toLowerCase()} on ${scopeLabel}?`) : ''}</AlertDialogTitle>
-          <AlertDialogDescription>{bulk === 'config_backup' ? pick(zh, '工作进程会逐台登录并读取运行配置，只读取、不修改。大量设备会排队分批执行。', 'The worker signs in to each switch and reads its running configuration; nothing is changed. Large inventories are worked through in batches.') : pick(zh, '对每台设备的管理端口做一次 TCP 连接检测。', 'Opens one TCP connection to each switch’s management port.')}</AlertDialogDescription>
+          <AlertDialogTitle>{pending?.title}</AlertDialogTitle>
+          <AlertDialogDescription>{pending?.description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{pick(zh, '取消', 'Cancel')}</AlertDialogCancel>
-          <AlertDialogAction onClick={() => { if (bulk) void run(bulk, search.group ? { scope: 'group', group_id: search.group } : { scope: 'all' }) }}>{pick(zh, '开始', 'Start')}</AlertDialogAction>
+          <AlertDialogAction onClick={() => pending?.run()}>{pending?.action}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

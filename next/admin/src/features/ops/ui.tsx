@@ -74,6 +74,17 @@ export function ReachabilityBadge({ reachable, latency, error, zh }: { reachable
     : <ToneBadge kind="bad" title={error ? serverText(error, zh) : undefined}>{pick(zh, '不可达', 'Unreachable')}</ToneBadge>
 }
 
+/**
+ * The last connection test or backup's sign-in, shown only while the port answers: an unreachable
+ * switch says nothing new about its credential.
+ */
+export function LoginBadge({ reachable, ok, error, zh }: { reachable: boolean | null; ok: boolean | null; error?: string | null; zh: boolean }) {
+  if (!reachable || ok === null) return null
+  return ok
+    ? <ToneBadge kind="good">{pick(zh, '登录正常', 'Signs in')}</ToneBadge>
+    : <ToneBadge kind="bad" title={error ? serverText(error, zh) : undefined}>{pick(zh, '登录失败', 'Sign-in fails')}</ToneBadge>
+}
+
 export function SeverityBadge({ severity, zh }: { severity: Severity; zh: boolean }) {
   const label = { critical: pick(zh, '严重', 'Critical'), warning: pick(zh, '警告', 'Warning'), info: pick(zh, '提示', 'Info') }[severity]
   return <ToneBadge kind={severity === 'critical' ? 'bad' : severity === 'warning' ? 'warn' : 'muted'}>{label}</ToneBadge>
@@ -94,7 +105,8 @@ export const itemStatusLabel = (status: string, zh: boolean) =>
 /** A worker message in the interface language; unknown detail is shown as sent. */
 export const workerMessage = (message: string | null, zh: boolean) => serverText(message, zh)
 
-export const kindLabel = (kind: TaskKind, zh: boolean) => (kind === 'config_backup' ? pick(zh, '配置备份', 'Config backup') : pick(zh, '连通性检测', 'Reachability check'))
+export const kindLabel = (kind: TaskKind, zh: boolean) =>
+  ({ config_backup: pick(zh, '配置备份', 'Config backup'), reachability: pick(zh, '连通性检测', 'Reachability check'), login_check: pick(zh, '连接测试', 'Connection test') })[kind] ?? kind
 
 export function Pager({ page, total, pageSize, onPage, zh }: { page: number; total: number; pageSize: number; onPage: (page: number) => void; zh: boolean }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))

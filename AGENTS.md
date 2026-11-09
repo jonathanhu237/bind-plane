@@ -135,6 +135,16 @@ Every release job must record enough information to answer:
 
 Records name who acted: release jobs, asset events and device tasks keep the actor's name and email as they were at the time. Releases forced before forced release was removed keep `force = true` and their mark.
 
+## Device Management
+
+The devices page is the switch inventory that releases, backups, schedules, compliance and alerts all draw on. Device operations only read from switches; releasing a binding stays the one change Bind Plane makes.
+
+- Switches are disabled, never deleted: release jobs, configuration versions and the audit log keep pointing at them.
+- The connection test signs in once and out again and sends no command. Schedules run only port checks and backups, never sign-in tests.
+- A backup is overdue when the last successful one is more than seven days old. A switch has no usable network until one is enabled and validated.
+- Imports match existing switches by management IP; in update mode only filled-in cells change anything. An export imports back.
+- A group that a schedule or compliance rule targets cannot be deleted, since the rule would widen to every switch.
+
 Never log plaintext credentials, decrypted passwords, sensitive environment variables, or full connection strings.
 
 ## UI Direction

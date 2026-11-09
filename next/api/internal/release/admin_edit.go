@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/netip"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -75,6 +76,20 @@ func (a *AdminHandler) updateAuditedThen(ctx context.Context, actor domain.Princ
 		return 0, err
 	}
 	defer tx.Rollback()
+	stored, changes, err := updateRow(ctx, tx, actor, kind, id, version, next)
+	if err == nil && len(changes) > 0 && then != nil {
+		err = then(ctx, tx)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return stored, tx.Commit()
+}
+
+// updateRow applies one edit inside tx and records the changed fields, which it returns; a row
+// already as requested records nothing. A version of 0 skips the staleness check, for changes
+// that set one value on many rows.
+func updateRow(ctx context.Context, tx *sql.Tx, actor domain.Principal, kind assetKind, id string, version int, next map[string]any) (int, map[string]any, error) {
 	var stored int
 	var label string
 	reads := make([]string, len(kind.fields))
@@ -84,15 +99,15 @@ func (a *AdminHandler) updateAuditedThen(ctx context.Context, actor domain.Princ
 		reads[i] = field.read
 		targets = append(targets, &current[i])
 	}
-	err = tx.QueryRowContext(ctx, `SELECT version,`+kind.label+`,`+strings.Join(reads, ",")+` FROM `+kind.table+` WHERE id=$1 FOR UPDATE`, id).Scan(targets...)
+	err := tx.QueryRowContext(ctx, `SELECT version,`+kind.label+`,`+strings.Join(reads, ",")+` FROM `+kind.table+` WHERE id=$1 FOR UPDATE`, id).Scan(targets...)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, ErrNotFound
+			return 0, nil, ErrNotFound
 		}
-		return 0, err
+		return 0, nil, err
 	}
-	if stored != version {
-		return 0, errStaleAsset
+	if version != 0 && stored != version {
+		return 0, nil, errStaleAsset
 	}
 	set, args, changes := []string{}, []any{id}, map[string]any{}
 	for i, field := range kind.fields {
@@ -118,24 +133,21 @@ func (a *AdminHandler) updateAuditedThen(ctx context.Context, actor domain.Princ
 		set = append(set, fmt.Sprintf("%s=$%d", field.column, len(args)))
 	}
 	if len(set) == 0 {
-		return stored, tx.Commit()
+		return stored, changes, nil
 	}
 	err = tx.QueryRowContext(ctx, `UPDATE `+kind.table+` SET `+strings.Join(set, ",")+`,version=version+1 WHERE id=$1 RETURNING version,`+kind.label, args...).Scan(&stored, &label)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	audit, err := json.Marshal(changes)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name,changes) VALUES ($1,$2,$7,$3,$4,$5,$6)`, actor.User.ID, actor.User.Email, kind.action, id, label, string(audit), actor.User.Name)
-	if err == nil && then != nil {
-		err = then(ctx, tx)
-	}
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return stored, tx.Commit()
+	return stored, changes, nil
 }
 
 // auditValue normalizes stored and requested values so formatting differences are not changes.
@@ -355,6 +367,145 @@ func (a *AdminHandler) editSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 	optionalBool(next, "is_enabled", input.IsEnabled)
 	a.applyEdit(w, r, actor, switchFields, input.Version, next)
+}
+
+// bulkSwitches sets one value (group, site or enabled) on many switches in one transaction.
+// Each switch it changes gets its own audit record, as if it had been edited alone.
+func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
+	actor, ok := a.authorize(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		IDs       []string `json:"ids"`
+		GroupID   *string  `json:"group_id"` // empty removes the group
+		Site      *string  `json:"site"`     // empty clears the site
+		IsEnabled *bool    `json:"is_enabled"`
+	}
+	err := decodeLimit(r, &input, 1<<20)
+	next := map[string]any{}
+	optionalText(next, "group_id", input.GroupID)
+	optionalText(next, "site", input.Site)
+	optionalBool(next, "is_enabled", input.IsEnabled)
+	ids := map[string]bool{}
+	for _, id := range input.IDs {
+		ids[id] = true
+	}
+	valid := err == nil && len(next) == 1 && len(ids) > 0 && len(ids) <= importMaxRows &&
+		(input.GroupID == nil || *input.GroupID == "" || domain.IsCanonicalUUID(*input.GroupID))
+	sorted := make([]string, 0, len(ids))
+	for id := range ids {
+		valid = valid && domain.IsCanonicalUUID(id)
+		sorted = append(sorted, id)
+	}
+	if !valid {
+		fail(w, 422, "switches and exactly one change (group, site or enabled) required")
+		return
+	}
+	sort.Strings(sorted) // one lock order, so two bulk changes never deadlock
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		fail(w, 503, "asset store unavailable")
+		return
+	}
+	defer tx.Rollback()
+	changed, missing := 0, 0
+	var pgErr *pgconn.PgError
+	for _, id := range sorted {
+		_, changes, err := updateRow(r.Context(), tx, actor, switchFields, id, 0, next)
+		switch {
+		case errors.Is(err, ErrNotFound):
+			missing++
+		case errors.As(err, &pgErr) && strings.HasPrefix(pgErr.Code, "23"):
+			fail(w, 409, "change conflicts with existing assets") // the group is gone
+			return
+		case err != nil:
+			fail(w, 503, "asset store unavailable")
+			return
+		case len(changes) > 0:
+			changed++
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		fail(w, 503, "asset store unavailable")
+		return
+	}
+	write(w, 200, map[string]int{"changed": changed, "unchanged": len(sorted) - changed - missing, "missing": missing})
+}
+
+// deleteGroup removes a group its switches no longer need. A schedule or compliance rule that
+// targets it would silently widen to every switch, so those must be changed first.
+func (a *AdminHandler) deleteGroup(w http.ResponseWriter, r *http.Request) {
+	actor, ok := a.authorize(w, r, true)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if !domain.IsCanonicalUUID(id) {
+		fail(w, 404, ErrNotFound.Error())
+		return
+	}
+	ctx := r.Context()
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		fail(w, 503, "asset store unavailable")
+		return
+	}
+	defer tx.Rollback()
+	var name string
+	var users int
+	err = tx.QueryRowContext(ctx, `SELECT name,(SELECT count(*) FROM bp_schedules WHERE group_id=g.id)+(SELECT count(*) FROM bp_compliance_rules WHERE group_id=g.id)
+ FROM bp_switch_groups g WHERE id=$1 FOR UPDATE`, id).Scan(&name, &users)
+	if errors.Is(err, sql.ErrNoRows) {
+		fail(w, 404, ErrNotFound.Error())
+		return
+	}
+	if err == nil && users > 0 {
+		fail(w, 409, "group is used by schedules or compliance rules")
+		return
+	}
+	var members []string
+	if err == nil {
+		members, err = groupMembers(ctx, tx, id)
+	}
+	for _, member := range members {
+		if err != nil {
+			break
+		}
+		_, _, err = updateRow(ctx, tx, actor, switchFields, member, 0, map[string]any{"group_id": nil})
+	}
+	if err == nil {
+		_, err = tx.ExecContext(ctx, `DELETE FROM bp_switch_groups WHERE id=$1`, id)
+	}
+	if err == nil {
+		_, err = tx.ExecContext(ctx, `INSERT INTO bp_asset_events(actor_id,actor_email,actor_name,action,object_id,object_name,changes) VALUES ($1,$2,$5,'group.delete',$3,$4,jsonb_build_object('switches',$6::int))`,
+			actor.User.ID, actor.User.Email, id, name, actor.User.Name, len(members))
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		fail(w, 503, "asset store unavailable")
+		return
+	}
+	write(w, 200, map[string]any{"id": id, "ungrouped": len(members)})
+}
+
+func groupMembers(ctx context.Context, tx *sql.Tx, groupID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id::text FROM bp_switches WHERE group_id=$1 ORDER BY id`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (a *AdminHandler) editNetwork(w http.ResponseWriter, r *http.Request) {

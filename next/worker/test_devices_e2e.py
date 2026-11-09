@@ -122,6 +122,27 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
 
         reach = await run("reachability")
         assert reach["status"] == "succeeded" and reach["message"] is None
+        signed = await run("login_check")
+        assert (signed["status"], signed["message"]) == ("succeeded", "Signed in")
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE bp_credentials SET encrypted_password=$2 WHERE id=$1",
+                credential,
+                api_sealed("wrong-pass"),
+            )
+        refused = await run("login_check")
+        assert refused["status"] == "failed", refused
+        async with pool.acquire() as conn:
+            state = await conn.fetchrow(
+                "SELECT reachable,login_ok,login_error FROM bp_switches WHERE id=$1", switch
+            )
+            assert (state["reachable"], state["login_ok"]) == (True, False)
+            assert state["login_error"] == refused["message"]
+            await conn.execute(
+                "UPDATE bp_credentials SET encrypted_password=$2 WHERE id=$1",
+                credential,
+                api_sealed("fake-pass"),
+            )
         first = await run("config_backup")
         assert (first["status"], first["changed"]) == ("succeeded", True), first["message"]
         async with pool.acquire() as conn:
@@ -132,6 +153,14 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
             assert open_config(sealed, key) == normalize_config(DEFAULT_CONFIG)
         second = await run("config_backup")
         assert (second["changed"], second["backup_id"]) == (False, None)
+        async with pool.acquire() as conn:
+            state = await conn.fetchrow(
+                """SELECT login_ok,config_succeeded_at>(SELECT max(captured_at)
+                FROM bp_config_backups WHERE switch_id=$1) AS later FROM bp_switches WHERE id=$1""",
+                switch,
+            )
+            # A backup that stored nothing new still counts as the latest success.
+            assert (state["login_ok"], state["later"]) == (True, True)
         running.write_text(DEFAULT_CONFIG.replace("vlan batch 10 20", "vlan batch 10 20 30"))
         third = await run("config_backup")
         assert third["changed"] and third["backup_id"] > first["backup_id"]

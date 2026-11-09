@@ -63,7 +63,7 @@ func (o *OpsHandler) createSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	err := decode(r, &input)
 	name, expression := strings.TrimSpace(input.Name), normalizeCron(input.Cron)
-	if err != nil || name == "" || !deviceTaskKinds[input.Kind] || input.Scope != "all" && !(input.Scope == "group" && domain.IsCanonicalUUID(input.GroupID)) {
+	if err != nil || name == "" || !scheduleKinds[input.Kind] || input.Scope != "all" && !(input.Scope == "group" && domain.IsCanonicalUUID(input.GroupID)) {
 		fail(w, 422, "name, kind and scope (all, or group with a group) required")
 		return
 	}
@@ -105,7 +105,7 @@ func (o *OpsHandler) editSchedule(w http.ResponseWriter, r *http.Request) {
 		IsEnabled *bool   `json:"is_enabled"`
 	}
 	next := map[string]any{}
-	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) || input.Kind != nil && !deviceTaskKinds[*input.Kind] ||
+	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) || input.Kind != nil && !scheduleKinds[*input.Kind] ||
 		input.Scope != nil && *input.Scope != "all" && *input.Scope != "group" ||
 		input.Scope != nil && *input.Scope == "group" && (input.GroupID == nil || !domain.IsCanonicalUUID(*input.GroupID)) {
 		fail(w, 422, "invalid schedule")
