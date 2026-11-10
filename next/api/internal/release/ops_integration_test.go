@@ -344,6 +344,18 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	if counts := obj(obj(call(ops, "GET", "/api/ops/overview", "", 200))["switches"]); counts["login_failed"].(float64) < 1 || counts["reachable"] != nil {
 		t.Fatalf("overview switches %v", counts)
 	}
+	// The software version the worker reads from backups lists, filters and offers its values.
+	if _, err = db.Exec(`UPDATE bp_switches SET os_version='V200R019C10SPC500' WHERE id=$1`, switchA); err != nil {
+		t.Fatal(err)
+	}
+	byVersion := obj(call(ops, "GET", "/api/ops/switches?q=OPS-&version=V200R019C10SPC500", "", 200))
+	if byVersion["total"] != float64(1) || obj(byVersion["items"].([]any)[0])["os_version"] != "V200R019C10SPC500" ||
+		!strings.Contains(fmt.Sprint(byVersion["versions"]), "V200R019C10SPC500") {
+		t.Fatalf("version filter %v", byVersion)
+	}
+	if unknown := obj(call(ops, "GET", "/api/ops/switches?q=OPS-&version=unknown", "", 200)); unknown["total"] != float64(1) || obj(unknown["items"].([]any)[0])["id"] != switchB {
+		t.Fatalf("unknown version filter %v", unknown)
+	}
 	// A backup is overdue a week after the last success, and "never" means no success at all.
 	// Neither switch has a network that resolution can use.
 	if _, err = db.Exec(`UPDATE bp_switches SET config_succeeded_at=now()-interval '8 days' WHERE id=$1`, switchA); err != nil {

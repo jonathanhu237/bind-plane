@@ -47,6 +47,11 @@ VOLATILE_LINES = (
 )
 MAX_CONFIG_BYTES = 20 * 1024 * 1024
 PORT_TIMEOUT = 3.0
+# Where a configuration names the software it runs, near its top: Huawei VRP
+# ("!Software Version V200R019C10SPC500"), H3C Comware (" version 7.1.070, Release 6616")
+# and Ruijie or Cisco ("version 11.4(1)B74P2"). The first pattern that finds a line wins.
+OS_VERSION_PATTERNS = (r"^\s*!\s*Software Version\s+(\S+)", r"^\s*version\s+(\S.*?)\s*$")
+OS_VERSION_LINES = 40
 
 
 def credential_key() -> bytes:
@@ -108,6 +113,26 @@ def normalize_config(raw: str) -> str:
     while lines and not lines[-1]:
         lines.pop()
     return "\n".join(lines)
+
+
+def os_version(text: str, parser_rules=None) -> str | None:
+    """The software version a configuration names near its top, or None when it names none.
+
+    A command profile can give its own `os_version_patterns`, each with one group; a pattern that
+    does not compile is skipped.
+    """
+    own = _mapping(parser_rules).get("os_version_patterns")
+    compiled = []
+    for pattern in own if isinstance(own, list) and own else OS_VERSION_PATTERNS:
+        with suppress(re.error, TypeError):
+            compiled.append(re.compile(pattern))
+    head = text.split("\n", OS_VERSION_LINES)[:OS_VERSION_LINES]
+    for pattern in compiled:
+        for line in head:
+            found = pattern.search(line)
+            if found and found.groups() and found.group(1):
+                return found.group(1).strip()[:100]
+    return None
 
 
 def config_fingerprint(text: str, ignore_patterns) -> str:
@@ -395,8 +420,9 @@ async def back_up(pool, item, dep, settings_builder, key):
             raise RuntimeError("lost device item lease")  # rolls the new version back
         await conn.execute(
             """UPDATE bp_switches SET config_checked_at=now(),config_succeeded_at=now(),
-            config_error=NULL WHERE id=$1""",
+            config_error=NULL,os_version=$2 WHERE id=$1""",
             dep["id"],
+            os_version(text, dep["parser_rules"]),
         )
         await record_login(conn, dep["id"], None)  # the backup signed in
         await resolve_alert(conn, alert_key)
@@ -539,6 +565,11 @@ async def read_networks(pool, item, dep, settings_builder):
         if not await finish_item(conn, item, status, message):
             raise RuntimeError("lost device item lease")  # rolls the networks back
         await record_login(conn, dep["id"], None)  # the read signed in
+        await conn.execute(
+            "UPDATE bp_switches SET os_version=$2 WHERE id=$1",
+            dep["id"],
+            os_version(text, dep["parser_rules"]),
+        )
 
 
 async def process_device_item(pool, item, settings_builder, key):

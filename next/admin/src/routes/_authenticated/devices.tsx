@@ -29,8 +29,8 @@ import { errorText, serverText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
 import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 
-type DeviceSearch = { q?: string; group?: string; vendor?: string; site?: string; connection?: string; backup?: string; networks?: string; state?: string; page?: number }
-const filterKeys = ['q', 'group', 'vendor', 'site', 'connection', 'backup', 'networks', 'state'] as const
+type DeviceSearch = { q?: string; group?: string; vendor?: string; site?: string; connection?: string; backup?: string; networks?: string; version?: string; state?: string; page?: number }
+const filterKeys = ['q', 'group', 'vendor', 'site', 'connection', 'backup', 'networks', 'version', 'state'] as const
 // Disabled switches stay out of the list unless asked for; "all" shows both.
 const ALL_STATES = 'all'
 
@@ -254,6 +254,7 @@ function DevicesPage() {
     <FacetFilter label={label} anyLabel={anyLabel} value={search[key]} options={options} onChange={(value) => filter({ [key]: value })} />
   const filtered = filterKeys.some((key) => search[key])
   const sites = list.data?.sites ?? []
+  const versions = list.data?.versions ?? []
   return <main className="mx-auto flex w-full max-w-7xl flex-col gap-6">
     <PageHeader title={pick(zh, '设备', 'Devices')}>
       <Button type="button" variant="outline" disabled={busy} onClick={() => setPending({
@@ -286,6 +287,7 @@ function DevicesPage() {
       {facet('connection', pick(zh, '连接', 'Connection'), pick(zh, '全部', 'Any'), [['ok', pick(zh, '登录正常', 'Signs in')], ['failed', pick(zh, '登录失败', 'Sign-in fails')], ['untested', pick(zh, '未测试', 'Not tested')]])}
       {facet('backup', pick(zh, '备份', 'Backup'), pick(zh, '全部', 'Any'), [['ok', pick(zh, '备份正常', 'Backed up')], ['failed', pick(zh, '最近一次失败', 'Last backup failed')], ['overdue', pick(zh, '逾期（超过 7 天）', 'Overdue (over 7 days)')], ['never', pick(zh, '从未成功', 'Never succeeded')]])}
       {facet('networks', pick(zh, '解绑', 'Releases'), pick(zh, '全部', 'Any'), [['release', pick(zh, '负责解绑', 'Handles releases')], ['none', pick(zh, '负责解绑但没有网段', 'Handles releases, no network')], ['other', pick(zh, '不负责解绑', 'Handles no releases')]])}
+      {versions.length ? facet('version', pick(zh, '系统版本', 'Version'), pick(zh, '全部版本', 'Any version'), [['unknown', pick(zh, '未知', 'Unknown')], ...versions.map((v): [string, string] => [v.version, `${v.version}（${v.count}）`])]) : null}
       <FacetFilter label={pick(zh, '启用状态', 'Status')} defaultValue="enabled" value={search.state} onChange={(value) => filter({ state: value })}
         options={[['enabled', pick(zh, '仅启用', 'Enabled')], ['disabled', pick(zh, '仅停用', 'Disabled')], [ALL_STATES, pick(zh, '启用和停用', 'Enabled and disabled')]]} />
       {filtered ? <Button type="button" variant="ghost" size="sm" className="px-2.5" onClick={() => { setText(''); void navigate({ search: {}, replace: true }) }}>
@@ -356,7 +358,7 @@ function DevicesPage() {
           <TableHeader><TableRow>
             <TableHead className="w-10"><Checkbox aria-label={pick(zh, '选择本页全部', 'Select this page')} checked={allChosen ? true : count ? 'indeterminate' : false} disabled={!rows.length}
               onCheckedChange={(checked) => choose(rows.map((row) => row.id), checked === true)} /></TableHead>
-            <TableHead>{pick(zh, '设备', 'Switch')}</TableHead><TableHead>{pick(zh, '管理地址', 'Management')}</TableHead><TableHead>{pick(zh, '厂商 / 分组', 'Vendor / group')}</TableHead>
+            <TableHead>{pick(zh, '设备', 'Switch')}</TableHead><TableHead>{pick(zh, '管理地址', 'Management')}</TableHead><TableHead>{pick(zh, '厂商 / 分组 / 版本', 'Vendor / group / version')}</TableHead>
             <TableHead>{pick(zh, '连接', 'Connection')}</TableHead><TableHead>{pick(zh, '最近成功备份', 'Last backup')}</TableHead><TableHead>{pick(zh, '解绑网段', 'Networks')}</TableHead><TableHead>{pick(zh, '合规', 'Compliance')}</TableHead>
             <TableHead className="text-right">{pick(zh, '操作', 'Actions')}</TableHead>
           </TableRow></TableHeader>
@@ -369,7 +371,7 @@ function DevicesPage() {
                 <TableCell className="max-w-52"><div className="flex flex-wrap items-center gap-2"><span className={row.is_enabled ? 'font-medium' : 'font-medium text-muted-foreground'}>{row.name}</span>{row.is_enabled ? null : <ToneBadge kind="muted">{pick(zh, '已停用', 'Disabled')}</ToneBadge>}</div>
                   {row.site || row.description ? <p className="truncate text-xs text-muted-foreground">{[row.site, row.description].filter(Boolean).join(' · ')}</p> : null}</TableCell>
                 <TableCell className="whitespace-nowrap"><span className="font-mono text-xs">{row.management_ip}</span><p className="text-xs text-muted-foreground">{protocolName(row.protocol)} {row.port ?? (row.protocol === 'ssh' ? 22 : 23)}</p></TableCell>
-                <TableCell className="whitespace-nowrap text-sm">{vendorName(row.vendor, zh)}{row.model ? <span className="text-muted-foreground"> · {row.model}</span> : null}<p className="text-xs text-muted-foreground">{row.group_name ?? pick(zh, '未分组', 'No group')}</p></TableCell>
+                <TableCell className="whitespace-nowrap text-sm">{vendorName(row.vendor, zh)}{row.model ? <span className="text-muted-foreground"> · {row.model}</span> : null}<p className="text-xs text-muted-foreground">{row.group_name ?? pick(zh, '未分组', 'No group')}</p>{row.os_version ? <p className="max-w-40 truncate font-mono text-xs text-muted-foreground" title={pick(zh, `系统版本 ${row.os_version}`, `Software version ${row.os_version}`)}>{row.os_version}</p> : null}</TableCell>
                 <TableCell className="whitespace-nowrap"><LoginBadge ok={row.login_ok} error={row.login_error} zh={zh} />
                   <p className="mt-0.5 text-xs text-muted-foreground"><Time value={row.login_checked_at} zh={zh} /></p></TableCell>
                 <TableCell>{row.config_succeeded_at ? <Time value={row.config_succeeded_at} zh={zh} className="text-sm" /> : <ToneBadge kind="warn">{pick(zh, '从未成功', 'Never')}</ToneBadge>}

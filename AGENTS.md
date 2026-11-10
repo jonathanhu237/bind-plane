@@ -128,6 +128,7 @@ Command profiles should support:
 - Error patterns
 - Success patterns
 - IP, MAC, and entry-type parsing rules
+- Where a configuration names its software version, when the built-in patterns (Huawei, H3C, Ruijie, Cisco) miss it (`parser_rules.os_version_patterns`); each backup and network read records it on the switch
 - Static/dynamic/unknown classification values
 
 If the output after a release command cannot be parsed confidently, store the raw output and record the outcome as unknown. If the state before release cannot be parsed, send nothing and fail the job: the binding is untouched, so the outcome is known.

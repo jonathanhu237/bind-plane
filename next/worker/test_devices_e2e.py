@@ -149,6 +149,9 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
             )
             assert "irreversible-cipher" not in sealed
             assert open_config(sealed, key) == normalize_config(DEFAULT_CONFIG)
+            # The backup also reads the software version the configuration names.
+            version = await conn.fetchval("SELECT os_version FROM bp_switches WHERE id=$1", switch)
+            assert version == "V200R019C10SPC500"
         second = await run("config_backup")
         assert (second["changed"], second["backup_id"]) == (False, None)
         async with pool.acquire() as conn:

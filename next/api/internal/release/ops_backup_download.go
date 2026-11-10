@@ -142,7 +142,7 @@ func (o *OpsHandler) exportBackups(w http.ResponseWriter, r *http.Request) {
 func (o *OpsHandler) latestBackups(ctx context.Context, args ...any) ([]latestBackup, error) {
 	rows, err := o.db.QueryContext(ctx, `SELECT DISTINCT ON (b.switch_id) b.id,s.id::text,s.name,host(s.management_ip),b.captured_at
  FROM bp_config_backups b JOIN bp_switches s ON s.id=b.switch_id
- WHERE `+switchFilter+` AND ($9='' OR s.id=ANY(string_to_array($9,',')::uuid[]))
+ WHERE `+switchFilter+` AND ($10='' OR s.id=ANY(string_to_array($10,',')::uuid[]))
  ORDER BY b.switch_id,b.captured_at DESC,b.id DESC`, args...)
 	if err != nil {
 		return nil, err

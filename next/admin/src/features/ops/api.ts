@@ -54,9 +54,11 @@ export type OpsSwitch = {
   networks: number
   /** A release switch's networks are read from its configuration. */
   handles_release: boolean; networks_checked_at: string | null; networks_succeeded_at: string | null; networks_error: string | null
+  /** The software version the newest backup or network read named; null until one has. */
+  os_version: string | null
 }
 export type Page<T> = { items: T[]; total: number; page_size: number }
-export type SwitchPage = Page<OpsSwitch> & { sites: string[] }
+export type SwitchPage = Page<OpsSwitch> & { sites: string[]; versions: { version: string; count: number }[] }
 
 export type TaskSummary = {
   id: string; kind: TaskKind; scope_label: string; actor_name: string | null; actor_email: string | null; schedule_name: string | null; created_at: string

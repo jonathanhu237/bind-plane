@@ -12,6 +12,7 @@ from worker.devices import (
     describe_failure,
     normalize_config,
     open_config,
+    os_version,
     read_switch_configuration,
     resolve_transport,
     seal_config,
@@ -128,3 +129,27 @@ def test_failure_messages_never_echo_device_output():
         == "Backup output is too short"
     )
     assert "hunter2" not in describe_failure(ValueError("hunter2"))
+
+
+@pytest.mark.parametrize(
+    ("config", "version"),
+    [
+        ("!Software Version V200R019C10SPC500\n#\nsysname CORE\n", "V200R019C10SPC500"),
+        ("#\n version 7.1.070, Release 6616P05\n#\n sysname H3C\n", "7.1.070, Release 6616P05"),
+        (
+            "!\nversion RGOS 10.4(3b23)p2 Release(232237)\n!\nhostname RJ\n",
+            "RGOS 10.4(3b23)p2 Release(232237)",
+        ),
+        ("version 15.2\nhostname cisco\n", "15.2"),
+        ("sysname NONE\n#\nsnmp-agent sys-info version v2c\n", None),
+        ("#\n" * 50 + "version 1.0\n", None),  # only the top of a configuration names its software
+    ],
+)
+def test_os_version_reads_the_software_a_configuration_names(config, version):
+    assert os_version(config) == version
+
+
+def test_a_command_profile_can_say_where_its_version_is():
+    rules = {"os_version_patterns": ["(", r"^Firmware: (\S+)"]}
+    assert os_version("Firmware: 2.4.1\nversion 9.9\n", rules) == "2.4.1"
+    assert os_version("version 9.9\n", json.dumps(rules)) is None

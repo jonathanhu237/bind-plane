@@ -250,10 +250,11 @@ const switchFilter = `($1='' OR s.name ILIKE '%'||$1||'%' OR host(s.management_i
   OR $6='overdue' AND s.config_succeeded_at < now()-interval '7 days')
  AND ($7='' OR $7='release' AND s.handles_release OR $7='other' AND NOT s.handles_release
   OR $7='none' AND s.handles_release AND NOT EXISTS (SELECT 1 FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated))
- AND ($8='' OR $8='enabled' AND s.is_enabled OR $8='disabled' AND NOT s.is_enabled)`
+ AND ($8='' OR $8='enabled' AND s.is_enabled OR $8='disabled' AND NOT s.is_enabled)
+ AND ($9='' OR $9='unknown' AND s.os_version IS NULL OR s.os_version=$9)`
 
 func switchFilterArgs(q url.Values) []any {
-	return []any{strings.TrimSpace(q.Get("q")), q.Get("group"), q.Get("vendor"), q.Get("site"), q.Get("connection"), q.Get("backup"), q.Get("networks"), q.Get("state")}
+	return []any{strings.TrimSpace(q.Get("q")), q.Get("group"), q.Get("vendor"), q.Get("site"), q.Get("connection"), q.Get("backup"), q.Get("networks"), q.Get("state"), q.Get("version")}
 }
 
 func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
@@ -265,16 +266,16 @@ func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 		"protocol", "port", "is_enabled", "version", "credential_id", "credential_name", "command_profile_id", "profile_name",
 		"login_ok", "login_checked_at", "login_error",
 		"config_checked_at", "config_succeeded_at", "config_error", "compliance_failed", "networks",
-		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error", "total"},
+		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error", "os_version", "total"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,s.group_id::text,g.name,
  s.protocol,s.port,s.is_enabled,s.version,s.credential_id::text,c.name,s.command_profile_id::text,p.name,
  s.login_ok,s.login_checked_at,s.login_error,
  s.config_checked_at,s.config_succeeded_at,s.config_error,(SELECT count(*) FROM bp_compliance_results r WHERE r.switch_id=s.id AND NOT r.passed),
  (SELECT count(*) FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated),
- s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error,count(*) OVER()
+ s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error,s.os_version,count(*) OVER()
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id
- WHERE `+switchFilter+` ORDER BY s.name,s.id LIMIT $9 OFFSET $10`, append(switchFilterArgs(r.URL.Query()), limit, offset)...)
+ WHERE `+switchFilter+` ORDER BY s.name,s.id LIMIT $10 OFFSET $11`, append(switchFilterArgs(r.URL.Query()), limit, offset)...)
 	if err != nil {
 		o.unavailable(w, err)
 		return
@@ -295,15 +296,19 @@ func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 			err = rows.Err()
 		}
 	}
+	var versions []map[string]any
+	if err == nil {
+		versions, err = o.rows(r.Context(), []string{"version", "count"}, `SELECT os_version,count(*) FROM bp_switches WHERE os_version IS NOT NULL GROUP BY 1 ORDER BY 1`)
+	}
 	if err != nil {
 		o.unavailable(w, err)
 		return
 	}
-	write(w, 200, map[string]any{"items": items, "total": total, "page_size": limit, "sites": sites})
+	write(w, 200, map[string]any{"items": items, "total": total, "page_size": limit, "sites": sites, "versions": versions})
 }
 
 var exportHeader = []string{"name", "management_ip", "vendor", "model", "group", "site", "protocol", "port", "credential", "profile", "description",
-	"handles_release", "enabled", "login", "last_backup"}
+	"handles_release", "enabled", "login", "last_backup", "os_version"}
 
 // spreadsheetSafe keeps a cell from being read as a formula; the importer drops the quote again.
 func spreadsheetSafe(value string) string {
@@ -321,7 +326,7 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := o.db.QueryContext(r.Context(), `SELECT s.name,host(s.management_ip),s.vendor,COALESCE(s.model,''),COALESCE(g.name,''),COALESCE(s.site,''),
  s.protocol,COALESCE(s.port::text,''),c.name,p.name,COALESCE(s.description,''),CASE WHEN s.handles_release THEN 'yes' ELSE 'no' END,
- s.is_enabled,s.login_ok,s.config_succeeded_at
+ s.is_enabled,s.login_ok,s.config_succeeded_at,COALESCE(s.os_version,'')
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id
  WHERE `+switchFilter+` ORDER BY s.name,s.id`, switchFilterArgs(r.URL.Query())...)
@@ -348,11 +353,12 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 		var enabled bool
 		var login sql.NullBool
 		var backup sql.NullTime
+		var osVersion string
 		targets := []any{}
 		for i := range record {
 			targets = append(targets, &record[i])
 		}
-		if err = rows.Scan(append(targets, &enabled, &login, &backup)...); err != nil {
+		if err = rows.Scan(append(targets, &enabled, &login, &backup, &osVersion)...); err != nil {
 			o.unavailable(w, err)
 			return
 		}
@@ -360,7 +366,7 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 		if backup.Valid {
 			last = backup.Time.In(o.loc).Format("2006-01-02 15:04")
 		}
-		record = append(record, strconv.FormatBool(enabled), yesNo(login, "ok", "failed"), last)
+		record = append(record, strconv.FormatBool(enabled), yesNo(login, "ok", "failed"), last, osVersion)
 		for i := range record {
 			record[i] = spreadsheetSafe(record[i])
 		}
@@ -390,10 +396,10 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	found, err := o.rows(ctx, []string{"id", "name", "management_ip", "vendor", "model", "site", "description", "group_name", "protocol", "port", "is_enabled",
 		"credential_name", "profile_name", "login_ok", "login_checked_at", "login_error", "config_checked_at", "config_succeeded_at", "config_error",
-		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error"},
+		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error", "os_version"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,g.name,s.protocol,s.port,s.is_enabled,c.name,p.name,
  s.login_ok,s.login_checked_at,s.login_error,s.config_checked_at,s.config_succeeded_at,s.config_error,
- s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error
+ s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error,s.os_version
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id WHERE s.id=$1`, id)
 	if err != nil {

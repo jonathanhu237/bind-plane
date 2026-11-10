@@ -117,6 +117,7 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
           <Info label={pick(zh, '最近测试', 'Last tested')}><Time value={d.login_checked_at} zh={zh} /></Info>
           <Info label={pick(zh, '登录方式', 'Login')}>{d.protocol === 'ssh' ? 'SSH' : 'Telnet'} · {d.port ?? (d.protocol === 'ssh' ? 22 : 23)}</Info>
           <Info label={pick(zh, '厂商 / 型号', 'Vendor / model')}>{vendorName(d.vendor, zh)}{d.model ? ` · ${d.model}` : ''}</Info>
+          <Info label={pick(zh, '系统版本', 'Software version')}>{d.os_version ? <span className="font-mono">{d.os_version}</span> : <span className="text-muted-foreground" title={pick(zh, '下次备份后从配置里读出', 'Read from the configuration at the next backup')}>—</span>}</Info>
           <Info label={pick(zh, '分组 / 校区', 'Group / campus')}>{d.group_name ?? '—'}{d.site ? ` · ${d.site}` : ''}</Info>
           <Info label={pick(zh, '凭据 / 命令模板', 'Credential / profile')}>{d.credential_name} · {d.profile_name}</Info>
           <Info label={pick(zh, '最近成功备份', 'Last successful backup')}><Time value={d.config_succeeded_at} zh={zh} />
