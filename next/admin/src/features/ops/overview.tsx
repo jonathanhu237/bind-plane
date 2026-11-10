@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import { taskScopeText } from '@/features/release/messages'
 import { opsRequest, taskState, type Overview } from './api'
+import { ChangeTrend } from './change-trend'
 import { Empty, ErrorNote, Section, TaskStateBadge, Time, kindLabel, pick } from './ui'
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: 'bad' | 'warn' }) {
@@ -67,6 +68,7 @@ export function OpsOverview({ zh }: { zh: boolean }) {
           <Stat label={pick(zh, '提示', 'Info')} value={alerts('info')} />
         </Panel>
       </div>
+      <ChangeTrend trend={data.trend} zh={zh} />
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Listing title={pick(zh, '最近运维任务', 'Recent task runs')} action={<Link to="/schedules" className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">{pick(zh, '全部任务', 'All runs')}</Link>}>
           {data.recent_tasks.length ? <div className="overflow-x-auto rounded-xl border [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap"><Table>

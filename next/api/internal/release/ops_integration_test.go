@@ -258,6 +258,19 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 		t.Fatalf("audit export recorded %d times: %v", count, err)
 	}
 
+	// The home page's trend counts, per day, the switches whose configuration changed (a first
+	// backup is a baseline, not a change); a day lists each change with the version before it.
+	trend := obj(call(ops, "GET", "/api/ops/overview", "", 200))["trend"].([]any)
+	today := time.Now().UTC().Format("2006-01-02")
+	if last := obj(trend[len(trend)-1]); len(trend) != 30 || last["date"] != today || last["changed"] != float64(1) {
+		t.Fatalf("trend ends %v (%d days)", last, len(trend))
+	}
+	day := obj(call(ops, "GET", "/api/ops/changes?date="+today, "", 200))
+	if changed := day["changed"].([]any); len(changed) != 1 || obj(changed[0])["backup_id"] != float64(second) || obj(changed[0])["previous_id"] != float64(first) {
+		t.Fatalf("changes on %s: %v", today, day)
+	}
+	call(ops, "GET", "/api/ops/changes?date=yesterday", "", 422)
+
 	// Schedules fire once when due and move to the next future match. They only back up: whether
 	// switches are up is Zabbix's to watch, so there is no port check to schedule or run.
 	call(ops, "POST", "/api/ops/schedules", `{"name":"bad cron","kind":"config_backup","cron":"61 * * * *","scope":"all"}`, 422)

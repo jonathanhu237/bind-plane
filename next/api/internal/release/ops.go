@@ -56,6 +56,7 @@ func NewOpsHandler(db *sql.DB, identity Identity, cookie, origin string, loc *ti
 		"POST /api/ops/alerts/{id}/acknowledge": o.acknowledge,
 		"GET /api/ops/audit":                    o.audit,
 		"GET /api/ops/audit/export":             o.exportAudit,
+		"GET /api/ops/changes":                  o.changes,
 	}
 	for pattern, route := range routes {
 		o.mux.HandleFunc(pattern, route)
@@ -213,6 +214,11 @@ func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {
 		o.unavailable(w, err)
 		return
 	}
+	trend, err := o.changeTrend(ctx)
+	if err != nil {
+		o.unavailable(w, err)
+		return
+	}
 	upcoming, err := o.rows(ctx, []string{"id", "name", "kind", "next_run_at"},
 		`SELECT id::text,name,kind,next_run_at FROM bp_schedules WHERE is_enabled AND next_run_at IS NOT NULL ORDER BY next_run_at LIMIT 5`)
 	if err != nil {
@@ -227,6 +233,7 @@ func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {
 		"recent_tasks":   tasks,
 		"recent_changes": changes,
 		"upcoming":       upcoming,
+		"trend":          trend,
 	})
 }
 

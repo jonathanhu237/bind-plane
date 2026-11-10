@@ -96,6 +96,15 @@ export type Overview = {
   recent_tasks: TaskSummary[]
   recent_changes: { id: number; switch_id: string; switch_name: string; management_ip: string; captured_at: string; line_count: number }[]
   upcoming: { id: string; name: string; kind: TaskKind; next_run_at: string }[]
+  /** The last 30 days, oldest first: switches whose configuration changed, and whose backup failed. */
+  trend: TrendDay[]
+}
+
+export type TrendDay = { date: string; changed: number; backup_failed: number }
+export type DayChanges = {
+  date: string
+  changed: { backup_id: number; previous_id: number; switch_id: string; switch_name: string; management_ip: string; captured_at: string; line_count: number }[]
+  backup_failed: { switch_id: string; switch_name: string; management_ip: string; finished_at: string; message: string | null }[]
 }
 
 export type BackupMeta = { id: number; captured_at: string; size_bytes: number; line_count: number; sha256: string }

@@ -31,7 +31,7 @@ function ConfigDialog({ backupId, zh, onClose }: { backupId: number | null; zh: 
   </Dialog>
 }
 
-function DiffDialog({ pair, zh, onClose }: { pair: { target: number; base: number } | null; zh: boolean; onClose: () => void }) {
+export function DiffDialog({ pair, zh, onClose }: { pair: { target: number; base: number } | null; zh: boolean; onClose: () => void }) {
   const query = useQuery({ queryKey: ['ops-diff', pair?.target, pair?.base], queryFn: () => opsRequest<DiffResponse>(`backups/${pair?.target}/diff?base=${pair?.base}`), enabled: pair !== null, staleTime: Infinity })
   const data = query.data
   return <Dialog open={pair !== null} onOpenChange={(open) => { if (!open) onClose() }}>
