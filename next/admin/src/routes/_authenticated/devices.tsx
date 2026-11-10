@@ -12,11 +12,13 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { opsRequest, type SwitchPage, type TaskKind } from '@/features/ops/api'
 import { DeviceDetailSheet } from '@/features/ops/device-detail'
 import { GroupManager } from '@/features/ops/group-manager'
+import { FacetFilter } from '@/features/ops/facet-filter'
 import { ImportDialog } from '@/features/ops/import-dialog'
 import { AdminOnly, Empty, ErrorNote, LoginBadge, PageHeader, Pager, ReachabilityBadge, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import {
@@ -28,8 +30,6 @@ import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 
 type DeviceSearch = { q?: string; group?: string; vendor?: string; site?: string; reachability?: string; backup?: string; networks?: string; state?: string; page?: number }
 const filterKeys = ['q', 'group', 'vendor', 'site', 'reachability', 'backup', 'networks', 'state'] as const
-// A filter set to everything travels as this select value and leaves the search parameter out.
-const ANY = 'any'
 // Disabled switches stay out of the list unless asked for; "all" shows both.
 const ALL_STATES = 'all'
 
@@ -224,51 +224,40 @@ function DevicesPage() {
     for (const id of ids) if (on) next.add(id); else next.delete(id)
     setSelection({ key: listKey, ids: next })
   }
-  const filterSelect = (key: Exclude<(typeof filterKeys)[number], 'q' | 'state'>, label: string, options: [string, string][]) =>
-    <Select value={search[key] ?? ANY} onValueChange={(value) => filter({ [key]: value === ANY ? undefined : value })}>
-      <SelectTrigger aria-label={label} className="w-auto min-w-32"><SelectValue /></SelectTrigger>
-      <SelectContent><SelectGroup>
-        <SelectItem value={ANY}>{label}</SelectItem>
-        {options.map(([value, name]) => <SelectItem key={value} value={value}>{name}</SelectItem>)}
-      </SelectGroup></SelectContent>
-    </Select>
+  const facet = (key: Exclude<(typeof filterKeys)[number], 'q' | 'state'>, label: string, anyLabel: string, options: [string, string][]) =>
+    <FacetFilter label={label} anyLabel={anyLabel} value={search[key]} options={options} onChange={(value) => filter({ [key]: value })} />
   const filtered = filterKeys.some((key) => search[key])
   const sites = list.data?.sites ?? []
   return <main className="mx-auto flex w-full max-w-7xl flex-col gap-6">
     <PageHeader title={pick(zh, '设备', 'Devices')}>
+      <Button type="button" variant="outline" disabled={busy} onClick={() => setPending({
+        title: pick(zh, `测试${scopeLabel}的连接？`, `Test the connection to ${scopeLabel}?`),
+        description: pick(zh, '工作进程会逐台登录一次再退出，确认能连上、账号密码正确，不执行任何命令。大量设备会排队分批执行。', 'The worker signs in to each switch once and out again, checking it answers and its credential works; no command is sent. Large inventories are worked through in batches.'),
+        action: pick(zh, '开始', 'Start'), run: () => void run('login_check', search.group && search.group !== 'none' ? { scope: 'group', group_id: search.group } : { scope: 'all' }),
+      })}><PlugZap aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部测试', 'Test all')}</Button>
+      <Button type="button" variant="outline" disabled={busy} onClick={() => setPending({
+        title: pick(zh, `备份${scopeLabel}的配置？`, `Back up ${scopeLabel}?`),
+        description: pick(zh, '工作进程会逐台登录并读取运行配置，只读取、不修改。大量设备会排队分批执行。', 'The worker signs in to each switch and reads its running configuration; nothing is changed. Large inventories are worked through in batches.'),
+        action: pick(zh, '开始', 'Start'), run: () => void run('config_backup', search.group && search.group !== 'none' ? { scope: 'group', group_id: search.group } : { scope: 'all' }),
+      })}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部备份', 'Back up all')}</Button>
+      <Separator orientation="vertical" className="mx-1 hidden h-6 sm:block" />
       <Button asChild variant="outline"><a href={exportPath} download><Download aria-hidden="true" data-icon="inline-start" />{pick(zh, '导出', 'Export')}</a></Button>
       <Button type="button" variant="outline" onClick={() => setManagingGroups(true)}><FolderTree aria-hidden="true" data-icon="inline-start" />{pick(zh, '管理分组', 'Groups')}</Button>
       <Button type="button" variant="outline" onClick={() => setImporting(true)}><Upload aria-hidden="true" data-icon="inline-start" />{pick(zh, '批量导入', 'Import CSV')}</Button>
       <Button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '添加交换机', 'Add switch')}</Button>
     </PageHeader>
     <div className="flex flex-wrap items-center gap-2">
-      <Input aria-label={pick(zh, '搜索名称、IP 或校区', 'Search name, IP or campus')} placeholder={pick(zh, '搜索名称、IP 或校区', 'Search name, IP or campus')} value={text} onChange={(event) => setText(event.target.value)} className="w-full sm:w-56" />
-      {filterSelect('group', pick(zh, '全部分组', 'All groups'), [['none', pick(zh, '未分组', 'No group')], ...groups.map((g): [string, string] => [g.id, g.name])])}
-      {sites.length ? filterSelect('site', pick(zh, '全部校区', 'All campuses'), sites.map((value): [string, string] => [value, value])) : null}
-      {filterSelect('vendor', pick(zh, '全部厂商', 'All vendors'), vendors.map((v) => [v, vendorName(v, zh)]))}
-      {filterSelect('reachability', pick(zh, '全部连接状态', 'Any connection'), [['reachable', pick(zh, '在线', 'Reachable')], ['unreachable', pick(zh, '不可达', 'Unreachable')], ['login_failed', pick(zh, '登录失败', 'Sign-in fails')], ['unknown', pick(zh, '未检测', 'Not checked')]])}
-      {filterSelect('backup', pick(zh, '全部备份状态', 'Any backup state'), [['ok', pick(zh, '备份正常', 'Backed up')], ['failed', pick(zh, '最近一次失败', 'Last backup failed')], ['overdue', pick(zh, '逾期（超过 7 天）', 'Overdue (over 7 days)')], ['never', pick(zh, '从未成功', 'Never succeeded')]])}
-      {filterSelect('networks', pick(zh, '全部网段状态', 'Any networks'), [['none', pick(zh, '无可用网段', 'No usable network')]])}
-      <Select value={search.state ?? 'enabled'} onValueChange={(value) => filter({ state: value === 'enabled' ? undefined : value })}>
-        <SelectTrigger aria-label={pick(zh, '启用状态', 'Enabled state')} className="w-auto min-w-28"><SelectValue /></SelectTrigger>
-        <SelectContent><SelectGroup>
-          <SelectItem value="enabled">{pick(zh, '仅启用', 'Enabled')}</SelectItem>
-          <SelectItem value="disabled">{pick(zh, '仅停用', 'Disabled')}</SelectItem>
-          <SelectItem value={ALL_STATES}>{pick(zh, '启用和停用', 'Enabled and disabled')}</SelectItem>
-        </SelectGroup></SelectContent>
-      </Select>
-      <div className="ml-auto flex gap-2">
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setPending({
-          title: pick(zh, `测试${scopeLabel}的连接？`, `Test the connection to ${scopeLabel}?`),
-          description: pick(zh, '工作进程会逐台登录一次再退出，确认能连上、账号密码正确，不执行任何命令。大量设备会排队分批执行。', 'The worker signs in to each switch once and out again, checking it answers and its credential works; no command is sent. Large inventories are worked through in batches.'),
-          action: pick(zh, '开始', 'Start'), run: () => void run('login_check', search.group && search.group !== 'none' ? { scope: 'group', group_id: search.group } : { scope: 'all' }),
-        })}><PlugZap aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部测试', 'Test all')}</Button>
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setPending({
-          title: pick(zh, `备份${scopeLabel}的配置？`, `Back up ${scopeLabel}?`),
-          description: pick(zh, '工作进程会逐台登录并读取运行配置，只读取、不修改。大量设备会排队分批执行。', 'The worker signs in to each switch and reads its running configuration; nothing is changed. Large inventories are worked through in batches.'),
-          action: pick(zh, '开始', 'Start'), run: () => void run('config_backup', search.group && search.group !== 'none' ? { scope: 'group', group_id: search.group } : { scope: 'all' }),
-        })}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部备份', 'Back up all')}</Button>
-      </div>
+      <Input aria-label={pick(zh, '搜索名称、IP 或校区', 'Search name, IP or campus')} placeholder={pick(zh, '搜索名称、IP 或校区', 'Search name, IP or campus')} value={text} onChange={(event) => setText(event.target.value)} className="h-9 w-full sm:w-56" />
+      {facet('group', pick(zh, '分组', 'Group'), pick(zh, '全部分组', 'All groups'), [['none', pick(zh, '未分组', 'No group')], ...groups.map((g): [string, string] => [g.id, g.name])])}
+      {sites.length ? facet('site', pick(zh, '校区', 'Campus'), pick(zh, '全部校区', 'All campuses'), sites.map((value): [string, string] => [value, value])) : null}
+      {facet('vendor', pick(zh, '厂商', 'Vendor'), pick(zh, '全部厂商', 'All vendors'), vendors.map((v) => [v, vendorName(v, zh)]))}
+      {facet('reachability', pick(zh, '连接', 'Connection'), pick(zh, '全部', 'Any'), [['reachable', pick(zh, '在线', 'Reachable')], ['unreachable', pick(zh, '不可达', 'Unreachable')], ['login_failed', pick(zh, '登录失败', 'Sign-in fails')], ['unknown', pick(zh, '未检测', 'Not checked')]])}
+      {facet('backup', pick(zh, '备份', 'Backup'), pick(zh, '全部', 'Any'), [['ok', pick(zh, '备份正常', 'Backed up')], ['failed', pick(zh, '最近一次失败', 'Last backup failed')], ['overdue', pick(zh, '逾期（超过 7 天）', 'Overdue (over 7 days)')], ['never', pick(zh, '从未成功', 'Never succeeded')]])}
+      {facet('networks', pick(zh, '网段', 'Networks'), pick(zh, '全部', 'Any'), [['none', pick(zh, '无可用网段', 'No usable network')]])}
+      <FacetFilter label={pick(zh, '启用状态', 'Status')} defaultValue="enabled" value={search.state} onChange={(value) => filter({ state: value })}
+        options={[['enabled', pick(zh, '仅启用', 'Enabled')], ['disabled', pick(zh, '仅停用', 'Disabled')], [ALL_STATES, pick(zh, '启用和停用', 'Enabled and disabled')]]} />
+      {filtered ? <Button type="button" variant="ghost" size="sm" className="px-2.5" onClick={() => { setText(''); void navigate({ search: {}, replace: true }) }}>
+        {pick(zh, '重置', 'Reset')}<X aria-hidden="true" data-icon="inline-end" /></Button> : null}
     </div>
     {count ? <div role="region" aria-label={pick(zh, '批量操作', 'Bulk actions')} className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2">
       <span className="text-sm font-medium tabular-nums">{pick(zh, `已选 ${count} 台`, `${count} selected`)}</span>
