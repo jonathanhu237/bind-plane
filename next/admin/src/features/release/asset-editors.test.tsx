@@ -2,22 +2,23 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  AssetEditDialog, AssetRequestError, DisableAssetDialog, describeChanges, editRequest, portFollowing, profileFollowing,
-  type Credential, type Inventory, type Profile, type SwitchAsset,
+  AssetEditDialog, AssetRequestError, DisableAssetDialog, describeChanges, editRequest, portFollowing, profileFollowing, snmpCredentialBody,
+  type Credential, type Inventory, type Profile, type SnmpCredential, type SwitchAsset,
 } from './asset-editors'
 
 const credential: Credential = { id: 'c1', name: 'core', username: 'netops', description: null, is_active: true, has_secret: true, version: 2 }
 const profile: Profile = {
   id: 'p1', name: 'vendor-a', vendor: 'huawei', is_active: true, version: 1, command_templates: { single_arp_query: 'show arp $ip' }, parser_rules: {},
-  login_prompt_patterns: {}, prompt_patterns: {}, pagination_rules: {}, success_patterns: [], error_patterns: [],
+  login_prompt_patterns: {}, prompt_patterns: {}, pagination_rules: {}, success_patterns: [], error_patterns: [], snmp_rules: {},
 }
+const community: SnmpCredential = { id: 'n1', name: 'campus-ro', snmp_version: 'v2c', username: null, auth_protocol: null, priv_protocol: null, description: null, is_active: true, version: 4 }
 const edge: SwitchAsset = {
   id: 's1', name: 'edge-1', management_ip: '192.0.2.10', credential_id: 'c1', command_profile_id: 'p1', is_enabled: true, version: 3,
   vendor: 'huawei', model: 'S5720', site: null, description: null, group_id: 'g1', protocol: 'ssh', port: null,
-  handles_release: true, networks_succeeded_at: null, networks_error: null,
+  handles_release: true, networks_succeeded_at: null, networks_error: null, snmp_credential_id: null, snmp_port: null,
 }
 const inventory: Inventory = {
-  credentials: [credential], profiles: [profile], switches: [edge, { ...edge, id: 's2', name: 'edge-2', management_ip: '192.0.2.11' }], networks: [],
+  credentials: [credential], snmp_credentials: [community], profiles: [profile], switches: [edge, { ...edge, id: 's2', name: 'edge-2', management_ip: '192.0.2.11' }], networks: [],
   groups: [{ id: 'g1', name: 'Core', description: null, version: 1 }],
 }
 
@@ -33,10 +34,33 @@ describe('asset edit requests', () => {
   })
 
   it('refuses profile rules of the wrong JSON shape', () => {
-    const rules = { name: 'vendor-a', command_templates: '{}', parser_rules: '{}', login_prompt_patterns: '{}', prompt_patterns: '{}', pagination_rules: '{}', success_patterns: '[]', error_patterns: '[]' }
+    const rules = { name: 'vendor-a', command_templates: '{}', parser_rules: '{}', login_prompt_patterns: '{}', prompt_patterns: '{}', pagination_rules: '{}', success_patterns: '[]', error_patterns: '[]', snmp_rules: '{}' }
+    expect(editRequest({ kind: 'profiles', item: profile }, { ...rules, snmp_rules: '["1.3.6"]' })).toEqual({ invalidRule: 'snmp_rules' })
     expect(editRequest({ kind: 'profiles', item: profile }, { ...rules, success_patterns: '{}' })).toEqual({ invalidRule: 'success_patterns' })
     expect(editRequest({ kind: 'profiles', item: profile }, { ...rules, parser_rules: '{' })).toEqual({ invalidRule: 'parser_rules' })
     expect(editRequest({ kind: 'profiles', item: profile }, rules)).toMatchObject({ path: 'profiles/p1', body: { version: 1, success_patterns: [] } })
+  })
+
+  it('sends an SNMP credential with only the secrets its version and protocols use', () => {
+    const form = { name: 'campus', description: '', snmp_version: 'v2c', community: '', username: 'mon', auth_protocol: 'sha', auth_password: 'authpass1', priv_protocol: 'aes', priv_password: '' }
+    // An empty community keeps the stored one; v3 fields mean nothing to v2c.
+    expect(snmpCredentialBody(form)).toEqual({ name: 'campus', description: '', snmp_version: 'v2c' })
+    expect(snmpCredentialBody({ ...form, snmp_version: 'v3' })).toEqual({
+      name: 'campus', description: '', snmp_version: 'v3', username: 'mon', auth_protocol: 'sha', priv_protocol: 'aes', auth_password: 'authpass1',
+    })
+    // Privacy needs authentication, so turning authentication off turns privacy off too.
+    expect(snmpCredentialBody({ ...form, snmp_version: 'v3', auth_protocol: 'none', priv_password: 'privpass1' })).toEqual({
+      name: 'campus', description: '', snmp_version: 'v3', username: 'mon', auth_protocol: '', priv_protocol: '',
+    })
+    expect(editRequest({ kind: 'snmp_credentials', item: community }, { ...form, community: 'new-ro' })).toEqual({
+      path: 'snmp-credentials/n1', body: { version: 4, name: 'campus', description: '', snmp_version: 'v2c', community: 'new-ro' },
+    })
+  })
+
+  it('rejects an SNMP port that is not a number, and sends 0 for the standard one', () => {
+    const form = { name: 'edge-1', management_ip: '192.0.2.10', credential_id: 'c1', command_profile_id: 'p1', vendor: 'huawei', model: '', site: '', description: '', group_id: '', protocol: 'ssh', port: '', snmp_credential_id: 'n1', snmp_port: '16x' }
+    expect(editRequest({ kind: 'switches', item: edge }, form)).toEqual({ invalidRule: 'snmp_port' })
+    expect(editRequest({ kind: 'switches', item: edge }, { ...form, snmp_port: '' })).toMatchObject({ body: { snmp_credential_id: 'n1', snmp_port: 0 } })
   })
 
   it('rejects a port that is not a number', () => {
@@ -93,6 +117,7 @@ describe('asset editors', () => {
     expect(onSave).toHaveBeenCalledWith('switches/s1', {
       version: 3, name: 'edge-1', management_ip: '192.0.2.12', credential_id: 'c1', command_profile_id: 'p1',
       vendor: 'huawei', model: 'S5720', site: '', description: '', group_id: 'g1', protocol: 'ssh', port: 0, handles_release: true,
+      snmp_credential_id: '', snmp_port: 0,
     })
   })
 

@@ -35,7 +35,7 @@ function Listing({ title, action, children }: { title: string; action?: React.Re
   </div>
 }
 
-/** Reachability, backups, compliance and alerts across the switches, with recent and upcoming work. Admins only. */
+/** Reachability, monitoring, backups, compliance and alerts across the switches, with recent and upcoming work. Admins only. */
 export function OpsOverview({ zh }: { zh: boolean }) {
   const query = useQuery({ queryKey: ['ops-overview'], queryFn: () => opsRequest<Overview>('overview'), refetchInterval: 15_000 })
   const data = query.data
@@ -43,12 +43,18 @@ export function OpsOverview({ zh }: { zh: boolean }) {
   return <Section title={pick(zh, '设备运维', 'Device operations')} actions={<p className="text-xs text-muted-foreground">{pick(zh, '每 15 秒刷新', 'Refreshes every 15 seconds')}</p>}>
     <ErrorNote error={query.error} zh={zh} />
     {data ? <div className="flex flex-col gap-8">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Panel title={pick(zh, '设备', 'Devices')} to="/devices" link={pick(zh, '查看设备', 'View devices')}>
           <Stat label={pick(zh, '启用 / 全部', 'Enabled / total')} value={data.switches.enabled} />
           <Stat label={pick(zh, '在线', 'Reachable')} value={data.switches.reachable} />
           <Stat label={pick(zh, '不可达', 'Unreachable')} value={data.switches.unreachable} tone="bad" />
           <Stat label={pick(zh, '尚未检测', 'Not checked yet')} value={data.switches.unknown} />
+        </Panel>
+        <Panel title={pick(zh, '设备监控', 'Monitoring')} to="/monitoring" link={pick(zh, '查看监控', 'View monitoring')}>
+          <Stat label={pick(zh, '监控中', 'Monitored')} value={data.monitoring.monitored} />
+          <Stat label={pick(zh, '无响应', 'Not responding')} value={data.monitoring.no_response} tone="bad" />
+          <Stat label={pick(zh, '超过阈值', 'Over a threshold')} value={data.monitoring.high} tone="warn" />
+          <Stat label={pick(zh, '24 小时内重启', 'Restarted, 24 h')} value={data.monitoring.restarted} tone="warn" />
         </Panel>
         <Panel title={pick(zh, '配置备份', 'Configuration backups')} to="/devices" link={pick(zh, '查看设备', 'View devices')}>
           <Stat label={pick(zh, '已有备份', 'Backed up')} value={data.backups.backed_up} />
@@ -95,8 +101,8 @@ export function OpsOverview({ zh }: { zh: boolean }) {
           </Listing>
         </div>
       </div>
-    </div> : query.isPending ? <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label={pick(zh, '正在加载', 'Loading')}>
-      {[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-48 rounded-xl" />)}
+    </div> : query.isPending ? <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-busy="true" aria-label={pick(zh, '正在加载', 'Loading')}>
+      {[0, 1, 2, 3, 4].map((index) => <Skeleton key={index} className="h-48 rounded-xl" />)}
     </div> : null}
   </Section>
 }

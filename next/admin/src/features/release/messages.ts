@@ -72,7 +72,7 @@ const fixed: Record<string, Words> = {
   'no single command profile for this vendor (name one, or choose a default of this vendor)': ['This vendor has no single command profile. Name one in the profile column, or choose a default of this vendor.', '这个厂商没有唯一的命令模板。请在“命令模板”列填写，或选择一个该厂商的默认模板。'],
   'a switch with this management IP already exists': ['A switch with this management IP already exists.', '已存在相同管理 IP 的交换机。'],
   'already up to date': ['Already matches the CSV.', '与 CSV 一致，无需修改。'],
-  'switches and exactly one change (group, site, credential, enabled or release role) required': ['Choose switches and one change to make.', '请选择设备和一项要做的修改。'],
+  'switches and exactly one change (group, site, credential, SNMP credential, enabled or release role) required': ['Choose switches and one change to make.', '请选择设备和一项要做的修改。'],
   'credential is disabled or gone': ['That credential is disabled or no longer exists. Choose an enabled one.', '这条凭据已停用或已不存在，请选择一条启用的凭据。'],
   'group is used by schedules or compliance rules': [
     'A schedule or compliance rule targets this group. Change them first; otherwise they would run on every switch.',
@@ -111,6 +111,26 @@ const fixed: Record<string, Words> = {
   'Configuration read timed out': ['Reading the configuration timed out', '读取配置超时'],
   'Release job timed out': ['The release job timed out', '解绑任务超时'],
   'Pattern not found': ['Pattern not found in the configuration', '配置中未找到匹配内容'],
+  // Monitoring: SNMP credentials, settings and polls.
+  'SNMP credential name required': ['Name the SNMP credential.', '请填写 SNMP 凭据名称。'],
+  'community required for SNMP v2c': ['SNMP v2c needs a community.', 'SNMP v2c 需要填写团体字。'],
+  'username required for SNMP v3': ['SNMP v3 needs a user name.', 'SNMP v3 需要填写用户名。'],
+  'unknown SNMP version, authentication or privacy protocol': ['Choose a listed SNMP version and protocols.', '请从列表中选择 SNMP 版本、认证方式和加密方式。'],
+  'SNMP v3 passwords must be at least 8 characters': ['SNMP v3 passwords must be at least 8 characters.', 'SNMP v3 的认证密码和加密密码至少 8 个字符。'],
+  'SNMP v3 privacy needs authentication': ['Privacy needs authentication; choose an authentication protocol first.', '加密需要先开启认证，请先选择认证方式。'],
+  'SNMP credential could not be saved': ['The SNMP credential could not be saved; the name may already be in use.', 'SNMP 凭据保存失败，名称可能已被使用。'],
+  'invalid SNMP credential': unreadable,
+  'SNMP credential not found (give its exact name)': ['SNMP credential not found; give its exact name.', '找不到这个 SNMP 凭据，请填写准确的名称。'],
+  'switch is not monitored': ['The switch is not monitored: give it an active SNMP credential first.', '这台交换机没有被监控，请先给它选择一个启用的 SNMP 凭据。'],
+  'invalid monitoring settings': ['Check the settings: the interval is 1–60 minutes, thresholds 1–100 (temperature 1–150), and polls in a row 1–10.', '请检查设置：采集间隔 1–60 分钟，阈值 1–100（温度 1–150），连续次数 1–10。'],
+  'No SNMP response received before timeout': ['no answer before the timeout; check the address, the community, and the switch’s SNMP access list', '超时未收到应答，请检查地址、团体字和交换机的 SNMP 访问控制'],
+  'Wrong SNMP PDU digest': ['the authentication password is wrong', '认证密码不对'],
+  'Authenticator mismatched': ['the authentication password is wrong', '认证密码不对'],
+  'Unknown USM user': ['the switch has no such SNMPv3 user', '交换机上没有这个 SNMPv3 用户'],
+  'Unsupported SNMP security level': ['the switch does not accept this security level for the user', '交换机不接受这个用户的安全级别'],
+  'Ciphering services not available or ciphertext is broken': ['the privacy password or protocol is wrong', '加密密码或加密方式不对'],
+  'SNMP message timing parameters not in windows of trust': ['the switch’s SNMP engine clock is out of step; try again', '交换机的 SNMP 时间窗口不同步，请稍后再试'],
+  'Switch restarted': ['The switch restarted', '交换机重启过'],
   // Release jobs in the API, the worker and its result classifier.
   'Release queued': ['Release queued', '已提交解绑，等待执行'],
   'Retry queued as a new release': ['Released again; queued as a new release', '重新解绑：已作为新的解绑排队'],
@@ -163,6 +183,14 @@ const shaped: [RegExp, (zh: boolean, ...parts: string[]) => string][] = [
     return zh ? `将修改：${list.join('、')}` : `Changes: ${list.join(', ')}`
   }],
   [/^Backup failed: (.+)$/s, (zh, why) => (zh ? `配置备份失败：${serverText(why, zh)}` : `Backup failed: ${serverText(why, zh)}`)],
+  [/^SNMP not responding: (.+)$/s, (zh, why) => (zh ? `SNMP 无响应：${serverText(why, zh)}` : `SNMP not responding: ${serverText(why, zh)}`)],
+  [/^SNMP error: (.+)$/s, (zh, why) => (zh ? `SNMP 错误：${why}` : `SNMP error: ${why}`)],
+  [/^(CPU|Memory) at (\d+)% for (\d+) polls \(threshold (\d+)%\)$/, (zh, metric, value, polls, threshold) => (zh
+    ? `${metric === 'CPU' ? 'CPU ' : '内存'}使用率 ${value}%，已连续 ${polls} 次达到阈值 ${threshold}%`
+    : `${metric} at ${value}%, at or above the ${threshold}% threshold for ${polls} polls in a row`)],
+  [/^Temperature at (\d+)°C for (\d+) polls \(threshold (\d+)°C\)$/, (zh, value, polls, threshold) => (zh
+    ? `温度 ${value}°C，已连续 ${polls} 次达到阈值 ${threshold}°C`
+    : `Temperature at ${value}°C, at or above the ${threshold}°C threshold for ${polls} polls in a row`)],
   [/^Rule "(.*)" failed: (.+)$/s, (zh, rule, detail) => (zh ? `规则「${rule}」未通过：${serverText(detail, zh)}` : `Rule "${rule}" failed: ${serverText(detail, zh)}`)],
   [/^Line (\d+): (.*)$/s, (zh, line, excerpt) => (zh ? `第 ${line} 行：${excerpt}` : `Line ${line}: ${excerpt}`)],
   [/^Switch session close failed: (\w+)$/, (zh, name) => (zh ? `关闭设备会话失败（${name}）` : `Closing the switch session failed (${name})`)],

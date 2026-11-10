@@ -33,6 +33,7 @@ export type OpsSwitch = {
   networks: number
   /** A release switch's networks are read from its configuration. */
   handles_release: boolean; networks_checked_at: string | null; networks_succeeded_at: string | null; networks_error: string | null
+  snmp_credential_id: string | null; snmp_port: number | null
 }
 export type Page<T> = { items: T[]; total: number; page_size: number }
 export type SwitchPage = Page<OpsSwitch> & { sites: string[] }
@@ -60,14 +61,45 @@ export type ComplianceResult = {
   switch_id: string; switch_name: string; management_ip: string; rule_id: string; rule_name: string; severity: Severity
   passed: boolean; detail: string | null; evaluated_at: string; backup_id: number
 }
+export type AlertKind = 'device_unreachable' | 'backup_failed' | 'compliance_violation' | 'network_read_failed'
+  | 'snmp_unreachable' | 'cpu_high' | 'memory_high' | 'temperature_high' | 'device_restarted'
 export type Alert = {
-  id: number; kind: 'device_unreachable' | 'backup_failed' | 'compliance_violation' | 'network_read_failed'; severity: Severity; switch_id: string; switch_name: string
+  id: number; kind: AlertKind; severity: Severity; switch_id: string; switch_name: string
   management_ip: string; rule_id: string | null; rule_name: string | null; message: string; status: 'open' | 'acknowledged' | 'resolved'
   opened_at: string; last_seen_at: string; acknowledged_at: string | null; acknowledged_by: string | null; resolved_at: string | null
 }
 export type AuditEvent = { id: number; actor_name: string | null; actor_email: string; action: string; object_id: string; object_name: string; changes: Record<string, unknown>; created_at: string }
 
+/** How the enabled switches' monitoring stands. */
+export type MonitoringSummary = { monitored: number; responding: number; no_response: number; waiting: number; high: number; restarted: number; unmonitored: number }
+export type MonitoringSettings = {
+  id: string; interval_minutes: number; cpu_threshold: number | null; memory_threshold: number | null; temperature_threshold: number | null
+  consecutive_polls: number; alert_on_restart: boolean; version: number
+}
+/** An enabled switch with its latest poll; the readings are null until it answers. */
+export type MonitoredSwitch = {
+  id: string; name: string; management_ip: string; vendor: Vendor; model: string | null; group_name: string | null; snmp_credential_name: string | null
+  monitored: boolean; polled_at: string | null; succeeded_at: string | null; error: string | null; failures: number; response_ms: number | null
+  sys_name: string | null; uptime_seconds: number | null; restarted_at: string | null
+  cpu_percent: number | null; memory_percent: number | null; temperature_c: number | null; interfaces: number; interfaces_up: number
+}
+export type MonitoringPage = Page<MonitoredSwitch> & { summary: MonitoringSummary; settings: MonitoringSettings }
+export type SwitchMonitoring = {
+  polled_at: string | null; succeeded_at: string | null; error: string | null; failures: number; response_ms: number | null
+  sys_name: string | null; sys_descr: string | null; sys_object_id: string | null; uptime_seconds: number | null; restarted_at: string | null
+  cpu_percent: number | null; memory_percent: number | null; temperature_c: number | null; next_poll_at: string
+}
+export type SwitchPort = {
+  if_index: number; name: string; alias: string | null; if_type: number | null; admin_up: boolean | null; oper_up: boolean | null; speed_mbps: number | null
+  in_bps: number | null; out_bps: number | null; in_errors: number | null; out_errors: number | null; new_errors: number | null; counter_bits: number
+  sampled_at: string; oper_changed_at: string | null
+}
+export type MetricRange = '1d' | '7d' | '30d'
+export type MetricPoint = { t: string; cpu: number | null; cpu_max: number | null; memory: number | null; temperature: number | null; temperature_max: number | null; response_ms: number | null }
+export type MetricHistory = { range: MetricRange; bucket_seconds: number; points: MetricPoint[] }
+
 export type Overview = {
+  monitoring: MonitoringSummary
   switches: { total: number; enabled: number; reachable: number; unreachable: number; unknown: number }
   backups: { backed_up: number; failing: number; never: number; versions_24h: number }
   compliance: { passed: number; failed: number; failing_switches: number }
@@ -79,13 +111,19 @@ export type Overview = {
 
 export type BackupMeta = { id: number; captured_at: string; size_bytes: number; line_count: number; sha256: string }
 export type HistoryEvent = { id: number; action: string; actor_name: string | null; actor_email: string; object_name: string; changes: Record<string, unknown>; created_at: string }
-export type SwitchDetail = Omit<OpsSwitch, 'group_id' | 'credential_id' | 'command_profile_id' | 'version' | 'compliance_failed' | 'networks'> & {
+export type SwitchDetail = Omit<OpsSwitch, 'group_id' | 'credential_id' | 'command_profile_id' | 'version' | 'compliance_failed' | 'networks' | 'snmp_credential_id' | 'snmp_port'> & {
   reachability_changed_at: string | null
   backups: BackupMeta[]
   compliance: { rule_id: string; rule_name: string; severity: Severity; mode: string; passed: boolean; detail: string | null; evaluated_at: string; backup_id: number }[]
   recent_items: { id: number; kind: TaskKind; status: TaskItem['status']; message: string | null; changed: boolean | null; backup_id: number | null; created_at: string; finished_at: string | null }[]
   alerts: { id: number; kind: Alert['kind']; severity: Severity; message: string; status: Alert['status']; opened_at: string }[]
   networks: NetworkAsset[]
+  /** Monitoring: the SNMP credential, whether the switch is polled, its latest poll and its ports. */
+  snmp_credential_name: string | null; snmp_port: number | null; monitored: boolean
+  monitoring: SwitchMonitoring | null
+  interfaces: SwitchPort[]
+  /** The alert thresholds now set, drawn on the charts; null for one that is off. */
+  thresholds: { cpu: number | null; memory: number | null; temperature: number | null }
   /** Changes to the switch and to the networks it owns, newest first. */
   history: HistoryEvent[]
 }

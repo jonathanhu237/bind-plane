@@ -1,13 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
 import { Eye, FileDiff, HardDriveDownload, PlugZap, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { actionName, fieldName, vendorName, type Inventory } from '@/features/release/asset-editors'
-import { isConfigExcerpt, serverText } from '@/features/release/messages'
+import { errorText, isConfigExcerpt, serverText } from '@/features/release/messages'
 import { cn } from '@/lib/utils'
+import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 import { opsRequest, type DiffResponse, type HistoryEvent, type SwitchDetail, type TaskKind } from './api'
+import { MonitoringPanel } from './monitoring'
 import { Empty, ErrorNote, LoginBadge, ReachabilityBadge, SeverityBadge, ToneBadge, Time, actorText, formatTime, itemStatusLabel, kindLabel, pick, workerMessage } from './ui'
 
 function Info({ label, children }: { label: string; children: React.ReactNode }) {
@@ -61,6 +65,7 @@ function DiffDialog({ pair, zh, onClose }: { pair: { target: number; base: numbe
 function changeLines(event: HistoryEvent, inventory: Inventory | undefined, zh: boolean): string[] {
   const named: Record<string, { id: string; name: string }[] | undefined> = {
     group_id: inventory?.groups, credential_id: inventory?.credentials, command_profile_id: inventory?.profiles, switch_id: inventory?.switches,
+    snmp_credential_id: inventory?.snmp_credentials,
   }
   const show = (key: string, value: unknown): string => {
     if (value === null || value === undefined || value === '') return pick(zh, '（空）', '(empty)')
@@ -90,10 +95,26 @@ function changeLines(event: HistoryEvent, inventory: Inventory | undefined, zh: 
   })
 }
 
-export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRun }: {
-  switchId: string | null; zh: boolean; busy: boolean; inventory?: Inventory; onClose: () => void; onRun: (kind: TaskKind, id: string) => void
+export type DetailTab = 'overview' | 'monitoring' | 'config' | 'history'
+
+export function DeviceDetailSheet({ switchId, zh, busy, inventory, tab: initialTab = 'overview', onClose, onRun }: {
+  switchId: string | null; zh: boolean; busy: boolean; inventory?: Inventory; tab?: DetailTab; onClose: () => void; onRun: (kind: TaskKind, id: string) => void
 }) {
   const query = useQuery({ queryKey: ['ops-switch', switchId], queryFn: () => opsRequest<SwitchDetail>(`switches/${switchId}`), enabled: switchId !== null, refetchInterval: 10_000 })
+  const { t } = useTranslation()
+  // Each switch opens on the tab its page asks for; switching tabs is remembered until another switch opens.
+  const [tabFor, setTabFor] = useState<{ id: string | null; tab: DetailTab }>({ id: switchId, tab: initialTab })
+  const tab = tabFor.id === switchId ? tabFor.tab : initialTab
+  const [polling, setPolling] = useState(false)
+  async function poll(id: string) {
+    setPolling(true)
+    try {
+      await opsRequest(`switches/${id}/poll`, {})
+      notifySuccess(pick(zh, '已安排马上采集，几秒后刷新。', 'Polling now; this refreshes in a few seconds.'))
+      setTimeout(() => void query.refetch(), 4000)
+    } catch (cause) { notifyRequestError(cause, t, { description: errorText(cause, zh) }) }
+    finally { setPolling(false) }
+  }
   const [viewing, setViewing] = useState<number | null>(null)
   const [diffing, setDiffing] = useState<{ target: number; base: number } | null>(null)
   const d = query.data
@@ -106,7 +127,14 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
         <SheetDescription className="font-mono">{d?.management_ip ?? ' '}</SheetDescription>
       </SheetHeader>
       <ErrorNote error={query.error} zh={zh} />
-      {d ? <div className="mt-6 flex flex-col gap-8">
+      {d ? <Tabs value={tab} onValueChange={(next) => setTabFor({ id: switchId, tab: next as DetailTab })} className="mt-4">
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="overview">{pick(zh, '概况', 'Overview')}</TabsTrigger>
+          <TabsTrigger value="monitoring">{pick(zh, '监控', 'Monitoring')}</TabsTrigger>
+          <TabsTrigger value="config">{pick(zh, '配置', 'Configuration')}</TabsTrigger>
+          <TabsTrigger value="history">{pick(zh, '记录', 'History')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="overview" className="mt-6 flex flex-col gap-8">
         <div className="flex flex-wrap gap-2">
           <Button type="button" size="sm" variant="outline" disabled={busy || !d.is_enabled} title={pick(zh, '登录一次再退出，不执行任何命令', 'Signs in and out once; sends no command')} onClick={() => onRun('login_check', d.id)}><PlugZap aria-hidden="true" data-icon="inline-start" />{pick(zh, '测试连接', 'Test connection')}</Button>
           <Button type="button" size="sm" variant="outline" disabled={busy || !d.is_enabled} onClick={() => onRun('config_backup', d.id)}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '立即备份', 'Back up now')}</Button>
@@ -146,6 +174,11 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
             ].filter(Boolean).join(' · ')}</span>
           </li>)}</ul> : null}
         </section>
+        </TabsContent>
+        <TabsContent value="monitoring" className="mt-6">
+          <MonitoringPanel detail={d} zh={zh} polling={polling} onPoll={() => void poll(d.id)} thresholds={d.thresholds} />
+        </TabsContent>
+        <TabsContent value="config" className="mt-6 flex flex-col gap-8">
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">{pick(zh, '配置版本', 'Configuration versions')}</h3>
           {d.backups.length ? <ul className="divide-y rounded-xl border">{d.backups.map((backup, index) => <li key={backup.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
@@ -164,6 +197,8 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
             </li>
           })}</ul> : <Empty>{pick(zh, '没有适用的规则或尚未评估。', 'No rule applies yet, or none has been evaluated.')}</Empty>}
         </section>
+        </TabsContent>
+        <TabsContent value="history" className="mt-6 flex flex-col gap-8">
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">{pick(zh, '变更历史', 'Change history')}</h3>
           {d.history.length ? <ul className="divide-y rounded-xl border">{d.history.map((event) => {
@@ -186,7 +221,8 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
             <span className="min-w-0 flex-1 break-words text-xs text-muted-foreground">{workerMessage(item.message, zh)}</span>
           </li>)}</ul> : <Empty>{pick(zh, '还没有对这台设备执行过操作。', 'Nothing has run against this switch yet.')}</Empty>}
         </section>
-      </div> : null}
+        </TabsContent>
+      </Tabs> : null}
       <ConfigDialog backupId={viewing} zh={zh} onClose={() => setViewing(null)} />
       <DiffDialog pair={diffing} zh={zh} onClose={() => setDiffing(null)} />
     </SheetContent>

@@ -22,7 +22,7 @@ import { FacetFilter } from '@/features/ops/facet-filter'
 import { ImportDialog } from '@/features/ops/import-dialog'
 import { AdminOnly, Empty, ErrorNote, LoginBadge, PageHeader, Pager, ReachabilityBadge, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import {
-  AssetEditDialog, AssetRequestError, DisableAssetDialog, NO_GROUP, callAssets, defaultPort, portFollowing, profileFollowing, statusBody, vendorName, vendorProfiles, vendors, type EditTarget, type Inventory,
+  AssetEditDialog, AssetRequestError, DisableAssetDialog, NONE, NO_GROUP, SnmpChoice, callAssets, defaultPort, editorLabels, portFollowing, profileFollowing, statusBody, vendorName, vendorProfiles, vendors, type EditTarget, type Inventory,
 } from '@/features/release/asset-editors'
 import { errorText, serverText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
@@ -57,7 +57,7 @@ function filterParams(search: DeviceSearch): URLSearchParams {
 }
 
 function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open: boolean; zh: boolean; inventory?: Inventory; onClose: () => void; onCreated: (handlesRelease: boolean) => void }) {
-  const empty = { name: '', management_ip: '', credential_id: '', command_profile_id: '', vendor: 'huawei', model: '', protocol: 'ssh', port: defaultPort('ssh'), group_id: '', site: '', description: '' }
+  const empty = { name: '', management_ip: '', credential_id: '', command_profile_id: '', vendor: 'huawei', model: '', protocol: 'ssh', port: defaultPort('ssh'), group_id: '', site: '', description: '', snmp_credential_id: '', snmp_port: '' }
   const [form, setForm] = useState(empty)
   const [handlesRelease, setHandlesRelease] = useState(false)
   const [error, setError] = useState('')
@@ -80,12 +80,15 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!required.check()) return
-    if (form.port && !/^\d+$/.test(form.port)) { setError(pick(zh, '端口必须是 1–65535 之间的数字。', 'Port must be a number from 1 to 65535.')); return }
+    if (form.port && !/^\d+$/.test(form.port) || form.snmp_port.trim() && !/^\d+$/.test(form.snmp_port.trim())) { setError(pick(zh, '端口必须是 1–65535 之间的数字。', 'Port must be a number from 1 to 65535.')); return }
     setBusy(true); setError('')
     try {
       // On its protocol's default port a switch stores none, so it follows the protocol if that changes.
       const port = form.port.trim() ? Number(form.port) : null
-      await callAssets('switches', { ...form, command_profile_id: profileID, management_ip: form.management_ip.trim(), port: port === Number(defaultPort(form.protocol)) ? null : port, handles_release: handlesRelease })
+      await callAssets('switches', {
+        ...form, command_profile_id: profileID, management_ip: form.management_ip.trim(), port: port === Number(defaultPort(form.protocol)) ? null : port, handles_release: handlesRelease,
+        snmp_port: form.snmp_credential_id && form.snmp_port.trim() ? Number(form.snmp_port) : null,
+      })
       setForm(empty); setHandlesRelease(false); required.reset(); onCreated(handlesRelease)
     } catch (cause) { setError(errorText(cause, zh)) }
     finally { setBusy(false) }
@@ -146,6 +149,8 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
               <FieldDescription>{pick(zh, '网关交换机打开：添加后马上从它的配置读取网段，解绑时按网段找到它。', 'For gateway switches: its networks are read from its configuration right after it is added, and releases find it by them.')}</FieldDescription>
             </div>
           </Field>
+          <SnmpChoice idPrefix="new" credentialId={form.snmp_credential_id} port={form.snmp_port} labels={editorLabels(zh)}
+            credentials={inventory?.snmp_credentials.filter((item) => item.is_active)} onCredential={(value) => set('snmp_credential_id', value)} onPort={(value) => set('snmp_port', value)} />
         </FieldGroup>
         {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
         <DialogFooter><Button type="button" variant="outline" onClick={onClose}>{pick(zh, '取消', 'Cancel')}</Button><Button type="submit" disabled={busy}>{busy ? pick(zh, '正在保存…', 'Saving…') : pick(zh, '添加', 'Add')}</Button></DialogFooter>
@@ -231,6 +236,7 @@ function DevicesPage() {
   const rows = list.data?.items ?? []
   const groups = inventory.data?.groups ?? []
   const credentials = inventory.data?.credentials.filter((credential) => credential.is_active) ?? []
+  const snmpCredentials = inventory.data?.snmp_credentials.filter((credential) => credential.is_active) ?? []
   const groupName = groups.find((group) => group.id === search.group)?.name
   const scopeLabel = groupName ? pick(zh, `分组“${groupName}”中所有启用的交换机`, `every enabled switch in group “${groupName}”`) : pick(zh, '所有启用的交换机', 'every enabled switch')
   const count = selected.size
@@ -306,6 +312,24 @@ function DevicesPage() {
         <SelectTrigger aria-label={pick(zh, '更换凭据', 'Change credential')} className="h-9 w-auto min-w-32" disabled={busy || !credentials.length}><SelectValue placeholder={pick(zh, '更换凭据…', 'Change credential…')} /></SelectTrigger>
         <SelectContent><SelectGroup>
           {credentials.map((credential) => <SelectItem key={credential.id} value={credential.id}>{credential.name}</SelectItem>)}
+        </SelectGroup></SelectContent>
+      </Select>
+      <Select value="" onValueChange={(value) => {
+        const name = snmpCredentials.find((credential) => credential.id === value)?.name ?? ''
+        setPending(value === NONE ? {
+          title: pick(zh, `停止监控${chosen}？`, `Stop monitoring ${chosen}?`),
+          description: pick(zh, '不再采集它们的 CPU、内存、温度和端口，监控告警会自动解决。已采集的历史数据保留 30 天。', 'Their CPU, memory, temperature and ports are no longer polled, and their monitoring alerts resolve. Samples already taken are kept for 30 days.'),
+          action: pick(zh, '停止监控', 'Stop monitoring'), run: () => void bulk({ snmp_credential_id: '' }),
+        } : {
+          title: pick(zh, `用“${name}”监控${chosen}？`, `Monitor ${chosen} with “${name}”?`),
+          description: pick(zh, '马上通过 SNMP 采集一次，之后按监控设置的间隔采集。只读取，不修改交换机。', 'They are polled over SNMP right away, then at the monitoring interval. Polls only read; nothing on the switches changes.'),
+          action: pick(zh, '开始监控', 'Monitor'), run: () => void bulk({ snmp_credential_id: value }, { keep: true, hint: pick(zh, '采集结果在“设备监控”页查看。', 'See the results on the Monitoring page.') }),
+        })
+      }}>
+        <SelectTrigger aria-label={pick(zh, 'SNMP 监控', 'SNMP monitoring')} className="h-9 w-auto min-w-28" disabled={busy}><SelectValue placeholder={pick(zh, 'SNMP 监控…', 'Monitoring…')} /></SelectTrigger>
+        <SelectContent><SelectGroup>
+          {snmpCredentials.map((credential) => <SelectItem key={credential.id} value={credential.id}>{pick(zh, `用“${credential.name}”监控`, `Monitor with “${credential.name}”`)}</SelectItem>)}
+          <SelectItem value={NONE}>{pick(zh, '停止监控', 'Stop monitoring')}</SelectItem>
         </SelectGroup></SelectContent>
       </Select>
       <Select value="" onValueChange={(value) => setPending(value === 'on' ? {

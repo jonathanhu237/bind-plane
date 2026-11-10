@@ -79,13 +79,13 @@ Keep these concepts separate:
 - User and role
 - Switch asset
 - Network/CIDR owned by a switch
-- Credential
+- Credential (login) and SNMP credential (monitoring)
 - Command profile
 - Release job
 - Audit log
 - Import batch/report
 
-Switches reference credentials and command profiles. Do not store plaintext credentials on switch records.
+Switches reference credentials and command profiles, and optionally an SNMP credential. Do not store plaintext credentials on switch records.
 
 Credentials must be encrypted at rest. App user passwords must use a strong one-way hash such as Argon2id or bcrypt. Never treat base64 or any reversible encoding as password protection.
 
@@ -124,6 +124,7 @@ Command profiles should support:
 - Success patterns
 - IP, MAC, and entry-type parsing rules
 - Static/dynamic/unknown classification values
+- Where the vendor keeps CPU, memory and temperature for monitoring (`snmp_rules`: OIDs per metric, tried in order)
 
 If the output after a release command cannot be parsed confidently, store the raw output and record the outcome as unknown. If the state before release cannot be parsed, send nothing and fail the job: the binding is untouched, so the outcome is known.
 
@@ -153,6 +154,13 @@ The devices page is the switch inventory that releases, backups, schedules, comp
 - Imports match existing switches by management IP; in update mode only filled-in cells change anything. An export imports back.
 - A group that a schedule or compliance rule targets cannot be deleted, since the rule would widen to every switch.
 
+Monitoring polls switches over SNMP (v2c or v3) for uptime, CPU, memory, temperature and ports. Polls only read.
+
+- A switch is monitored while it is enabled and has an active SNMP credential; no schedule is needed. The worker polls each one at the interval in the monitoring settings, and 立即采集 polls one at once.
+- Standard MIBs give the system and the ports; the command profile's `snmp_rules` give CPU, memory and temperature. A profile without them still monitors uptime and ports.
+- Thresholds, the polls in a row that open or resolve an alert, and restart alerts are one set of settings for every switch. A metric alert opens after that many polls in a row at or above its threshold and resolves after as many below; a switch that does not answer that many times raises SNMP 无响应; a restart is an alert for 24 hours.
+- A switch that stops being monitored forgets its live state and ports, and its monitoring alerts resolve. Samples are kept 30 days.
+
 Never log plaintext credentials, decrypted passwords, sensitive environment variables, or full connection strings.
 
 ## UI Direction
@@ -169,8 +177,8 @@ Navigation stays small:
 
 - Home
 - Release: release console, release history
-- Device operations (admins), what is used day to day: devices, schedules, compliance, alerts, audit log
-- Asset settings (admins), what is set up once and rarely changed: credentials, command profiles, networks. Switches and their groups live on the devices page. The networks page only shows the networks read from the release switches and looks an address up, saying which switch a release of it would go to, by the same rule releases use.
+- Device operations (admins), what is used day to day: devices, monitoring, schedules, compliance, alerts, audit log
+- Asset settings (admins), what is set up once and rarely changed: credentials (login and SNMP), command profiles, networks. Switches and their groups live on the devices page. The networks page only shows the networks read from the release switches and looks an address up, saying which switch a release of it would go to, by the same rule releases use.
 - User and system administration
 
 The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 重新解绑 on the button that releases an address again, 解绑控制台, 解绑记录. Never mix in 释放. The English interface and the code keep "release".

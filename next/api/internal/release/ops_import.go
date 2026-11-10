@@ -68,6 +68,7 @@ var importHeaderAliases = map[string]string{
 	"port": "port", "ssh_port": "port", "端口": "port", "credential": "credential", "凭据": "credential", "profile": "profile", "命令模板": "profile",
 	"description": "description", "描述": "description", "备注": "description",
 	"handles_release": "handles_release", "负责解绑": "handles_release",
+	"snmp_credential": "snmp_credential", "snmp凭据": "snmp_credential", "snmp_凭据": "snmp_credential",
 }
 
 var vendorAliases = map[string]string{
@@ -225,7 +226,7 @@ func importRejection(err error) string {
 var importChangeNames = map[string]string{
 	"name": "name", "vendor": "vendor", "model": "model", "group_id": "group", "site": "site", "protocol": "protocol",
 	"port": "port", "credential_id": "credential", "command_profile_id": "profile", "description": "description",
-	"handles_release": "handles_release",
+	"handles_release": "handles_release", "snmp_credential_id": "snmp_credential",
 }
 
 // yesNo reads a spreadsheet's yes or no cell; known is false for anything else.
@@ -241,7 +242,7 @@ func yesNo(value string) (yes, known bool) {
 
 // importSwitches creates the switches whose management IP is new. A switch that exists is
 // skipped, or with update set, given the row's non-empty cells; an empty cell keeps its value.
-func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, records []csvRecord, defaultCredential, defaultProfile string, update bool, report *importReport) error {
+func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, records []csvRecord, defaultCredential, defaultProfile string, update bool, report *importReport) (err error) {
 	credentials, err := namedIDs(ctx, tx, `SELECT name,id::text FROM bp_credentials`)
 	if err != nil {
 		return err
@@ -267,6 +268,17 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 	if err != nil {
 		return err
 	}
+	snmpCredentials, err := namedIDs(ctx, tx, `SELECT name,id::text FROM bp_snmp_credentials`)
+	if err != nil {
+		return err
+	}
+	// Switches whose SNMP credential changed are polled at once, and any no longer monitored forget their state.
+	polled := false
+	defer func() {
+		if err == nil && polled {
+			err = forgetUnmonitored(ctx, tx)
+		}
+	}()
 	groupID := func(name string) (string, error) {
 		if name == "" || groups[name] != "" {
 			return groups[name], nil
@@ -299,7 +311,7 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			}
 			port = &n
 		}
-		credentialID, profileID := credentials[f["credential"]], profiles[f["profile"]]
+		credentialID, profileID, snmpID := credentials[f["credential"]], profiles[f["profile"]], snmpCredentials[f["snmp_credential"]]
 		handlesRelease, knownRole := yesNo(f["handles_release"])
 		switch {
 		case !validIPv4(ip):
@@ -323,6 +335,9 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 		case f["profile"] != "" && !domain.IsCanonicalUUID(profileID):
 			reject("command profile not found (give its exact name, or choose a default)")
 			continue
+		case f["snmp_credential"] != "" && !domain.IsCanonicalUUID(snmpID):
+			reject("SNMP credential not found (give its exact name)")
+			continue
 		}
 		seen[ip] = record.line
 		if id := existing[ip]; id != "" {
@@ -333,7 +348,7 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			}
 			next := map[string]any{}
 			for column, value := range map[string]string{"name": f["name"], "vendor": vendor, "model": f["model"], "site": f["site"],
-				"protocol": protocol, "credential_id": credentialID, "command_profile_id": profileID, "description": f["description"]} {
+				"protocol": protocol, "credential_id": credentialID, "command_profile_id": profileID, "description": f["description"], "snmp_credential_id": snmpID} {
 				if value != "" {
 					next[column] = value
 				}
@@ -350,6 +365,11 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 				}
 			}
 			changes, err := importUpdate(ctx, tx, actor, id, next)
+			if err == nil {
+				var touched bool
+				touched, err = pollSoon(ctx, tx, id, changes)
+				polled = polled || touched
+			}
 			if errors.Is(err, errImportRow) {
 				reject(importRejection(err))
 				continue
@@ -409,9 +429,9 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			return err
 		}
 		err = importInsert(ctx, tx, actor, "switch.import", row.Label,
-			`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port,handles_release)
- VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11,$12) RETURNING id::text`,
-			row.Label, ip, credentialID, profileID, defaultString(vendor, "other"), f["model"], f["site"], f["description"], group, defaultString(protocol, "telnet"), port, handlesRelease)
+			`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port,handles_release,snmp_credential_id)
+ VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11,$12,NULLIF($13,'')::uuid) RETURNING id::text`,
+			row.Label, ip, credentialID, profileID, defaultString(vendor, "other"), f["model"], f["site"], f["description"], group, defaultString(protocol, "telnet"), port, handlesRelease, snmpID)
 		if errors.Is(err, errImportRow) {
 			reject(importRejection(err))
 			continue

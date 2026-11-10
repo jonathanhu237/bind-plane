@@ -291,11 +291,14 @@ func (o *OpsHandler) queueNetworkReads(ctx context.Context) error {
 	return tx.Commit()
 }
 
-// pruneHistory keeps task runs for 30 days and resolved alerts for 180; configuration
+// pruneHistory keeps task runs and monitoring samples for 30 days and resolved alerts for 180; configuration
 // versions and the audit trail are never pruned automatically.
 func (o *OpsHandler) pruneHistory(ctx context.Context) error {
 	if _, err := o.db.ExecContext(ctx, `DELETE FROM bp_device_tasks t WHERE t.created_at < now()-interval '30 days'
  AND NOT EXISTS (SELECT 1 FROM bp_device_task_items i WHERE i.task_id=t.id AND i.status IN ('queued','running'))`); err != nil {
+		return err
+	}
+	if _, err := o.db.ExecContext(ctx, `DELETE FROM bp_switch_metrics WHERE sampled_at < now()-interval '30 days'`); err != nil {
 		return err
 	}
 	_, err := o.db.ExecContext(ctx, `DELETE FROM bp_alerts WHERE status='resolved' AND resolved_at < now()-interval '180 days'`)
