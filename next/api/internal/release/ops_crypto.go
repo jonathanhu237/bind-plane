@@ -21,7 +21,19 @@ func configCipher(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
+// wecomSecretAAD keeps the WeCom bot's secret apart from configurations and switch credentials
+// sealed under the same key.
+const wecomSecretAAD = "bind-plane wecom secret v1"
+
 func sealConfig(key []byte, plaintext string) (string, error) {
+	return sealLabelled(key, configBackupAAD, plaintext)
+}
+
+func openConfig(key []byte, sealed string) (string, error) {
+	return openLabelled(key, configBackupAAD, sealed)
+}
+
+func sealLabelled(key []byte, label, plaintext string) (string, error) {
 	gcm, err := configCipher(key)
 	if err != nil {
 		return "", err
@@ -30,10 +42,10 @@ func sealConfig(key []byte, plaintext string) (string, error) {
 	if _, err = rand.Read(nonce); err != nil {
 		return "", err
 	}
-	return "v1:" + base64.RawURLEncoding.EncodeToString(gcm.Seal(nonce, nonce, []byte(plaintext), []byte(configBackupAAD))), nil
+	return "v1:" + base64.RawURLEncoding.EncodeToString(gcm.Seal(nonce, nonce, []byte(plaintext), []byte(label))), nil
 }
 
-func openConfig(key []byte, sealed string) (string, error) {
+func openLabelled(key []byte, label, sealed string) (string, error) {
 	encoded, ok := strings.CutPrefix(sealed, "v1:")
 	if !ok {
 		return "", errors.New("unsupported configuration encryption format")
@@ -49,7 +61,7 @@ func openConfig(key []byte, sealed string) (string, error) {
 	if len(packed) < gcm.NonceSize() {
 		return "", errors.New("sealed configuration is truncated")
 	}
-	plain, err := gcm.Open(nil, packed[:gcm.NonceSize()], packed[gcm.NonceSize():], []byte(configBackupAAD))
+	plain, err := gcm.Open(nil, packed[:gcm.NonceSize()], packed[gcm.NonceSize():], []byte(label))
 	if err != nil {
 		return "", err
 	}

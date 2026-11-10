@@ -32,4 +32,10 @@ describe('server texts', () => {
     expect(errorText('not an error', true)).toBe('操作失败，请重试。')
     expect(errorText(new Error('login required'), false)).toBe('Your session has ended. Sign in again.')
   })
+
+  it('words why the WeCom bot is not connected', () => {
+    expect(serverText('WeCom refused the bot ID or secret (errcode 40001: invalid secret)', true)).toBe('企业微信拒绝了机器人 ID 或 Secret（错误码 40001：invalid secret），请核对后重新填写。')
+    expect(serverText('cannot reach WeCom: dial tcp: i/o timeout', true)).toBe('连不上企业微信：dial tcp: i/o timeout。请确认服务器能访问长连接地址。')
+    expect(serverText('another connection took over this bot; the sandbox and production each need their own bot', true)).toContain('沙箱和生产环境要各用一个机器人')
+  })
 })

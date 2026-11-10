@@ -23,8 +23,17 @@ type StartInput struct {
 	Actor    Actor  `json:"-"`
 }
 
-// Actor is who starts a job. The job keeps their name and email as they were at the time.
-type Actor struct{ ID, Name, Email string }
+// Actor is who starts a job, and Via where: "console" (the default) or "wecom". The job keeps
+// their name and email as they were at the time.
+type Actor struct{ ID, Name, Email, Via string }
+
+// source is where a job was started, as stored.
+func (a Actor) source() string {
+	if a.Via == "wecom" {
+		return "wecom"
+	}
+	return "console"
+}
 
 type JobEvent struct {
 	Phase     string    `json:"phase"`
@@ -51,6 +60,7 @@ type Job struct {
 	FinishedAt         *time.Time `json:"finished_at,omitempty"`
 	Events             []JobEvent `json:"events,omitempty"`
 	Kind               string     `json:"kind,omitempty"`
+	Source             string     `json:"source,omitempty"`
 	Status             string     `json:"status"`
 	Phase              string     `json:"phase,omitempty"`
 	Reason             string     `json:"reason,omitempty"`
@@ -143,17 +153,7 @@ func (h *handler) principal(w http.ResponseWriter, r *http.Request, mutate bool)
 		fail(w, 401, "login required")
 		return domain.Principal{}, false, false
 	}
-	admin := p.SuperAdmin
-	operator := admin
-	for _, role := range p.Roles {
-		switch role.Name {
-		case "Admin":
-			admin = true
-			operator = true
-		case "Operator":
-			operator = true
-		}
-	}
+	admin, operator := releaseRoles(p)
 	if !operator {
 		fail(w, 403, "operator role required")
 		return p, false, false

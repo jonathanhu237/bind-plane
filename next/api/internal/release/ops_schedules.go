@@ -298,6 +298,13 @@ func (o *OpsHandler) pruneHistory(ctx context.Context) error {
  AND NOT EXISTS (SELECT 1 FROM bp_device_task_items i WHERE i.task_id=t.id AND i.status IN ('queued','running'))`); err != nil {
 		return err
 	}
+	// A WeCom card's buttons last half an hour; a result sent is not needed after a month.
+	if _, err := o.db.ExecContext(ctx, `DELETE FROM bp_wecom_cards WHERE created_at < now()-interval '1 day'`); err != nil {
+		return err
+	}
+	if _, err := o.db.ExecContext(ctx, `DELETE FROM bp_wecom_jobs WHERE notified_at < now()-interval '30 days' OR attempts>=5`); err != nil {
+		return err
+	}
 	_, err := o.db.ExecContext(ctx, `DELETE FROM bp_alerts WHERE status='resolved' AND resolved_at < now()-interval '180 days'`)
 	return err
 }

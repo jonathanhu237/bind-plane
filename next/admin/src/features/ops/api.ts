@@ -102,6 +102,16 @@ export type Overview = {
   trend: TrendDay[]
 }
 
+export type WecomState = 'disabled' | 'connecting' | 'connected' | 'failed'
+export type WecomPage = {
+  settings: {
+    id: string; is_enabled: boolean; bot_id: string; has_secret: boolean; ws_url: string; version: number
+    state: WecomState; state_at: string | null; connected_at: string | null; last_error: string | null
+  }
+  accounts: { user_id: string; name: string; email: string; disabled: boolean; wecom_userid: string; created_at: string }[]
+  users: { id: string; name: string; email: string }[]
+}
+
 export type ConfigMatch = { line: number; text: string; section: string }
 export type ConfigSearch = {
   searched: number; without_backup: number; matched: number; lines: number; truncated: boolean

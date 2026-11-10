@@ -3,6 +3,7 @@ module github.com/jonathanhu237/bind-plane/next/api
 go 1.27.0
 
 require (
+	github.com/coder/websocket v1.8.14
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/wneessen/go-mail v0.8.1
 	golang.org/x/crypto v0.54.0

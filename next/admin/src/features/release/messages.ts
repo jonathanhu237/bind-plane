@@ -111,6 +111,18 @@ const fixed: Record<string, Words> = {
   'Configuration read timed out': ['Reading the configuration timed out', '读取配置超时'],
   'Release job timed out': ['The release job timed out', '解绑任务超时'],
   'Pattern not found': ['Pattern not found in the configuration', '配置中未找到匹配内容'],
+  // The WeCom bot: its settings, account binding and connection.
+  'a bot ID and secret are needed before WeCom is turned on': ['Enter the bot ID and secret before turning WeCom on.', '启用前需要先填写机器人 ID 和 Secret。'],
+  'invalid WeCom settings': ['Check the settings: the bot ID has no spaces, and the address starts with wss://.', '请检查设置：机器人 ID 不能有空格，长连接地址要以 wss:// 开头。'],
+  'a WeCom account is letters, digits and _ . @ -, at most 64': ['A WeCom account is letters, digits and _ . @ -, at most 64.', '企微账号只能包含字母、数字和 _ . @ -，最多 64 个字符。'],
+  'this WeCom account is already bound to another user': ['This WeCom account is already bound to another user.', '这个企微账号已经绑定了其他用户。'],
+  'another connection took over this bot; the sandbox and production each need their own bot': [
+    'Another connection took this bot over, so this one was dropped. The sandbox and production each need their own bot.',
+    '另一处用同一个机器人连接了企业微信，这里的连接被挤掉了。沙箱和生产环境要各用一个机器人。',
+  ],
+  'WeCom did not answer the sign-in': ['WeCom did not answer the sign-in.', '企业微信没有回应登录请求。'],
+  'WeCom stopped answering the heartbeat': ['WeCom stopped answering the heartbeat.', '企业微信不再回应心跳。'],
+  'the stored secret cannot be decrypted; enter it again': ['The stored secret cannot be decrypted; enter it again.', '保存的 Secret 无法解密，请重新填写。'],
   'search text must be 2 to 200 characters': ['Search for at least 2 characters (at most 200).', '请至少输入 2 个字符（最多 200 个）。'],
   'no configuration backups to export': ['None of these switches has a configuration backup yet.', '这些设备还没有配置备份。'],
   'ids must be at most 1000 switch IDs': ['Choose at most 1000 switches, or export by filter instead.', '一次最多选 1000 台设备，更多的请按筛选条件导出。'],
@@ -165,6 +177,11 @@ const shaped: [RegExp, (zh: boolean, ...parts: string[]) => string][] = [
     const list = fields.split(', ').map((field) => names[field]?.[zh ? 1 : 0] ?? field)
     return zh ? `将修改：${list.join('、')}` : `Changes: ${list.join(', ')}`
   }],
+  [/^WeCom refused the bot ID or secret \(errcode (\d+): (.*)\)$/s, (zh, code, why) => (zh
+    ? `企业微信拒绝了机器人 ID 或 Secret（错误码 ${code}：${why}），请核对后重新填写。`
+    : `WeCom refused the bot ID or secret (error ${code}: ${why}). Check them and enter them again.`)],
+  [/^cannot reach WeCom: (.+)$/s, (zh, why) => (zh ? `连不上企业微信：${why}。请确认服务器能访问长连接地址。` : `Cannot reach WeCom: ${why}. Check that the server can reach the connection address.`)],
+  [/^WeCom closed the connection: (.+)$/s, (zh, why) => (zh ? `企业微信断开了连接：${why}` : `WeCom closed the connection: ${why}`)],
   [/^Backup failed: (.+)$/s, (zh, why) => (zh ? `配置备份失败：${serverText(why, zh)}` : `Backup failed: ${serverText(why, zh)}`)],
   [/^Rule "(.*)" failed: (.+)$/s, (zh, rule, detail) => (zh ? `规则「${rule}」未通过：${serverText(detail, zh)}` : `Rule "${rule}" failed: ${serverText(detail, zh)}`)],
   [/^Line (\d+): (.*)$/s, (zh, line, excerpt) => (zh ? `第 ${line} 行：${excerpt}` : `Line ${line}: ${excerpt}`)],

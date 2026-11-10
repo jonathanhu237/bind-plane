@@ -249,6 +249,10 @@ func run() int {
 	if err != nil {
 		log.Fatalf("device operations configuration: %v", err)
 	}
+	wecomBot, err := release.NewWeComBot(db, release.NewSQLStore(db), postgresStore, scheduleZone)
+	if err != nil {
+		log.Fatalf("WeCom bot configuration: %v", err)
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/ops/", opsHandler)
 	mux.Handle("/api/releases/admin/", assetsHandler)
@@ -266,10 +270,14 @@ func run() int {
 	dispatcherContext, cancelDispatcher := context.WithCancel(context.Background())
 	cleanupContext, cancelCleanup := context.WithCancel(context.Background())
 	var backgroundWorkers sync.WaitGroup
-	backgroundWorkers.Add(5)
+	backgroundWorkers.Add(6)
 	go func() {
 		defer backgroundWorkers.Done()
 		opsHandler.RunScheduler(cleanupContext)
+	}()
+	go func() {
+		defer backgroundWorkers.Done()
+		wecomBot.Run(cleanupContext)
 	}()
 	go func() {
 		defer backgroundWorkers.Done()

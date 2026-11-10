@@ -106,7 +106,7 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
       {data.status === 'needs_manual_confirmation' ? <Alert variant="warning"><TriangleAlert aria-hidden="true" /><AlertDescription>{[labels.uncertain, data.next_release_id ? labels.followed : canRetry(data) ? labels.releaseAgain : ''].filter(Boolean).join(zh ? '' : ' ')}</AlertDescription></Alert> : null}
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
         <Info label={labels.switch}><SwitchName job={data} /></Info>
-        <Info label={labels.actor}><ActorName job={data} /></Info>
+        <Info label={labels.actor}><ActorName job={data} zh={zh} /></Info>
         <Info label={labels.before}>{entryLabel(data.before_state?.entry_type, zh)}{data.before_state?.mac ? <span className="ml-2 font-mono text-muted-foreground">{data.before_state.mac}</span> : null}</Info>
         <Info label={labels.after}>{entryLabel(data.after_state?.entry_type, zh)}</Info>
         <Info label={labels.reason}>{reasonLabel(data.reason, zh)}</Info>

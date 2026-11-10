@@ -36,6 +36,7 @@ import { Route as AuthenticatedRolesRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedSchedulesRouteImport } from './routes/_authenticated/schedules'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated/users'
+import { Route as AuthenticatedWecomRouteImport } from './routes/_authenticated/wecom'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -178,6 +179,11 @@ const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedWecomRoute = AuthenticatedWecomRouteImport.update({
+  id: '/wecom',
+  path: '/wecom',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -206,6 +212,7 @@ export interface FileRoutesByFullPath {
   '/schedules': typeof AuthenticatedSchedulesRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/users': typeof AuthenticatedUsersRoute
+  '/wecom': typeof AuthenticatedWecomRoute
 }
 export interface FileRoutesByTo {
   '/accept-invitation': typeof AcceptInvitationRoute
@@ -233,6 +240,7 @@ export interface FileRoutesByTo {
   '/schedules': typeof AuthenticatedSchedulesRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/users': typeof AuthenticatedUsersRoute
+  '/wecom': typeof AuthenticatedWecomRoute
   '/': typeof AuthenticatedIndexRoute
 }
 export interface FileRoutesById {
@@ -263,6 +271,7 @@ export interface FileRoutesById {
   '/_authenticated/schedules': typeof AuthenticatedSchedulesRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
+  '/_authenticated/wecom': typeof AuthenticatedWecomRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
 }
 export interface FileRouteTypes {
@@ -294,6 +303,7 @@ export interface FileRouteTypes {
     | '/schedules'
     | '/settings'
     | '/users'
+    | '/wecom'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/accept-invitation'
@@ -321,6 +331,7 @@ export interface FileRouteTypes {
     | '/schedules'
     | '/settings'
     | '/users'
+    | '/wecom'
     | '/'
   id:
     | '__root__'
@@ -350,6 +361,7 @@ export interface FileRouteTypes {
     | '/_authenticated/schedules'
     | '/_authenticated/settings'
     | '/_authenticated/users'
+    | '/_authenticated/wecom'
     | '/_authenticated/'
   fileRoutesById: FileRoutesById
 }
@@ -553,6 +565,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/wecom': {
+      id: '/_authenticated/wecom'
+      path: '/wecom'
+      fullPath: '/wecom'
+      preLoaderRoute: typeof AuthenticatedWecomRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
@@ -577,6 +596,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSchedulesRoute: typeof AuthenticatedSchedulesRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
+  AuthenticatedWecomRoute: typeof AuthenticatedWecomRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
@@ -601,6 +621,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSchedulesRoute: AuthenticatedSchedulesRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,
+  AuthenticatedWecomRoute: AuthenticatedWecomRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 

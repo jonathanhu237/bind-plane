@@ -60,6 +60,14 @@ The normal operator flow is:
 
 There is no separate confirmation step: choosing Release starts the job, and the state before release is recorded with it. One release per address may be queued or running at a time. An earlier release with an unknown outcome does not hold the address.
 
+## WeCom Bot
+
+Members can also release from WeCom (企业微信), through a bot that admins set up on the WeCom page (bot ID, secret, connection address; the secret is sealed and never shown). The API keeps one long connection out to WeCom, so the server needs no public address; one bot allows one connection, so the sandbox and production each use their own.
+
+- A member is bound by admins to a Bind Plane user by their WeCom account; that user's roles decide what they may do and the release is recorded as theirs, with its source `wecom`. Unbound members are told to ask an admin.
+- An address answers with a card naming the switch and one button per reason; choosing a reason starts the release, as choosing Release does in the console. Only the member who asked may choose, once, within 30 minutes. "查询" with an address only looks it up.
+- The result goes back to the same chat; a failed, timed-out or unknown outcome comes with Release again, which creates a new job linked to the original. The console's rules hold: one release per address at a time, same statuses and wording.
+
 Reasons should be quick to select and include a temporary-test option. Ticket IDs are optional for MVP.
 
 ## Execution Architecture
@@ -171,14 +179,14 @@ Everyone lands on the home page after login. It shows where things stand and sta
 - Admins also see the device operations summary there; there is no separate overview page.
 - A "New release" (发起解绑) button in its header opens the release console, so the release workflow stays one click away.
 
-Every release starts in the release console; do not add a second release form elsewhere. It is a focused page for one job at a time: address and reason, then the result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Release history is its own page, with filters and pagination. It only finds jobs: opening one shows it in the console, where Release again is.
+Every release starts in the release console or the WeCom bot; do not add another release form elsewhere. It is a focused page for one job at a time: address and reason, then the result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Release history is its own page, with filters and pagination. It only finds jobs: opening one shows it in the console, where Release again is.
 
 Navigation stays small:
 
 - Home
 - Release: release console, release history
 - Device operations (admins), what is used day to day: devices, configuration search, schedules, compliance, alerts, audit log
-- Asset settings (admins), what is set up once and rarely changed: credentials, command profiles, networks. Switches and their groups live on the devices page. The networks page only shows the networks read from the release switches and looks an address up, saying which switch a release of it would go to, by the same rule releases use.
+- Asset settings (admins), what is set up once and rarely changed: credentials, command profiles, networks, the WeCom bot. Switches and their groups live on the devices page. The networks page only shows the networks read from the release switches and looks an address up, saying which switch a release of it would go to, by the same rule releases use.
 - User and system administration
 
 The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 重新解绑 on the button that releases an address again, 解绑控制台, 解绑记录. Never mix in 释放. The English interface and the code keep "release".

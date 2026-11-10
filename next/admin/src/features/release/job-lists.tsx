@@ -36,7 +36,7 @@ export function JobTable({ jobs, zh, admin, reasons = false }: TableProps) {
         <TableCell className="whitespace-nowrap text-muted-foreground" title={job.switch_management_ip}>{job.switch_name ?? '—'}</TableCell>
         {reasons ? <TableCell className="whitespace-nowrap">{reasonLabel(job.reason, zh)}</TableCell> : null}
         {admin ? <TableCell className="max-w-48 truncate" title={job.actor_email}>{actorText(job.actor_name, job.actor_email)}</TableCell> : null}
-        <TableCell className="whitespace-nowrap"><JobStatusBadge job={job} zh={zh} />{job.force ? <span className="ml-2 text-xs text-warning">{pick(zh, '强制', 'Forced')}</span> : null}</TableCell>
+        <TableCell className="whitespace-nowrap"><JobStatusBadge job={job} zh={zh} />{job.force ? <span className="ml-2 text-xs text-warning">{pick(zh, '强制', 'Forced')}</span> : null}{job.source === 'wecom' ? <span className="ml-2 text-xs text-muted-foreground">{pick(zh, '企业微信', 'WeCom')}</span> : null}</TableCell>
       </TableRow>)}</TableBody>
     </Table>
   </div>

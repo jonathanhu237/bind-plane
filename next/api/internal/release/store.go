@@ -86,10 +86,10 @@ func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	}
 	var id, switchName, managementIP string
 	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,status,phase,actor_id,actor_email,actor_name,result,resolved_network_id,
- switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip)
- SELECT $1,'release',$2,'queued','queued',$3,$4,$8,$5::jsonb,NULLIF($6,'')::uuid,`+pinnedColumns+`
+ switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip,source)
+ SELECT $1,'release',$2,'queued','queued',$3,$4,$8,$5::jsonb,NULLIF($6,'')::uuid,`+pinnedColumns+`,$9
  FROM `+usableSwitch+` WHERE `+switchUsable+` AND s.id=$7
- RETURNING id::text,switch_name,host(switch_management_ip)`, input.TargetIP, input.Reason, input.Actor.ID, input.Actor.Email, selectionJSON(selected), selected.ID, selected.SwitchID, input.Actor.Name).Scan(&id, &switchName, &managementIP)
+ RETURNING id::text,switch_name,host(switch_management_ip)`, input.TargetIP, input.Reason, input.Actor.ID, input.Actor.Email, selectionJSON(selected), selected.ID, selected.SwitchID, input.Actor.Name, input.Actor.source()).Scan(&id, &switchName, &managementIP)
 	if err == sql.ErrNoRows {
 		// The switch was disabled between resolution and insertion.
 		return Job{}, ErrAssetChanged
@@ -103,7 +103,7 @@ func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	if err = tx.Commit(); err != nil {
 		return Job{}, err
 	}
-	return Job{ID: id, JobID: id, TargetIP: input.TargetIP, SwitchID: selected.SwitchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Status: "queued", Phase: "queued", Reason: input.Reason}, nil
+	return Job{ID: id, JobID: id, TargetIP: input.TargetIP, SwitchID: selected.SwitchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Source: input.Actor.source(), Status: "queued", Phase: "queued", Reason: input.Reason}, nil
 }
 func selectionJSON(n Network) string {
 	b, _ := json.Marshal(map[string]string{"network_id": n.ID, "cidr": n.CIDR})
@@ -135,9 +135,9 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 	var rawBefore, rawRelease, rawAfter, errMessage, retryOf, preparationID, releaseID, nextRelease sql.NullString
 	var created time.Time
 	var started, finished sql.NullTime
-	err := s.DB.QueryRowContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.command_profile_id::text,j.kind,j.status,j.phase,j.reason,j.force,j.before_state,j.after_state,j.result,j.raw_before_output,j.raw_release_output,j.raw_after_output,j.error_message,COALESCE(j.actor_name,''),j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.started_at,j.finished_at,
+	err := s.DB.QueryRowContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.command_profile_id::text,j.kind,j.source,j.status,j.phase,j.reason,j.force,j.before_state,j.after_state,j.result,j.raw_before_output,j.raw_release_output,j.raw_after_output,j.error_message,COALESCE(j.actor_name,''),j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.started_at,j.finished_at,
  (SELECT n.id::text FROM bp_release_jobs n WHERE n.target_ip=j.target_ip AND n.kind='release' AND n.created_at>j.created_at AND ($2 OR n.actor_id=$3) ORDER BY n.created_at LIMIT 1)
- FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id WHERE j.id=$1 AND ($2 OR j.actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.CommandProfileID, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorName, &job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &started, &finished, &nextRelease)
+ FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id WHERE j.id=$1 AND ($2 OR j.actor_id=$3)`, id, admin, actor).Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.CommandProfileID, &job.Kind, &job.Source, &job.Status, &job.Phase, &job.Reason, &job.Force, &before, &after, &result, &rawBefore, &rawRelease, &rawAfter, &errMessage, &job.ActorName, &job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &started, &finished, &nextRelease)
 	if err == sql.ErrNoRows {
 		return Job{}, ErrNotFound
 	}
@@ -204,7 +204,7 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 // Jobs pages through the history newest first; an operator sees only their own jobs.
 // The search text matches an address prefix or part of a switch name.
 func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool, filter JobFilter) (JobPage, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.kind,j.status,j.phase,j.reason,j.force,
+	rows, err := s.DB.QueryContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.kind,j.source,j.status,j.phase,j.reason,j.force,
  COALESCE(j.actor_name,''),j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.finished_at,count(*) OVER()
  FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id
  WHERE ($1 OR j.actor_id=$2) AND ($3='' OR host(j.target_ip) LIKE $3||'%' OR j.switch_name ILIKE '%'||$3||'%')
@@ -221,7 +221,7 @@ func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool, filter Jo
 		var retryOf, preparationID, releaseID sql.NullString
 		var created time.Time
 		var finished sql.NullTime
-		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.Kind, &job.Status, &job.Phase, &job.Reason, &job.Force,
+		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.Kind, &job.Source, &job.Status, &job.Phase, &job.Reason, &job.Force,
 			&job.ActorName, &job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &finished, &page.Total); err != nil {
 			return JobPage{}, err
 		}
