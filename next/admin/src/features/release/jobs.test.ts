@@ -14,7 +14,7 @@ describe('release job messages', () => {
   })
 
   it('explains refusals from the release API in the interface language', () => {
-    expect(releaseErrorText(new Error('no enabled validated switch owns this IP'), true)).toBe('没有哪台已启用的交换机拥有包含该地址、且已验证的网段。管理员可以在“资产配置”中检查网段。')
+    expect(releaseErrorText(new Error('no enabled validated switch owns this IP'), true)).toBe('没有哪台已启用的交换机拥有包含该地址、且已验证的网段。管理员可以在“资产配置 → 网段”里查这个地址。')
     expect(releaseErrorText(new Error('switch configuration changed; try again'), true)).toBe('交换机配置刚刚有变更，请重新解绑。')
     expect(releaseErrorText(new Error('conflict'), true)).toBe('这个 IP 正在解绑，请等它完成后再试。')
     expect(releaseErrorText(new Error('operator role required'), true)).toBe('需要操作员或管理员角色。')

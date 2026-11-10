@@ -167,7 +167,8 @@ Navigation stays small:
 
 - Home
 - Release: release console, release history
-- Device operations (admins): devices, schedules, compliance, alerts, audit log, asset settings (credentials, command profiles, switches, networks)
+- Device operations (admins), what is used day to day: devices, schedules, compliance, alerts, audit log
+- Asset settings (admins), what is set up once and rarely changed: credentials, command profiles, networks. Switches and their groups live on the devices page. The networks page looks an address up and says which switch a release of it would go to, by the same rule releases use.
 - User and system administration
 
 The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 重新解绑 on the button that releases an address again, 解绑控制台, 解绑记录. Never mix in 释放. The English interface and the code keep "release".
