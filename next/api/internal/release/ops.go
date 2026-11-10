@@ -148,16 +148,16 @@ func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	var total, enabled, reachable, unreachable, unknown, backedUp, failing, never, versions24h, passed, failed, failingSwitches int64
+	var total, enabled, loginOK, loginFailed, untested, backedUp, failing, never, versions24h, passed, failed, failingSwitches int64
 	err := o.db.QueryRowContext(ctx, `SELECT count(*), count(*) FILTER (WHERE is_enabled),
- count(*) FILTER (WHERE is_enabled AND reachable), count(*) FILTER (WHERE is_enabled AND NOT reachable), count(*) FILTER (WHERE is_enabled AND reachable IS NULL),
+ count(*) FILTER (WHERE is_enabled AND login_ok), count(*) FILTER (WHERE is_enabled AND NOT login_ok), count(*) FILTER (WHERE is_enabled AND login_ok IS NULL),
  count(*) FILTER (WHERE is_enabled AND EXISTS (SELECT 1 FROM bp_config_backups b WHERE b.switch_id=s.id)),
  count(*) FILTER (WHERE is_enabled AND config_error IS NOT NULL),
  count(*) FILTER (WHERE is_enabled AND NOT EXISTS (SELECT 1 FROM bp_config_backups b WHERE b.switch_id=s.id)),
  (SELECT count(*) FROM bp_config_backups WHERE captured_at > now()-interval '24 hours'),
  (SELECT count(*) FROM bp_compliance_results WHERE passed), (SELECT count(*) FROM bp_compliance_results WHERE NOT passed),
  (SELECT count(DISTINCT switch_id) FROM bp_compliance_results WHERE NOT passed)
- FROM bp_switches s`).Scan(&total, &enabled, &reachable, &unreachable, &unknown, &backedUp, &failing, &never, &versions24h, &passed, &failed, &failingSwitches)
+ FROM bp_switches s`).Scan(&total, &enabled, &loginOK, &loginFailed, &untested, &backedUp, &failing, &never, &versions24h, &passed, &failed, &failingSwitches)
 	if err != nil {
 		o.unavailable(w, err)
 		return
@@ -185,7 +185,7 @@ func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 200, map[string]any{
-		"switches":       map[string]int64{"total": total, "enabled": enabled, "reachable": reachable, "unreachable": unreachable, "unknown": unknown},
+		"switches":       map[string]int64{"total": total, "enabled": enabled, "login_ok": loginOK, "login_failed": loginFailed, "untested": untested},
 		"backups":        map[string]int64{"backed_up": backedUp, "failing": failing, "never": never, "versions_24h": versions24h},
 		"compliance":     map[string]int64{"passed": passed, "failed": failed, "failing_switches": failingSwitches},
 		"alerts":         alerts,
@@ -201,8 +201,7 @@ func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {
 // release resolution can use ("none"), or the rest ("other").
 const switchFilter = `($1='' OR s.name ILIKE '%'||$1||'%' OR host(s.management_ip) LIKE $1||'%' OR s.site ILIKE '%'||$1||'%')
  AND ($2='' OR $2='none' AND s.group_id IS NULL OR s.group_id::text=$2) AND ($3='' OR s.vendor=$3) AND ($4='' OR s.site=$4)
- AND ($5='' OR $5='reachable' AND s.reachable OR $5='unreachable' AND NOT s.reachable OR $5='unknown' AND s.reachable IS NULL
-  OR $5='login_failed' AND s.reachable AND NOT s.login_ok)
+ AND ($5='' OR $5='ok' AND s.login_ok OR $5='failed' AND NOT s.login_ok OR $5='untested' AND s.login_ok IS NULL)
  AND ($6='' OR $6='failed' AND s.config_error IS NOT NULL OR $6='never' AND s.config_succeeded_at IS NULL
   OR $6='ok' AND s.config_error IS NULL AND s.config_succeeded_at IS NOT NULL
   OR $6='overdue' AND s.config_succeeded_at < now()-interval '7 days')
@@ -211,7 +210,7 @@ const switchFilter = `($1='' OR s.name ILIKE '%'||$1||'%' OR host(s.management_i
  AND ($8='' OR $8='enabled' AND s.is_enabled OR $8='disabled' AND NOT s.is_enabled)`
 
 func switchFilterArgs(q url.Values) []any {
-	return []any{strings.TrimSpace(q.Get("q")), q.Get("group"), q.Get("vendor"), q.Get("site"), q.Get("reachability"), q.Get("backup"), q.Get("networks"), q.Get("state")}
+	return []any{strings.TrimSpace(q.Get("q")), q.Get("group"), q.Get("vendor"), q.Get("site"), q.Get("connection"), q.Get("backup"), q.Get("networks"), q.Get("state")}
 }
 
 func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
@@ -221,12 +220,12 @@ func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pageArgs(r)
 	items, err := o.rows(r.Context(), []string{"id", "name", "management_ip", "vendor", "model", "site", "description", "group_id", "group_name",
 		"protocol", "port", "is_enabled", "version", "credential_id", "credential_name", "command_profile_id", "profile_name",
-		"reachable", "reachability_checked_at", "reachability_latency_ms", "reachability_error", "login_ok", "login_checked_at", "login_error",
+		"login_ok", "login_checked_at", "login_error",
 		"config_checked_at", "config_succeeded_at", "config_error", "compliance_failed", "networks",
 		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error", "total"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,s.group_id::text,g.name,
  s.protocol,s.port,s.is_enabled,s.version,s.credential_id::text,c.name,s.command_profile_id::text,p.name,
- s.reachable,s.reachability_checked_at,s.reachability_latency_ms,s.reachability_error,s.login_ok,s.login_checked_at,s.login_error,
+ s.login_ok,s.login_checked_at,s.login_error,
  s.config_checked_at,s.config_succeeded_at,s.config_error,(SELECT count(*) FROM bp_compliance_results r WHERE r.switch_id=s.id AND NOT r.passed),
  (SELECT count(*) FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated),
  s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error,count(*) OVER()
@@ -261,7 +260,7 @@ func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 }
 
 var exportHeader = []string{"name", "management_ip", "vendor", "model", "group", "site", "protocol", "port", "credential", "profile", "description",
-	"handles_release", "enabled", "reachable", "login", "last_backup"}
+	"handles_release", "enabled", "login", "last_backup"}
 
 // spreadsheetSafe keeps a cell from being read as a formula; the importer drops the quote again.
 func spreadsheetSafe(value string) string {
@@ -279,7 +278,7 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := o.db.QueryContext(r.Context(), `SELECT s.name,host(s.management_ip),s.vendor,COALESCE(s.model,''),COALESCE(g.name,''),COALESCE(s.site,''),
  s.protocol,COALESCE(s.port::text,''),c.name,p.name,COALESCE(s.description,''),CASE WHEN s.handles_release THEN 'yes' ELSE 'no' END,
- s.is_enabled,s.reachable,s.login_ok,s.config_succeeded_at
+ s.is_enabled,s.login_ok,s.config_succeeded_at
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id
  WHERE `+switchFilter+` ORDER BY s.name,s.id`, switchFilterArgs(r.URL.Query())...)
@@ -304,13 +303,13 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		record := make([]string, 12)
 		var enabled bool
-		var reachable, login sql.NullBool
+		var login sql.NullBool
 		var backup sql.NullTime
 		targets := []any{}
 		for i := range record {
 			targets = append(targets, &record[i])
 		}
-		if err = rows.Scan(append(targets, &enabled, &reachable, &login, &backup)...); err != nil {
+		if err = rows.Scan(append(targets, &enabled, &login, &backup)...); err != nil {
 			o.unavailable(w, err)
 			return
 		}
@@ -318,7 +317,7 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 		if backup.Valid {
 			last = backup.Time.In(o.loc).Format("2006-01-02 15:04")
 		}
-		record = append(record, strconv.FormatBool(enabled), yesNo(reachable, "yes", "no"), yesNo(login, "ok", "failed"), last)
+		record = append(record, strconv.FormatBool(enabled), yesNo(login, "ok", "failed"), last)
 		for i := range record {
 			record[i] = spreadsheetSafe(record[i])
 		}
@@ -347,11 +346,9 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	found, err := o.rows(ctx, []string{"id", "name", "management_ip", "vendor", "model", "site", "description", "group_name", "protocol", "port", "is_enabled",
-		"credential_name", "profile_name", "reachable", "reachability_checked_at", "reachability_changed_at", "reachability_latency_ms", "reachability_error",
-		"login_ok", "login_checked_at", "login_error", "config_checked_at", "config_succeeded_at", "config_error",
+		"credential_name", "profile_name", "login_ok", "login_checked_at", "login_error", "config_checked_at", "config_succeeded_at", "config_error",
 		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,g.name,s.protocol,s.port,s.is_enabled,c.name,p.name,
- s.reachable,s.reachability_checked_at,s.reachability_changed_at,s.reachability_latency_ms,s.reachability_error,
  s.login_ok,s.login_checked_at,s.login_error,s.config_checked_at,s.config_succeeded_at,s.config_error,
  s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
@@ -537,11 +534,11 @@ func (o *OpsHandler) task(w http.ResponseWriter, r *http.Request) {
 }
 
 // deviceTaskKinds can be started by hand. A connection test signs in to every switch it covers,
-// so schedules keep to the port check and backups (scheduleKinds). Network reads run by themselves
-// every day (queueNetworkReads) and only on release switches.
+// so schedules keep to backups (scheduleKinds); whether switches are up is Zabbix's to watch.
+// Network reads run by themselves every day (queueNetworkReads) and only on release switches.
 var (
-	deviceTaskKinds = map[string]bool{"config_backup": true, "reachability": true, "login_check": true, "network_read": true}
-	scheduleKinds   = map[string]bool{"config_backup": true, "reachability": true}
+	deviceTaskKinds = map[string]bool{"config_backup": true, "login_check": true, "network_read": true}
+	scheduleKinds   = map[string]bool{"config_backup": true}
 )
 
 // enqueueDeviceTask queues one item per enabled switch in scope. A switch that already has a

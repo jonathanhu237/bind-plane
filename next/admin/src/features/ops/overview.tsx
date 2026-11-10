@@ -35,7 +35,7 @@ function Listing({ title, action, children }: { title: string; action?: React.Re
   </div>
 }
 
-/** Reachability, backups, compliance and alerts across the switches, with recent and upcoming work. Admins only. */
+/** Connections, backups, compliance and alerts across the switches, with recent and upcoming work. Admins only. */
 export function OpsOverview({ zh }: { zh: boolean }) {
   const query = useQuery({ queryKey: ['ops-overview'], queryFn: () => opsRequest<Overview>('overview'), refetchInterval: 15_000 })
   const data = query.data
@@ -46,9 +46,9 @@ export function OpsOverview({ zh }: { zh: boolean }) {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Panel title={pick(zh, '设备', 'Devices')} to="/devices" link={pick(zh, '查看设备', 'View devices')}>
           <Stat label={pick(zh, '启用 / 全部', 'Enabled / total')} value={data.switches.enabled} />
-          <Stat label={pick(zh, '在线', 'Reachable')} value={data.switches.reachable} />
-          <Stat label={pick(zh, '不可达', 'Unreachable')} value={data.switches.unreachable} tone="bad" />
-          <Stat label={pick(zh, '尚未检测', 'Not checked yet')} value={data.switches.unknown} />
+          <Stat label={pick(zh, '登录正常', 'Signs in')} value={data.switches.login_ok} />
+          <Stat label={pick(zh, '登录失败', 'Sign-in fails')} value={data.switches.login_failed} tone="bad" />
+          <Stat label={pick(zh, '尚未测试', 'Not tested yet')} value={data.switches.untested} />
         </Panel>
         <Panel title={pick(zh, '配置备份', 'Configuration backups')} to="/devices" link={pick(zh, '查看设备', 'View devices')}>
           <Stat label={pick(zh, '已有备份', 'Backed up')} value={data.backups.backed_up} />

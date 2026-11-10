@@ -8,7 +8,7 @@ import { actionName, fieldName, vendorName, type Inventory } from '@/features/re
 import { isConfigExcerpt, serverText } from '@/features/release/messages'
 import { cn } from '@/lib/utils'
 import { opsRequest, type DiffResponse, type HistoryEvent, type SwitchDetail, type TaskKind } from './api'
-import { Empty, ErrorNote, LoginBadge, ReachabilityBadge, SeverityBadge, ToneBadge, Time, actorText, formatTime, itemStatusLabel, kindLabel, pick, workerMessage } from './ui'
+import { Empty, ErrorNote, LoginBadge, SeverityBadge, ToneBadge, Time, actorText, formatTime, itemStatusLabel, kindLabel, pick, workerMessage } from './ui'
 
 function Info({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-0.5 break-words text-sm">{children}</dd></div>
@@ -112,9 +112,9 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
           <Button type="button" size="sm" variant="outline" disabled={busy || !d.is_enabled} onClick={() => onRun('config_backup', d.id)}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '立即备份', 'Back up now')}</Button>
         </div>
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <Info label={pick(zh, '连接', 'Connection')}><span className="flex flex-wrap gap-1"><ReachabilityBadge reachable={d.reachable} latency={d.reachability_latency_ms} error={d.reachability_error} zh={zh} /><LoginBadge reachable={d.reachable} ok={d.login_ok} error={d.login_error} zh={zh} /></span>
-            {d.reachable && d.login_ok === false && d.login_error ? <span className="mt-1 block text-xs text-destructive">{serverText(d.login_error, zh)}</span> : null}</Info>
-          <Info label={pick(zh, '最近检测', 'Last checked')}><Time value={d.reachability_checked_at} zh={zh} /></Info>
+          <Info label={pick(zh, '连接', 'Connection')}><LoginBadge ok={d.login_ok} error={d.login_error} zh={zh} />
+            {d.login_ok === false && d.login_error ? <span className="mt-1 block text-xs text-destructive">{serverText(d.login_error, zh)}</span> : null}</Info>
+          <Info label={pick(zh, '最近测试', 'Last tested')}><Time value={d.login_checked_at} zh={zh} /></Info>
           <Info label={pick(zh, '登录方式', 'Login')}>{d.protocol === 'ssh' ? 'SSH' : 'Telnet'} · {d.port ?? (d.protocol === 'ssh' ? 22 : 23)}</Info>
           <Info label={pick(zh, '厂商 / 型号', 'Vendor / model')}>{vendorName(d.vendor, zh)}{d.model ? ` · ${d.model}` : ''}</Info>
           <Info label={pick(zh, '分组 / 校区', 'Group / campus')}>{d.group_name ?? '—'}{d.site ? ` · ${d.site}` : ''}</Info>

@@ -8,11 +8,11 @@ Safety boundary: a dynamic pre-query record is not a static binding and cannot b
 
 Admins (never Operators) manage the switch inventory and its operations:
 
-- **Devices**: inventory with vendor, model, group, site, protocol (SSH or Telnet) and port; CSV import with a full dry run, which also accepts the Chinese headings of other inventory exports; reachability (a TCP connect to the management port) and backup status per switch.
+- **Devices**: inventory with vendor, model, group, site, protocol (SSH or Telnet) and port; CSV import with a full dry run, which also accepts the Chinese headings of other inventory exports; connection (whether Bind Plane can sign in) and backup status per switch. Whether switches are up is left to Zabbix.
 - **Configuration backups**: the worker signs in, reads the running configuration and stores a new version only when it changed (volatile timestamp lines are ignored). Versions are sealed with AES-GCM under the credential key with a separate label, opened only by the API, and every view or diff is written to the audit log.
-- **Schedules**: cron schedules (in `BIND_PLANE_TIMEZONE`, default Asia/Shanghai) for backups or reachability checks over all switches or one group; manual runs from the Devices page. A switch never has two pending operations of one kind. Runs are kept 30 days.
+- **Schedules**: cron schedules (in `BIND_PLANE_TIMEZONE`, default Asia/Shanghai) for backups over all switches or one group; manual runs from the Devices page. A switch never has two pending operations of one kind. Runs are kept 30 days.
 - **Compliance**: baseline rules (`must_contain` / `must_not_contain`, RE2 patterns, scoped by vendor or group) evaluated on each switch's latest backup whenever a backup or rule changes. RE2 runs in linear time, so no pattern can stall the evaluator.
-- **Alerts**: unreachable switches, failed backups and critical compliance failures. They resolve themselves when the cause clears; acknowledging records who is handling it. Resolved alerts are kept 180 days.
+- **Alerts**: failed backups, critical compliance failures and failed network reads, the problems only Bind Plane knows about. They resolve themselves when the cause clears; acknowledging records who is handling it. Resolved alerts are kept 180 days.
 - **Audit log**: every asset change, import, schedule or rule edit, manual run, configuration read and alert acknowledgement, kept indefinitely.
 
 Device operations only read from switches, so a worker that dies mid-operation fails the item and the next run retries. Release jobs run in their own worker loop and are never delayed by a long backup run.

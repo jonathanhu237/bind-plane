@@ -1,5 +1,5 @@
-"""Device operations: reachability checks, connection tests, configuration backups and the
-release switches' network reads.
+"""Device operations: connection tests, configuration backups and the release switches' network
+reads. Whether switches are up is Zabbix's to watch, not Bind Plane's.
 
 All of them only read from switches, so a lost lease fails the item instead of risking a
 duplicate change, and the next scheduled run tries again.
@@ -46,7 +46,7 @@ VOLATILE_LINES = (
     r"^ntp clock-period",
 )
 MAX_CONFIG_BYTES = 20 * 1024 * 1024
-REACHABILITY_TIMEOUT = 3.0
+PORT_TIMEOUT = 3.0
 
 
 def credential_key() -> bytes:
@@ -288,47 +288,19 @@ async def load_device(pool, switch_id):
         )
 
 
-async def probe_port(dep) -> tuple[int, int | None, str | None]:
-    """Opens and closes one TCP connection to the management port: (port, latency, error)."""
+async def probe_port(dep) -> tuple[int, str | None]:
+    """Opens and closes one TCP connection to the management port: (port, error)."""
     _, port = resolve_transport(dep, dep["prompt_patterns"])
-    started = time.monotonic()
     try:
         _, writer = await asyncio.wait_for(
-            asyncio.open_connection(dep["management_ip"], port), timeout=REACHABILITY_TIMEOUT
+            asyncio.open_connection(dep["management_ip"], port), timeout=PORT_TIMEOUT
         )
     except (OSError, TimeoutError) as exc:
-        return port, None, describe_failure(exc)
-    latency = round((time.monotonic() - started) * 1000)
+        return port, describe_failure(exc)
     writer.close()
     with suppress(Exception):
         await writer.wait_closed()
-    return port, latency, None
-
-
-async def record_reachability(conn, dep, port, latency, error):
-    reachable = error is None
-    key = f"device_unreachable:{dep['id']}"
-    await conn.execute(
-        """UPDATE bp_switches SET reachable=$2,reachability_checked_at=now(),
-        reachability_changed_at=CASE WHEN reachable IS DISTINCT FROM $2 THEN now()
-            ELSE reachability_changed_at END,
-        reachability_latency_ms=$3,reachability_error=$4 WHERE id=$1""",
-        dep["id"],
-        reachable,
-        latency,
-        error,
-    )
-    if reachable:
-        await resolve_alert(conn, key)
-    else:
-        await upsert_alert(
-            conn,
-            "device_unreachable",
-            "warning",
-            dep["id"],
-            f"Port {port} unreachable: {error}",
-            key,
-        )
+    return port, None
 
 
 async def record_login(conn, switch_id, error):
@@ -341,19 +313,12 @@ async def record_login(conn, switch_id, error):
     )
 
 
-async def check_reachability(pool, item, dep):
-    port, latency, error = await probe_port(dep)
-    async with pool.acquire() as conn, conn.transaction():
-        if await finish_item(conn, item, "succeeded", error):
-            await record_reachability(conn, dep, port, latency, error)
-
-
 async def check_login(pool, item, dep, settings_builder):
     """Connection test: the port must answer, then the switch's credential must sign in.
 
-    An unreachable port leaves the last login result alone; nothing new was learned about it.
+    The port is tried first only to say why a test failed; either failure is a failed connection.
     """
-    port, latency, error = await probe_port(dep)
+    port, error = await probe_port(dep)
     login_error = None
     if error is None:
         try:
@@ -370,11 +335,8 @@ async def check_login(pool, item, dep, settings_builder):
         message = login_error or "Signed in"
     status = "succeeded" if message == "Signed in" else "failed"
     async with pool.acquire() as conn, conn.transaction():
-        if not await finish_item(conn, item, status, message):
-            return
-        await record_reachability(conn, dep, port, latency, error)
-        if error is None:
-            await record_login(conn, dep["id"], login_error)
+        if await finish_item(conn, item, status, message):
+            await record_login(conn, dep["id"], None if status == "succeeded" else message)
 
 
 async def back_up(pool, item, dep, settings_builder, key):
@@ -586,9 +548,7 @@ async def process_device_item(pool, item, settings_builder, key):
             async with pool.acquire() as conn:
                 await finish_item(conn, item, "skipped", "Switch is disabled")
             return
-        if item["kind"] == "reachability":
-            await check_reachability(pool, item, dep)
-        elif item["kind"] == "login_check":
+        if item["kind"] == "login_check":
             await check_login(pool, item, dep, settings_builder)
         elif item["kind"] == "network_read":
             await read_networks(pool, item, dep, settings_builder)

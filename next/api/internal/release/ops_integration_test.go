@@ -207,9 +207,12 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 		t.Fatalf("audit filter %v", audit)
 	}
 
-	// Schedules fire once when due and move to the next future match.
-	call(ops, "POST", "/api/ops/schedules", `{"name":"bad cron","kind":"reachability","cron":"61 * * * *","scope":"all"}`, 422)
-	schedule := obj(call(ops, "POST", "/api/ops/schedules", `{"name":"Every five minutes","kind":"reachability","cron":"*/5 * * * *","scope":"all"}`, 201))
+	// Schedules fire once when due and move to the next future match. They only back up: whether
+	// switches are up is Zabbix's to watch, so there is no port check to schedule or run.
+	call(ops, "POST", "/api/ops/schedules", `{"name":"bad cron","kind":"config_backup","cron":"61 * * * *","scope":"all"}`, 422)
+	call(ops, "POST", "/api/ops/schedules", `{"name":"Port check","kind":"reachability","cron":"*/5 * * * *","scope":"all"}`, 422)
+	call(ops, "POST", "/api/ops/tasks", `{"kind":"reachability","scope":"all"}`, 422)
+	schedule := obj(call(ops, "POST", "/api/ops/schedules", `{"name":"Every five minutes","kind":"config_backup","cron":"*/5 * * * *","scope":"all"}`, 201))
 	scheduleID := schedule["id"].(string)
 	if _, err = db.Exec(`UPDATE bp_schedules SET next_run_at=now()-interval '1 hour' WHERE id=$1`, scheduleID); err != nil {
 		t.Fatal(err)
@@ -229,11 +232,11 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	}
 
 	// Alerts are acknowledged once; operators see none of this.
-	if err = upsertAlert(ctx, db, "device_unreachable", "warning", switchB, nil, "Port 23 unreachable", "device_unreachable:"+switchB); err != nil {
+	if err = upsertAlert(ctx, db, "backup_failed", "warning", switchB, nil, "Backup failed: Timed out", "backup_failed:"+switchB); err != nil {
 		t.Fatal(err)
 	}
 	var alertID int64
-	if err = db.QueryRow(`SELECT id FROM bp_alerts WHERE dedupe_key=$1`, "device_unreachable:"+switchB).Scan(&alertID); err != nil {
+	if err = db.QueryRow(`SELECT id FROM bp_alerts WHERE dedupe_key=$1`, "backup_failed:"+switchB).Scan(&alertID); err != nil {
 		t.Fatal(err)
 	}
 	call(ops, "POST", fmt.Sprintf("/api/ops/alerts/%d/acknowledge", alertID), "", 200)
@@ -241,6 +244,17 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	overview := obj(call(ops, "GET", "/api/ops/overview", "", 200))
 	if obj(overview["compliance"])["passed"].(float64) < 1 {
 		t.Fatalf("overview %v", overview)
+	}
+	// The connection a switch shows is its last connection test or sign-in: a port that did not
+	// answer is a failed connection, the same as a refused password.
+	if _, err = db.Exec(`UPDATE bp_switches SET login_ok=false,login_error='Port 23 unreachable: Timed out',login_checked_at=now() WHERE id=$1`, switchB); err != nil {
+		t.Fatal(err)
+	}
+	if failing := obj(call(ops, "GET", "/api/ops/switches?q=OPS-&connection=failed", "", 200)); failing["total"] != float64(1) || obj(failing["items"].([]any)[0])["id"] != switchB {
+		t.Fatalf("connection filter %v", failing)
+	}
+	if counts := obj(obj(call(ops, "GET", "/api/ops/overview", "", 200))["switches"]); counts["login_failed"].(float64) < 1 || counts["reachable"] != nil {
+		t.Fatalf("overview switches %v", counts)
 	}
 	// A backup is overdue a week after the last success, and "never" means no success at all.
 	// Neither switch has a network that resolution can use.

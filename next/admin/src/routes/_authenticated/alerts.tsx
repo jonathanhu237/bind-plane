@@ -30,7 +30,7 @@ function AlertsPage() {
     finally { setBusy(false) }
   }
   if (!admin) return <AdminOnly zh={zh} />
-  const kindName = (kind: Alert['kind']) => ({ device_unreachable: pick(zh, '设备不可达', 'Unreachable'), backup_failed: pick(zh, '备份失败', 'Backup failed'), compliance_violation: pick(zh, '违反合规规则', 'Compliance violation'), network_read_failed: pick(zh, '读取网段失败', 'Network read failed') })[kind]
+  const kindName = (kind: Alert['kind']) => ({ backup_failed: pick(zh, '备份失败', 'Backup failed'), compliance_violation: pick(zh, '违反合规规则', 'Compliance violation'), network_read_failed: pick(zh, '读取网段失败', 'Network read failed') })[kind]
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
     <PageHeader title={pick(zh, '告警', 'Alerts')} />
     <Tabs value={status} onValueChange={(value) => setStatus(value as AlertState)} className="flex flex-col gap-4">

@@ -68,19 +68,13 @@ export function ToneBadge({ kind, children, title }: { kind: keyof typeof tone; 
   return <Badge variant="outline" title={title} className={cn('whitespace-nowrap font-normal', tone[kind])}>{children}</Badge>
 }
 
-export function ReachabilityBadge({ reachable, latency, error, zh }: { reachable: boolean | null; latency?: number | null; error?: string | null; zh: boolean }) {
-  if (reachable === null) return <ToneBadge kind="muted">{pick(zh, '未检测', 'Not checked')}</ToneBadge>
-  return reachable
-    ? <ToneBadge kind="good">{pick(zh, '在线', 'Reachable')}{latency != null ? ` · ${latency} ms` : ''}</ToneBadge>
-    : <ToneBadge kind="bad" title={error ? serverText(error, zh) : undefined}>{pick(zh, '不可达', 'Unreachable')}</ToneBadge>
-}
 
 /**
- * The last connection test or backup's sign-in, shown only while the port answers: an unreachable
- * switch says nothing new about its credential.
+ * Whether Bind Plane can sign in to the switch, from its last connection test, backup or network
+ * read. A port that did not answer is a failed sign-in; whether the switch is up is Zabbix's to watch.
  */
-export function LoginBadge({ reachable, ok, error, zh }: { reachable: boolean | null; ok: boolean | null; error?: string | null; zh: boolean }) {
-  if (!reachable || ok === null) return null
+export function LoginBadge({ ok, error, zh }: { ok: boolean | null; error?: string | null; zh: boolean }) {
+  if (ok === null) return <ToneBadge kind="muted">{pick(zh, '未测试', 'Not tested')}</ToneBadge>
   return ok
     ? <ToneBadge kind="good">{pick(zh, '登录正常', 'Signs in')}</ToneBadge>
     : <ToneBadge kind="bad" title={error ? serverText(error, zh) : undefined}>{pick(zh, '登录失败', 'Sign-in fails')}</ToneBadge>
@@ -107,7 +101,7 @@ export const itemStatusLabel = (status: string, zh: boolean) =>
 export const workerMessage = (message: string | null, zh: boolean) => serverText(message, zh)
 
 export const kindLabel = (kind: TaskKind, zh: boolean) =>
-  ({ config_backup: pick(zh, '配置备份', 'Config backup'), reachability: pick(zh, '连通性检测', 'Reachability check'), login_check: pick(zh, '连接测试', 'Connection test'), network_read: pick(zh, '读取网段', 'Network read') })[kind] ?? kind
+  ({ config_backup: pick(zh, '配置备份', 'Config backup'), login_check: pick(zh, '连接测试', 'Connection test'), network_read: pick(zh, '读取网段', 'Network read') })[kind] ?? kind
 
 export function Pager({ page, total, pageSize, onPage, zh }: { page: number; total: number; pageSize: number; onPage: (page: number) => void; zh: boolean }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))

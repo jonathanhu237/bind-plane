@@ -28,6 +28,11 @@ Do not add these unless the project owner explicitly changes scope:
 - SSO
 - Public registration
 - Self-service workflows
+- Watching whether switches are up or how they perform (SNMP polling, ping, port checks, CPU, memory, traffic), and sending alert notifications: the team runs Zabbix for these
+
+## Zabbix
+
+The switches are also in Zabbix, and the two must not overlap. Whatever can be learned by polling a switch belongs to Zabbix: whether it is up, its health and ports, their history, and telling people about problems. Bind Plane does the work that needs signing in to a switch or its own data: releasing bindings, backing up and comparing configurations, checking them against compliance rules, reading the release switches' networks, and the switch records, credentials and command profiles these need. Before adding a feature, check that Zabbix does not already do it.
 
 ## Roles
 
@@ -148,7 +153,8 @@ Records name who acted: release jobs, asset events and device tasks keep the act
 The devices page is the switch inventory that releases, backups, schedules, compliance and alerts all draw on. Device operations only read from switches; releasing a binding stays the one change Bind Plane makes.
 
 - Switches are disabled, never deleted: release jobs, configuration versions and the audit log keep pointing at them.
-- The connection test signs in once and out again and sends no command. Schedules run only port checks and backups, never sign-in tests.
+- The connection test signs in once and out again and sends no command; a port that does not answer is a failed connection, not an alert. Schedules run only backups, never sign-in tests.
+- Alerts are the problems only Bind Plane knows about: failed backups, compliance failures and failed network reads.
 - A backup is overdue when the last successful one is more than seven days old. A release switch has no usable network until its networks have been read.
 - Imports match existing switches by management IP; in update mode only filled-in cells change anything. An export imports back.
 - A group that a schedule or compliance rule targets cannot be deleted, since the rule would widen to every switch.

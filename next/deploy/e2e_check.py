@@ -135,12 +135,12 @@ networks = sorted(n["cidr"] for n in wait("networks read from the configuration"
 assert networks == ["10.20.30.0/24", "10.20.40.0/24"], networks
 ok(f"the new release switch's networks were read from its configuration: {', '.join(networks)}")
 
-run_task("reachability")
+run_task("login_check")
 first = run_task("config_backup")
 assert first["changed"] == 1, first
 listed = call("GET", "/api/ops/switches?q=FAKE")["items"][0]
-assert listed["reachable"] is True and listed["latest_backup_id"], listed
-ok("reachability check and first backup stored a configuration version")
+assert listed["login_ok"] is True and listed["config_succeeded_at"], listed
+ok("connection test signed in and the first backup stored a configuration version")
 
 call("POST", "/api/ops/compliance/rules", {"name": "No local password users", "pattern": r"^ local-user \S+ password",
                                            "mode": "must_not_contain", "severity": "critical"}, 201)
@@ -171,7 +171,7 @@ again = release("10.20.30.40")
 assert again["status"] == "no_static_binding" and again.get("raw_release_output") is None, again
 ok("releasing it again sent nothing: the binding is no longer static")
 
-call("POST", "/api/ops/schedules", {"name": "E2E every minute", "kind": "reachability", "cron": "* * * * *", "scope": "all"}, 201)
+call("POST", "/api/ops/schedules", {"name": "E2E every minute", "kind": "config_backup", "cron": "* * * * *", "scope": "all"}, 201)
 wait("scheduled run", lambda: any(t["schedule_name"] == "E2E every minute" for t in call("GET", "/api/ops/tasks")), 100)
 ok("schedule fired on its own")
 

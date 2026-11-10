@@ -120,8 +120,6 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
                     item["id"],
                 )
 
-        reach = await run("reachability")
-        assert reach["status"] == "succeeded" and reach["message"] is None
         signed = await run("login_check")
         assert (signed["status"], signed["message"]) == ("succeeded", "Signed in")
         async with pool.acquire() as conn:
@@ -134,9 +132,9 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
         assert refused["status"] == "failed", refused
         async with pool.acquire() as conn:
             state = await conn.fetchrow(
-                "SELECT reachable,login_ok,login_error FROM bp_switches WHERE id=$1", switch
+                "SELECT login_ok,login_error FROM bp_switches WHERE id=$1", switch
             )
-            assert (state["reachable"], state["login_ok"]) == (True, False)
+            assert state["login_ok"] is False
             assert state["login_error"] == refused["message"]
             await conn.execute(
                 "UPDATE bp_credentials SET encrypted_password=$2 WHERE id=$1",
@@ -272,21 +270,17 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
 
         server.close()
         await server.wait_closed()
-        down = await run("reachability")
-        assert down["status"] == "succeeded" and down["message"]
+        # A port that does not answer is a failed connection, and nothing more: whether the
+        # switch is up is Zabbix's to watch, so no alert is raised.
+        down = await run("login_check")
+        assert down["status"] == "failed" and down["message"].startswith("Port "), down
         async with pool.acquire() as conn:
             state = await conn.fetchrow(
-                "SELECT reachable,reachability_error FROM bp_switches WHERE id=$1", switch
+                "SELECT login_ok,login_error FROM bp_switches WHERE id=$1", switch
             )
-            assert state["reachable"] is False
-            assert (
-                await conn.fetchval(
-                    """SELECT count(*) FROM bp_alerts
-                    WHERE switch_id=$1 AND kind='device_unreachable' AND status='open'""",
-                    switch,
-                )
-                == 1
-            )
+            assert (state["login_ok"], state["login_error"]) == (False, down["message"])
+            still_open = "SELECT count(*) FROM bp_alerts WHERE switch_id=$1 AND status<>'resolved'"
+            assert await conn.fetchval(still_open, switch) == 0
     finally:
         server.close()
         await pool.close()

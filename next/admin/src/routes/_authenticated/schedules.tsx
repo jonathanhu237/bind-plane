@@ -25,7 +25,7 @@ const presets = ['0 */4 * * *', '0 2 * * *', '0 * * * *', '*/10 * * * *']
 function ScheduleDialog({ schedule, open, zh, inventory, timezone, onClose, onSaved }: {
   schedule: Schedule | null; open: boolean; zh: boolean; inventory?: Inventory; timezone: string; onClose: () => void; onSaved: () => void
 }) {
-  const initial = { name: schedule?.name ?? '', kind: schedule?.kind ?? 'config_backup', cron: schedule?.cron ?? '0 */4 * * *', scope: schedule?.scope ?? 'all', group_id: schedule?.group_id ?? '', is_enabled: schedule?.is_enabled ?? true }
+  const initial = { name: schedule?.name ?? '', kind: 'config_backup' as TaskKind, cron: schedule?.cron ?? '0 */4 * * *', scope: schedule?.scope ?? 'all', group_id: schedule?.group_id ?? '', is_enabled: schedule?.is_enabled ?? true }
   const [form, setForm] = useState(initial)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -51,7 +51,7 @@ function ScheduleDialog({ schedule, open, zh, inventory, timezone, onClose, onSa
       <form className="flex flex-col gap-6" noValidate onSubmit={(event) => void submit(event)}>
         <DialogHeader>
           <DialogTitle>{schedule ? pick(zh, '编辑计划任务', 'Edit schedule') : pick(zh, '新建计划任务', 'New schedule')}</DialogTitle>
-          <DialogDescription>{pick(zh, `按 ${timezone} 时区执行。服务停机期间错过的执行只会补跑一次。`, `Runs in the ${timezone} time zone. Runs missed while the service was down are made up once, not repeatedly.`)}</DialogDescription>
+          <DialogDescription>{pick(zh, `定时备份配置，按 ${timezone} 时区执行。服务停机期间错过的执行只会补跑一次。`, `Backs up configurations on a schedule, in the ${timezone} time zone. Runs missed while the service was down are made up once, not repeatedly.`)}</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field data-invalid={required.invalid('schedule-name')}>
@@ -59,26 +59,15 @@ function ScheduleDialog({ schedule, open, zh, inventory, timezone, onClose, onSa
             <Input id="schedule-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} {...required.control('schedule-name')} />
             {required.message('schedule-name')}
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor="schedule-kind">{pick(zh, '任务类型', 'Task type')}</FieldLabel>
-              <Select value={form.kind} onValueChange={(value) => setForm({ ...form, kind: value as TaskKind })}>
-                <SelectTrigger id="schedule-kind"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectGroup>
-                  <SelectItem value="config_backup">{kindLabel('config_backup', zh)}</SelectItem><SelectItem value="reachability">{kindLabel('reachability', zh)}</SelectItem>
-                </SelectGroup></SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="schedule-scope">{pick(zh, '范围', 'Scope')}</FieldLabel>
-              <Select value={form.scope} onValueChange={(value) => setForm({ ...form, scope: value as 'all' | 'group' })}>
-                <SelectTrigger id="schedule-scope"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectGroup>
-                  <SelectItem value="all">{pick(zh, '所有启用的交换机', 'All enabled switches')}</SelectItem><SelectItem value="group">{pick(zh, '指定分组', 'One group')}</SelectItem>
-                </SelectGroup></SelectContent>
-              </Select>
-            </Field>
-          </div>
+          <Field>
+            <FieldLabel htmlFor="schedule-scope">{pick(zh, '范围', 'Scope')}</FieldLabel>
+            <Select value={form.scope} onValueChange={(value) => setForm({ ...form, scope: value as 'all' | 'group' })}>
+              <SelectTrigger id="schedule-scope"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectGroup>
+                <SelectItem value="all">{pick(zh, '所有启用的交换机', 'All enabled switches')}</SelectItem><SelectItem value="group">{pick(zh, '指定分组', 'One group')}</SelectItem>
+              </SelectGroup></SelectContent>
+            </Select>
+          </Field>
           {form.scope === 'group' ? <Field data-invalid={required.invalid('schedule-group')}>
             <FieldLabel htmlFor="schedule-group">{pick(zh, '分组', 'Group')}</FieldLabel>
             <Select value={form.group_id} onValueChange={(value) => setForm({ ...form, group_id: value })}>
@@ -162,10 +151,9 @@ function SchedulesPage() {
     <ErrorNote error={schedules.error ?? tasks.error} zh={zh} />
     <Section title={pick(zh, '计划', 'Schedules')}>
       {schedules.data?.schedules.length ? <div className="overflow-x-auto rounded-xl border [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap"><Table>
-        <TableHeader><TableRow><TableHead>{pick(zh, '名称', 'Name')}</TableHead><TableHead>{pick(zh, '类型', 'Type')}</TableHead><TableHead>{pick(zh, '执行时间', 'When')}</TableHead><TableHead>{pick(zh, '范围', 'Scope')}</TableHead><TableHead>{pick(zh, '下次执行', 'Next run')}</TableHead><TableHead>{pick(zh, '上次执行', 'Last run')}</TableHead><TableHead className="text-right">{pick(zh, '操作', 'Actions')}</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead>{pick(zh, '名称', 'Name')}</TableHead><TableHead>{pick(zh, '执行时间', 'When')}</TableHead><TableHead>{pick(zh, '范围', 'Scope')}</TableHead><TableHead>{pick(zh, '下次执行', 'Next run')}</TableHead><TableHead>{pick(zh, '上次执行', 'Last run')}</TableHead><TableHead className="text-right">{pick(zh, '操作', 'Actions')}</TableHead></TableRow></TableHeader>
         <TableBody>{schedules.data.schedules.map((schedule) => <TableRow key={schedule.id}>
           <TableCell><div className="flex flex-wrap items-center gap-2 font-medium">{schedule.name}{schedule.is_enabled ? null : <ToneBadge kind="muted">{pick(zh, '已停用', 'Disabled')}</ToneBadge>}</div></TableCell>
-          <TableCell>{kindLabel(schedule.kind, zh)}</TableCell>
           <TableCell><span title={schedule.cron}>{describeCron(schedule.cron, zh)}</span></TableCell>
           <TableCell>{schedule.scope === 'all' ? pick(zh, '全部', 'All') : schedule.group_name}</TableCell>
           <TableCell>{schedule.is_enabled ? <Time value={schedule.next_run_at} zh={zh} /> : '—'}</TableCell>

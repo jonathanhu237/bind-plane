@@ -20,13 +20,12 @@ export async function opsRequest<T>(path: string, body?: unknown, method = body 
   return data as T
 }
 
-export type TaskKind = 'config_backup' | 'reachability' | 'login_check' | 'network_read'
+export type TaskKind = 'config_backup' | 'login_check' | 'network_read'
 
 export type OpsSwitch = {
   id: string; name: string; management_ip: string; vendor: Vendor; model: string | null; site: string | null; description: string | null
   group_id: string | null; group_name: string | null; protocol: 'telnet' | 'ssh'; port: number | null; is_enabled: boolean; version: number
   credential_id: string; credential_name: string; command_profile_id: string; profile_name: string
-  reachable: boolean | null; reachability_checked_at: string | null; reachability_latency_ms: number | null; reachability_error: string | null
   login_ok: boolean | null; login_checked_at: string | null; login_error: string | null
   config_checked_at: string | null; config_succeeded_at: string | null; config_error: string | null; compliance_failed: number
   /** Enabled, validated networks: the ones release resolution can use. */
@@ -61,14 +60,14 @@ export type ComplianceResult = {
   passed: boolean; detail: string | null; evaluated_at: string; backup_id: number
 }
 export type Alert = {
-  id: number; kind: 'device_unreachable' | 'backup_failed' | 'compliance_violation' | 'network_read_failed'; severity: Severity; switch_id: string; switch_name: string
+  id: number; kind: 'backup_failed' | 'compliance_violation' | 'network_read_failed'; severity: Severity; switch_id: string; switch_name: string
   management_ip: string; rule_id: string | null; rule_name: string | null; message: string; status: 'open' | 'acknowledged' | 'resolved'
   opened_at: string; last_seen_at: string; acknowledged_at: string | null; acknowledged_by: string | null; resolved_at: string | null
 }
 export type AuditEvent = { id: number; actor_name: string | null; actor_email: string; action: string; object_id: string; object_name: string; changes: Record<string, unknown>; created_at: string }
 
 export type Overview = {
-  switches: { total: number; enabled: number; reachable: number; unreachable: number; unknown: number }
+  switches: { total: number; enabled: number; login_ok: number; login_failed: number; untested: number }
   backups: { backed_up: number; failing: number; never: number; versions_24h: number }
   compliance: { passed: number; failed: number; failing_switches: number }
   alerts: { severity: Severity; count: number }[]
@@ -80,7 +79,6 @@ export type Overview = {
 export type BackupMeta = { id: number; captured_at: string; size_bytes: number; line_count: number; sha256: string }
 export type HistoryEvent = { id: number; action: string; actor_name: string | null; actor_email: string; object_name: string; changes: Record<string, unknown>; created_at: string }
 export type SwitchDetail = Omit<OpsSwitch, 'group_id' | 'credential_id' | 'command_profile_id' | 'version' | 'compliance_failed' | 'networks'> & {
-  reachability_changed_at: string | null
   backups: BackupMeta[]
   compliance: { rule_id: string; rule_name: string; severity: Severity; mode: string; passed: boolean; detail: string | null; evaluated_at: string; backup_id: number }[]
   recent_items: { id: number; kind: TaskKind; status: TaskItem['status']; message: string | null; changed: boolean | null; backup_id: number | null; created_at: string; finished_at: string | null }[]

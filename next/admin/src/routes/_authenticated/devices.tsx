@@ -20,7 +20,7 @@ import { DeviceDetailSheet } from '@/features/ops/device-detail'
 import { GroupManager } from '@/features/ops/group-manager'
 import { FacetFilter } from '@/features/ops/facet-filter'
 import { ImportDialog } from '@/features/ops/import-dialog'
-import { AdminOnly, Empty, ErrorNote, LoginBadge, PageHeader, Pager, ReachabilityBadge, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
+import { AdminOnly, Empty, ErrorNote, LoginBadge, PageHeader, Pager, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import {
   AssetEditDialog, AssetRequestError, DisableAssetDialog, NO_GROUP, callAssets, defaultPort, portFollowing, profileFollowing, statusBody, vendorName, vendorProfiles, vendors, type EditTarget, type Inventory,
 } from '@/features/release/asset-editors'
@@ -28,8 +28,8 @@ import { errorText, serverText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
 import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 
-type DeviceSearch = { q?: string; group?: string; vendor?: string; site?: string; reachability?: string; backup?: string; networks?: string; state?: string; page?: number }
-const filterKeys = ['q', 'group', 'vendor', 'site', 'reachability', 'backup', 'networks', 'state'] as const
+type DeviceSearch = { q?: string; group?: string; vendor?: string; site?: string; connection?: string; backup?: string; networks?: string; state?: string; page?: number }
+const filterKeys = ['q', 'group', 'vendor', 'site', 'connection', 'backup', 'networks', 'state'] as const
 // Disabled switches stay out of the list unless asked for; "all" shows both.
 const ALL_STATES = 'all'
 
@@ -268,7 +268,7 @@ function DevicesPage() {
       {facet('group', pick(zh, '分组', 'Group'), pick(zh, '全部分组', 'All groups'), [['none', pick(zh, '未分组', 'No group')], ...groups.map((g): [string, string] => [g.id, g.name])])}
       {sites.length ? facet('site', pick(zh, '校区', 'Campus'), pick(zh, '全部校区', 'All campuses'), sites.map((value): [string, string] => [value, value])) : null}
       {facet('vendor', pick(zh, '厂商', 'Vendor'), pick(zh, '全部厂商', 'All vendors'), vendors.map((v) => [v, vendorName(v, zh)]))}
-      {facet('reachability', pick(zh, '连接', 'Connection'), pick(zh, '全部', 'Any'), [['reachable', pick(zh, '在线', 'Reachable')], ['unreachable', pick(zh, '不可达', 'Unreachable')], ['login_failed', pick(zh, '登录失败', 'Sign-in fails')], ['unknown', pick(zh, '未检测', 'Not checked')]])}
+      {facet('connection', pick(zh, '连接', 'Connection'), pick(zh, '全部', 'Any'), [['ok', pick(zh, '登录正常', 'Signs in')], ['failed', pick(zh, '登录失败', 'Sign-in fails')], ['untested', pick(zh, '未测试', 'Not tested')]])}
       {facet('backup', pick(zh, '备份', 'Backup'), pick(zh, '全部', 'Any'), [['ok', pick(zh, '备份正常', 'Backed up')], ['failed', pick(zh, '最近一次失败', 'Last backup failed')], ['overdue', pick(zh, '逾期（超过 7 天）', 'Overdue (over 7 days)')], ['never', pick(zh, '从未成功', 'Never succeeded')]])}
       {facet('networks', pick(zh, '解绑', 'Releases'), pick(zh, '全部', 'Any'), [['release', pick(zh, '负责解绑', 'Handles releases')], ['none', pick(zh, '负责解绑但没有网段', 'Handles releases, no network')], ['other', pick(zh, '不负责解绑', 'Handles no releases')]])}
       <FacetFilter label={pick(zh, '启用状态', 'Status')} defaultValue="enabled" value={search.state} onChange={(value) => filter({ state: value })}
@@ -354,8 +354,8 @@ function DevicesPage() {
                   {row.site || row.description ? <p className="truncate text-xs text-muted-foreground">{[row.site, row.description].filter(Boolean).join(' · ')}</p> : null}</TableCell>
                 <TableCell className="whitespace-nowrap"><span className="font-mono text-xs">{row.management_ip}</span><p className="text-xs text-muted-foreground">{protocolName(row.protocol)} {row.port ?? (row.protocol === 'ssh' ? 22 : 23)}</p></TableCell>
                 <TableCell className="whitespace-nowrap text-sm">{vendorName(row.vendor, zh)}{row.model ? <span className="text-muted-foreground"> · {row.model}</span> : null}<p className="text-xs text-muted-foreground">{row.group_name ?? pick(zh, '未分组', 'No group')}</p></TableCell>
-                <TableCell className="whitespace-nowrap"><div className="flex flex-wrap gap-1"><ReachabilityBadge reachable={row.reachable} latency={row.reachability_latency_ms} error={row.reachability_error} zh={zh} /><LoginBadge reachable={row.reachable} ok={row.login_ok} error={row.login_error} zh={zh} /></div>
-                  <p className="mt-0.5 text-xs text-muted-foreground"><Time value={row.reachability_checked_at} zh={zh} /></p></TableCell>
+                <TableCell className="whitespace-nowrap"><LoginBadge ok={row.login_ok} error={row.login_error} zh={zh} />
+                  <p className="mt-0.5 text-xs text-muted-foreground"><Time value={row.login_checked_at} zh={zh} /></p></TableCell>
                 <TableCell>{row.config_succeeded_at ? <Time value={row.config_succeeded_at} zh={zh} className="text-sm" /> : <ToneBadge kind="warn">{pick(zh, '从未成功', 'Never')}</ToneBadge>}
                   {backupError ? <p className="text-xs whitespace-nowrap text-destructive" title={backupError}>{pick(zh, '最近一次失败', 'Last attempt failed')}</p> : null}</TableCell>
                 <TableCell>{!row.handles_release ? <span className="text-xs text-muted-foreground" title={pick(zh, '不负责解绑', 'Handles no releases')}>—</span>
