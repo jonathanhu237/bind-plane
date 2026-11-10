@@ -277,6 +277,25 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	}
 	call(assets, "POST", "/api/releases/admin/switches/bulk", jsonBody(map[string]any{"ids": []string{switchA}, "site": "HQ", "is_enabled": false}), 422)
 
+	// Many switches move to another credential; a disabled or missing one is refused.
+	other := obj(call(assets, "POST", "/api/releases/admin/credentials", `{"Name":"ops-cred-2","Username":"netops2","Password":"secret2"}`, 201))["id"].(string)
+	if bulk := obj(call(assets, "POST", "/api/releases/admin/switches/bulk", jsonBody(map[string]any{"ids": []string{switchA}, "credential_id": other}), 200)); bulk["changed"] != float64(1) {
+		t.Fatalf("bulk credential %v", bulk)
+	}
+	var credentialA string
+	if err = db.QueryRow(`SELECT credential_id::text FROM bp_switches WHERE id=$1`, switchA).Scan(&credentialA); err != nil || credentialA != other {
+		t.Fatalf("switch A credential %q %v", credentialA, err)
+	}
+	if _, err = db.Exec(`UPDATE bp_credentials SET is_active=false WHERE id=$1`, credential); err != nil {
+		t.Fatal(err)
+	}
+	call(assets, "POST", "/api/releases/admin/switches/bulk", jsonBody(map[string]any{"ids": []string{switchA}, "credential_id": credential}), 409)
+	call(assets, "POST", "/api/releases/admin/switches/bulk", jsonBody(map[string]any{"ids": []string{switchA}, "credential_id": "00000000-0000-4000-8000-000000000000"}), 409)
+	call(assets, "POST", "/api/releases/admin/switches/bulk", jsonBody(map[string]any{"ids": []string{switchA}, "credential_id": ""}), 422)
+	if _, err = db.Exec(`UPDATE bp_credentials SET is_active=true WHERE id=$1`, credential); err != nil {
+		t.Fatal(err)
+	}
+
 	// A group a rule targets stays; deleting another ungroups its switches, one audit record each.
 	var edge string
 	if err = db.QueryRow(`SELECT id::text FROM bp_switch_groups WHERE name='Edge'`).Scan(&edge); err != nil {

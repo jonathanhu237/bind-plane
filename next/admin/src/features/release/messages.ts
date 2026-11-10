@@ -75,7 +75,8 @@ const fixed: Record<string, Words> = {
   'no single command profile for this vendor (name one, or choose a default of this vendor)': ['This vendor has no single command profile. Name one in the profile column, or choose a default of this vendor.', '这个厂商没有唯一的命令模板。请在“命令模板”列填写，或选择一个该厂商的默认模板。'],
   'a switch with this management IP already exists': ['A switch with this management IP already exists.', '已存在相同管理 IP 的交换机。'],
   'already up to date': ['Already matches the CSV.', '与 CSV 一致，无需修改。'],
-  'switches and exactly one change (group, site or enabled) required': ['Choose switches and one change to make.', '请选择设备和一项要做的修改。'],
+  'switches and exactly one change (group, site, credential or enabled) required': ['Choose switches and one change to make.', '请选择设备和一项要做的修改。'],
+  'credential is disabled or gone': ['That credential is disabled or no longer exists. Choose an enabled one.', '这条凭据已停用或已不存在，请选择一条启用的凭据。'],
   'group is used by schedules or compliance rules': [
     'A schedule or compliance rule targets this group. Change them first; otherwise they would run on every switch.',
     '有计划任务或合规规则限定在这个分组。请先修改它们，否则它们会变成对所有交换机生效。',

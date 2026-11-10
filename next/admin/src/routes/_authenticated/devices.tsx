@@ -197,12 +197,13 @@ function DevicesPage() {
     } catch (cause) { failed(cause) }
     finally { setBusy(false) }
   }
-  async function bulk(change: Record<string, unknown>) {
+  /** One change to every selected switch. `hint` follows the result; `keep` leaves the switches selected for a next step. */
+  async function bulk(change: Record<string, unknown>, { hint, keep }: { hint?: string; keep?: boolean } = {}) {
     setBusy(true)
     try {
       const result = await callAssets<{ changed: number; unchanged: number; missing: number }>('switches/bulk', { ids: [...selected], ...change })
-      notifySuccess(pick(zh, `已修改 ${result.changed} 台${result.unchanged ? `，${result.unchanged} 台原本就是这样` : ''}。`, `${result.changed} switch${result.changed === 1 ? '' : 'es'} changed${result.unchanged ? `; ${result.unchanged} already matched` : ''}.`))
-      setSelection({ key: '', ids: new Set() })
+      notifySuccess(pick(zh, `已修改 ${result.changed} 台${result.unchanged ? `，${result.unchanged} 台原本就是这样` : ''}。`, `${result.changed} switch${result.changed === 1 ? '' : 'es'} changed${result.unchanged ? `; ${result.unchanged} already matched` : ''}.`) + (hint ? ` ${hint}` : ''))
+      if (!keep) setSelection({ key: '', ids: new Set() })
     } catch (cause) { failed(cause) }
     finally { await refresh(); setBusy(false) }
   }
@@ -221,6 +222,7 @@ function DevicesPage() {
 
   const rows = list.data?.items ?? []
   const groups = inventory.data?.groups ?? []
+  const credentials = inventory.data?.credentials.filter((credential) => credential.is_active) ?? []
   const groupName = groups.find((group) => group.id === search.group)?.name
   const scopeLabel = groupName ? pick(zh, `分组“${groupName}”中所有启用的交换机`, `every enabled switch in group “${groupName}”`) : pick(zh, '所有启用的交换机', 'every enabled switch')
   const count = selected.size
@@ -282,6 +284,20 @@ function DevicesPage() {
         <SelectContent><SelectGroup>
           {groups.map((group) => <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>)}
           <SelectItem value={NO_GROUP}>{pick(zh, '移出分组', 'No group')}</SelectItem>
+        </SelectGroup></SelectContent>
+      </Select>
+      <Select value="" onValueChange={(value) => {
+        const name = credentials.find((credential) => credential.id === value)?.name ?? ''
+        setPending({
+          title: pick(zh, `把${chosen}的凭据换成“${name}”？`, `Switch ${chosen} to credential “${name}”?`),
+          description: pick(zh, '以后解绑、测试和备份都用这条凭据登录。这里只改记录，不会连接交换机。', 'Releases, tests and backups sign in with this credential from now on. Only the record changes; no switch is contacted.'),
+          action: pick(zh, '更换', 'Switch'),
+          run: () => void bulk({ credential_id: value }, { keep: true, hint: pick(zh, '可以点“测试连接”确认能登录。', 'Use Test connection to check they sign in.') }),
+        })
+      }}>
+        <SelectTrigger aria-label={pick(zh, '更换凭据', 'Change credential')} className="h-9 w-auto min-w-32" disabled={busy || !credentials.length}><SelectValue placeholder={pick(zh, '更换凭据…', 'Change credential…')} /></SelectTrigger>
+        <SelectContent><SelectGroup>
+          {credentials.map((credential) => <SelectItem key={credential.id} value={credential.id}>{credential.name}</SelectItem>)}
         </SelectGroup></SelectContent>
       </Select>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setSite(''); setSettingSite(true) }}><MapPin aria-hidden="true" data-icon="inline-start" />{pick(zh, '设置校区', 'Set campus')}</Button>

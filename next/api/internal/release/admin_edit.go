@@ -377,37 +377,41 @@ func (a *AdminHandler) editSwitch(w http.ResponseWriter, r *http.Request) {
 	a.applyEdit(w, r, actor, switchFields, input.Version, next)
 }
 
-// bulkSwitches sets one value (group, site or enabled) on many switches in one transaction.
-// Each switch it changes gets its own audit record, as if it had been edited alone.
+// bulkSwitches sets one value (group, site, credential or enabled) on many switches in one
+// transaction. Each switch it changes gets its own audit record, as if it had been edited alone.
+// A disabled credential is refused, since no switch can release or be backed up with it.
 func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 	actor, ok := a.authorize(w, r, true)
 	if !ok {
 		return
 	}
 	var input struct {
-		IDs       []string `json:"ids"`
-		GroupID   *string  `json:"group_id"` // empty removes the group
-		Site      *string  `json:"site"`     // empty clears the site
-		IsEnabled *bool    `json:"is_enabled"`
+		IDs          []string `json:"ids"`
+		GroupID      *string  `json:"group_id"` // empty removes the group
+		Site         *string  `json:"site"`     // empty clears the site
+		CredentialID *string  `json:"credential_id"`
+		IsEnabled    *bool    `json:"is_enabled"`
 	}
 	err := decodeLimit(r, &input, 1<<20)
 	next := map[string]any{}
 	optionalText(next, "group_id", input.GroupID)
 	optionalText(next, "site", input.Site)
+	optionalText(next, "credential_id", input.CredentialID)
 	optionalBool(next, "is_enabled", input.IsEnabled)
 	ids := map[string]bool{}
 	for _, id := range input.IDs {
 		ids[id] = true
 	}
 	valid := err == nil && len(next) == 1 && len(ids) > 0 && len(ids) <= importMaxRows &&
-		(input.GroupID == nil || *input.GroupID == "" || domain.IsCanonicalUUID(*input.GroupID))
+		(input.GroupID == nil || *input.GroupID == "" || domain.IsCanonicalUUID(*input.GroupID)) &&
+		(input.CredentialID == nil || domain.IsCanonicalUUID(*input.CredentialID))
 	sorted := make([]string, 0, len(ids))
 	for id := range ids {
 		valid = valid && domain.IsCanonicalUUID(id)
 		sorted = append(sorted, id)
 	}
 	if !valid {
-		fail(w, 422, "switches and exactly one change (group, site or enabled) required")
+		fail(w, 422, "switches and exactly one change (group, site, credential or enabled) required")
 		return
 	}
 	sort.Strings(sorted) // one lock order, so two bulk changes never deadlock
@@ -417,6 +421,19 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	if input.CredentialID != nil {
+		// Held until commit, so the credential cannot be disabled halfway through.
+		var active bool
+		err = tx.QueryRowContext(r.Context(), `SELECT is_active FROM bp_credentials WHERE id=$1 FOR SHARE`, *input.CredentialID).Scan(&active)
+		switch {
+		case errors.Is(err, sql.ErrNoRows) || err == nil && !active:
+			fail(w, 409, "credential is disabled or gone")
+			return
+		case err != nil:
+			fail(w, 503, "asset store unavailable")
+			return
+		}
+	}
 	changed, missing := 0, 0
 	var pgErr *pgconn.PgError
 	for _, id := range sorted {
