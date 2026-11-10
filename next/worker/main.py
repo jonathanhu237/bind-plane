@@ -23,7 +23,6 @@ from bind_plane.worker.release_executor import build_connection_settings_for_swi
 from bind_plane.worker.sessions import NetmikoSwitchSession, SwitchConnectionTimeoutError
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from worker.devices import device_loop, resolve_transport
-from worker.monitoring import monitor_loop
 
 logger = logging.getLogger("bind_plane.worker")
 
@@ -411,17 +410,13 @@ async def release_loop(pool):
 async def main():
     logging.basicConfig(level=logging.INFO)
     concurrency = max(1, int(os.environ.get("BIND_PLANE_DEVICE_CONCURRENCY", "8")))
-    polls = max(1, int(os.environ.get("BIND_PLANE_MONITOR_CONCURRENCY", "16")))
     pool = await asyncpg.create_pool(
-        os.environ["EXECUTOR_DATABASE_URL"], min_size=1, max_size=concurrency + 8
+        os.environ["EXECUTOR_DATABASE_URL"], min_size=1, max_size=concurrency + 4
     )
     try:
-        # Release jobs keep their own loop so a long backup run never delays a release, and
-        # monitoring polls keep theirs so neither waits for the other.
+        # Release jobs keep their own loop so a long backup run never delays a release.
         await asyncio.gather(
-            release_loop(pool),
-            device_loop(pool, concurrency, connection_settings),
-            monitor_loop(pool, polls),
+            release_loop(pool), device_loop(pool, concurrency, connection_settings)
         )
     finally:
         await pool.close()

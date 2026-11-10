@@ -10,7 +10,7 @@ import { isAdmin } from '@/features/ops/ui'
 import { cn } from '@/lib/utils'
 import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 import {
-  AssetEditDialog, AssetRequestError, DisableAssetDialog, assetPath, callAssets, editorLabels, isOn, statusBody, type AssetKind, type EditorLabels, type EditTarget, type Inventory,
+  AssetEditDialog, AssetRequestError, DisableAssetDialog, callAssets, editorLabels, isOn, statusBody, type AssetKind, type EditorLabels, type EditTarget, type Inventory,
 } from './asset-editors'
 import { errorText } from './messages'
 
@@ -38,7 +38,7 @@ export function useAssetPage() {
   }
   async function setStatus(target: EditTarget, on: boolean) {
     setBusy(true)
-    try { await callAssets(`${assetPath(target.kind)}/${target.item.id}`, statusBody(target, on), 'PATCH'); notifySuccess(labels.statusChanged(target, on)) }
+    try { await callAssets(`${target.kind}/${target.item.id}`, statusBody(target, on), 'PATCH'); notifySuccess(labels.statusChanged(target, on)) }
     catch (error) { notifyRequestError(error, t, { description: errorText(error, zh) }) }
     finally { await refresh(); setBusy(false) }
   }
@@ -46,7 +46,7 @@ export function useAssetPage() {
   function toggle(target: EditTarget) { if (isOn(target)) setDisabling(target); else void setStatus(target, true) }
   /** Creates an asset and reloads the inventory; a failure is thrown for the dialog to show. */
   async function create(kind: AssetKind, body: unknown) {
-    await callAssets(assetPath(kind), body); notifySuccess(labels.saved); await refresh()
+    await callAssets(kind, body); notifySuccess(labels.saved); await refresh()
   }
 
   const dialogs = <>

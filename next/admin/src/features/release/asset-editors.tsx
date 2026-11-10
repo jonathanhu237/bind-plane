@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { errorText } from './messages'
 import { useRequiredFields, type RequiredField } from './required-fields'
 
-export const profileRuleKeys = ['command_templates', 'parser_rules', 'login_prompt_patterns', 'prompt_patterns', 'pagination_rules', 'success_patterns', 'error_patterns', 'snmp_rules'] as const
+export const profileRuleKeys = ['command_templates', 'parser_rules', 'login_prompt_patterns', 'prompt_patterns', 'pagination_rules', 'success_patterns', 'error_patterns'] as const
 type RuleKey = (typeof profileRuleKeys)[number]
 const arrayRules: ReadonlySet<string> = new Set(['success_patterns', 'error_patterns'])
 
@@ -51,13 +51,6 @@ const ruleText: Record<RuleKey, { label: [string, string]; hint: [string, string
   },
   success_patterns: { label: ['Success patterns', '成功匹配'], hint: ['JSON array of regular expressions; release output matching one counts as success.', 'JSON 数组，解绑输出命中其中任一正则即视为成功。'] },
   error_patterns: { label: ['Error patterns', '错误匹配'], hint: ['JSON array of regular expressions; command output matching one counts as an error.', 'JSON 数组，命令输出命中其中任一正则即视为出错。'] },
-  snmp_rules: {
-    label: ['SNMP metrics', 'SNMP 指标'],
-    hint: [
-      'JSON object for monitoring: cpu, memory and temperature, each a list of OIDs tried in order; the highest value under the first OID that gives one is the reading. {} reads only standard MIBs (uptime and ports).',
-      'JSON 对象，用于设备监控：cpu、memory、temperature 各列出若干 OID，按顺序尝试，取第一个有值的 OID 下的最大值。{} 表示只读标准 MIB（运行时长和端口）。',
-    ],
-  },
 }
 export const ruleLabel = (key: string, zh: boolean) => ruleText[key as RuleKey]?.label[zh ? 1 : 0] ?? key
 export const ruleHint = (key: string, zh: boolean) => ruleText[key as RuleKey]?.hint[zh ? 1 : 0] ?? ''
@@ -66,16 +59,6 @@ export const ruleHint = (key: string, zh: boolean) => ruleText[key as RuleKey]?.
 export const NO_GROUP = 'none'
 
 export type Credential = { id: string; name: string; username: string; description: string | null; is_active: boolean; has_secret: boolean; version: number }
-/** A credential for monitoring over SNMP: a v2c community, or a v3 user. Secrets are never listed. */
-export type SnmpCredential = {
-  id: string; name: string; snmp_version: 'v2c' | 'v3'; username: string | null; auth_protocol: string | null; priv_protocol: string | null
-  description: string | null; is_active: boolean; version: number
-}
-export const snmpAuthProtocols = ['md5', 'sha', 'sha224', 'sha256', 'sha384', 'sha512'] as const
-export const snmpPrivProtocols = ['des', 'aes', 'aes192', 'aes256'] as const
-export const snmpProtocolName = (protocol: string) => ({ md5: 'MD5', sha: 'SHA-1', sha224: 'SHA-224', sha256: 'SHA-256', sha384: 'SHA-384', sha512: 'SHA-512', des: 'DES', aes: 'AES-128', aes192: 'AES-192', aes256: 'AES-256' })[protocol] ?? protocol
-/** Radix select items need a value, so "none" travels as this and is sent as ''. */
-export const NONE = 'none'
 export type Profile = { id: string; name: string; vendor: Vendor; is_active: boolean; version: number } & Record<RuleKey, unknown>
 export type Vendor = 'huawei' | 'h3c' | 'ruijie' | 'cisco' | 'other'
 export type SwitchAsset = {
@@ -83,20 +66,15 @@ export type SwitchAsset = {
   vendor: Vendor; model: string | null; site: string | null; description: string | null; group_id: string | null; protocol: 'telnet' | 'ssh'; port: number | null
   /** A release switch is the gateway of its users' networks, which are read from its configuration. */
   handles_release: boolean; networks_succeeded_at: string | null; networks_error: string | null
-  /** A switch with an SNMP credential is monitored; without a port of its own it uses 161. */
-  snmp_credential_id: string | null; snmp_port: number | null
 }
 export type GroupAsset = { id: string; name: string; description: string | null; version: number }
 /** A network read from a release switch's configuration; one without an interface was typed in before that. */
 export type NetworkAsset = { id: string; switch_id: string; cidr: string; is_enabled: boolean; is_validated: boolean; vlan: string | null; description: string | null; interface: string | null; version: number }
-export type Inventory = { credentials: Credential[]; snmp_credentials: SnmpCredential[]; profiles: Profile[]; switches: SwitchAsset[]; networks: NetworkAsset[]; groups: GroupAsset[] }
-export type AssetKind = 'credentials' | 'snmp_credentials' | 'profiles' | 'switches' | 'groups'
-/** The API path of an asset kind. */
-export const assetPath = (kind: AssetKind) => (kind === 'snmp_credentials' ? 'snmp-credentials' : kind)
+export type Inventory = { credentials: Credential[]; profiles: Profile[]; switches: SwitchAsset[]; networks: NetworkAsset[]; groups: GroupAsset[] }
+export type AssetKind = 'credentials' | 'profiles' | 'switches' | 'groups'
 export const vendors: Vendor[] = ['huawei', 'h3c', 'ruijie', 'cisco', 'other']
 export type EditTarget =
   | { kind: 'credentials'; item: Credential }
-  | { kind: 'snmp_credentials'; item: SnmpCredential }
   | { kind: 'profiles'; item: Profile }
   | { kind: 'switches'; item: SwitchAsset }
   | { kind: 'groups'; item: GroupAsset }
@@ -123,11 +101,11 @@ export async function callAssets<T>(path: string, body?: unknown, method = body 
 
 export function isOn(target: EditTarget): boolean {
   if (target.kind === 'groups') return true
-  return target.kind === 'switches' ? target.item.is_enabled : target.item.is_active
+  return target.kind === 'credentials' || target.kind === 'profiles' ? target.item.is_active : target.item.is_enabled
 }
 
 export function statusBody(target: EditTarget, on: boolean): Record<string, unknown> {
-  return { version: target.item.version, [target.kind === 'switches' ? 'is_enabled' : 'is_active']: on }
+  return { version: target.item.version, [target.kind === 'credentials' || target.kind === 'profiles' ? 'is_active' : 'is_enabled']: on }
 }
 
 export function assetName(target: EditTarget): string {
@@ -162,7 +140,6 @@ export const vendorName = (vendor: string, zh: boolean) =>
 export function switchesUsing(target: EditTarget, inventory?: Inventory): number {
   if (target.kind === 'credentials') return inventory?.switches.filter((item) => item.credential_id === target.item.id).length ?? 0
   if (target.kind === 'profiles') return inventory?.switches.filter((item) => item.command_profile_id === target.item.id).length ?? 0
-  if (target.kind === 'snmp_credentials') return inventory?.switches.filter((item) => item.snmp_credential_id === target.item.id).length ?? 0
   return 0
 }
 
@@ -172,11 +149,6 @@ function initialForm(target: EditTarget): Form {
   switch (target.kind) {
     case 'credentials':
       return { name: target.item.name, username: target.item.username, description: target.item.description ?? '', password: '', secret: '', clear_secret: false }
-    case 'snmp_credentials':
-      return {
-        name: target.item.name, description: target.item.description ?? '', snmp_version: target.item.snmp_version, community: '', username: target.item.username ?? '',
-        auth_protocol: target.item.auth_protocol ?? NONE, auth_password: '', priv_protocol: target.item.priv_protocol ?? NONE, priv_password: '',
-      }
     case 'profiles':
       return { name: target.item.name, vendor: target.item.vendor ?? 'other', ...Object.fromEntries(profileRuleKeys.map((key) => [key, JSON.stringify(target.item[key] ?? (arrayRules.has(key) ? [] : {}), null, 2)])) }
     case 'switches':
@@ -185,23 +157,10 @@ function initialForm(target: EditTarget): Form {
         vendor: target.item.vendor ?? 'other', model: target.item.model ?? '', site: target.item.site ?? '', description: target.item.description ?? '',
         group_id: target.item.group_id ?? '', protocol: target.item.protocol ?? 'telnet', port: target.item.port ? String(target.item.port) : defaultPort(target.item.protocol ?? 'telnet'),
         handles_release: Boolean(target.item.handles_release),
-        snmp_credential_id: target.item.snmp_credential_id ?? '', snmp_port: target.item.snmp_port ? String(target.item.snmp_port) : '',
       }
     case 'groups':
       return { name: target.item.name, description: target.item.description ?? '' }
   }
-}
-
-/** An SNMP credential's form as the API takes it; empty secrets keep the stored ones. */
-export function snmpCredentialBody(form: Record<string, string | boolean>): Record<string, unknown> {
-  const text = (key: string) => String(form[key] ?? '')
-  const protocol = (key: string) => (text(key) === NONE ? '' : text(key))
-  const secret = (key: string) => (text(key) ? { [key]: text(key) } : {})
-  const base = { name: text('name'), description: text('description'), snmp_version: text('snmp_version') }
-  if (text('snmp_version') === 'v2c') return { ...base, ...secret('community') }
-  const auth = protocol('auth_protocol')
-  const priv = auth ? protocol('priv_protocol') : ''
-  return { ...base, username: text('username'), auth_protocol: auth, priv_protocol: priv, ...(auth ? secret('auth_password') : {}), ...(priv ? secret('priv_password') : {}) }
 }
 
 export type EditRequest = { path: string; body: Record<string, unknown> } | { invalidRule: string }
@@ -210,7 +169,7 @@ export type EditRequest = { path: string; body: Record<string, unknown> } | { in
 // unchanged values. Empty password fields keep the stored secrets.
 export function editRequest(target: EditTarget, form: Form): EditRequest {
   const text = (key: string) => String(form[key] ?? '')
-  const path = `${assetPath(target.kind)}/${target.item.id}`
+  const path = `${target.kind}/${target.item.id}`
   const version = target.item.version
   switch (target.kind) {
     case 'credentials':
@@ -222,8 +181,6 @@ export function editRequest(target: EditTarget, form: Form): EditRequest {
           ...(form.clear_secret ? { clear_secret: true } : text('secret') ? { secret: text('secret') } : {}),
         },
       }
-    case 'snmp_credentials':
-      return { path, body: { version, ...snmpCredentialBody(form) } }
     case 'profiles': {
       const body: Record<string, unknown> = { version, name: text('name'), vendor: text('vendor') }
       for (const key of profileRuleKeys) {
@@ -241,8 +198,6 @@ export function editRequest(target: EditTarget, form: Form): EditRequest {
     case 'switches': {
       const port = text('port').trim()
       if (port && !/^\d+$/.test(port)) return { invalidRule: 'port' }
-      const snmpPort = text('snmp_port').trim()
-      if (snmpPort && !/^\d+$/.test(snmpPort)) return { invalidRule: 'snmp_port' }
       // A switch that never had a port of its own keeps none while it uses its protocol's default, so it
       // goes on following the protocol; 0 asks the API for that. An empty field means the default too.
       const fallback = Number(defaultPort(text('protocol')))
@@ -253,8 +208,6 @@ export function editRequest(target: EditTarget, form: Form): EditRequest {
           version, name: text('name'), management_ip: text('management_ip').trim(), credential_id: text('credential_id'), command_profile_id: text('command_profile_id'),
           vendor: text('vendor'), model: text('model'), site: text('site'), description: text('description'), group_id: text('group_id'), protocol: text('protocol'), port: !target.item.port && chosen === fallback ? 0 : chosen,
           handles_release: Boolean(form.handles_release),
-          // 0 asks for the standard SNMP port, 161.
-          snmp_credential_id: text('snmp_credential_id'), snmp_port: snmpPort ? Number(snmpPort) : 0,
         },
       }
     }
@@ -265,8 +218,8 @@ export function editRequest(target: EditTarget, form: Form): EditRequest {
 
 export function editorLabels(zh: boolean) {
   const noun: Record<AssetKind, string> = zh
-    ? { credentials: '凭据', snmp_credentials: 'SNMP 凭据', profiles: '命令模板', switches: '交换机', groups: '分组' }
-    : { credentials: 'credential', snmp_credentials: 'SNMP credential', profiles: 'command profile', switches: 'switch', groups: 'group' }
+    ? { credentials: '凭据', profiles: '命令模板', switches: '交换机', groups: '分组' }
+    : { credentials: 'credential', profiles: 'command profile', switches: 'switch', groups: 'group' }
   const switchCount = (count: number) => zh ? `${count} 台交换机` : `${count} switch${count === 1 ? '' : 'es'}`
   return zh ? {
     edit: '编辑', copy: '复制', enable: '启用', disable: '停用', disabled: '已停用', cancel: '取消', close: '关闭',
@@ -274,21 +227,17 @@ export function editorLabels(zh: boolean) {
     name: '名称', username: '设备用户名', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
     keep: '留空则保留现有值', clearSecret: '删除已保存的特权密码', managementIP: '管理 IPv4', credential: '凭据', profile: '命令模板',
     inactive: '（已停用）', handlesRelease: '负责解绑',
-    snmpCredential: 'SNMP 凭据', noSnmp: '不监控', snmpPort: 'SNMP 端口', snmpHint: '选择 SNMP 凭据后，系统按监控设置的间隔采集这台交换机的 CPU、内存、温度和端口状态，只读取不修改。',
-    snmpVersion: 'SNMP 版本', community: '团体字（只读）', snmpUser: 'SNMPv3 用户名', authProtocol: '认证方式', authPassword: '认证密码', privProtocol: '加密方式', privPassword: '加密密码',
-    noAuth: '不认证', noPriv: '不加密', passwordRule: 'SNMPv3 密码至少 8 个字符。',
     handlesReleaseHint: '网关交换机打开：解绑时按它的网段找到它，网段从它的配置里自动读取。',
     vendor: '厂商', model: '型号（可选）', site: '站点或校区（可选）', group: '分组', noGroup: '不分组', protocol: '登录协议', port: '端口',
     invalidPort: '端口必须是 1–65535 之间的数字。',
     editTitle: (kind: AssetKind) => `编辑${noun[kind]}`,
     hint: {
       credentials: '密码不会回显。两个密码框留空即保留现有值。',
-      snmp_credentials: '团体字和密码不会回显，留空即保留现有值。保存后，使用它的交换机下一次采集就会用新的设置。',
       profiles: '保存会改变此模板发送的命令。使用它的交换机上排队中的解绑会直接失败、不会连接交换机，需要重新解绑。',
       switches: '保存后，此交换机上排队中的解绑会直接失败、不会连接交换机，需要重新解绑。',
       groups: '分组用于筛选设备、限定计划任务和合规规则的范围。',
     } satisfies Record<AssetKind, string>,
-    invalidRule: (key: string) => key === 'port' || key === 'snmp_port' ? '端口必须是 1–65535 之间的数字。' : `「${ruleLabel(key, true)}」必须是合法的 JSON ${arrayRules.has(key) ? '数组' : '对象'}。`,
+    invalidRule: (key: string) => key === 'port' ? '端口必须是 1–65535 之间的数字。' : `「${ruleLabel(key, true)}」必须是合法的 JSON ${arrayRules.has(key) ? '数组' : '对象'}。`,
     usedBy: (count: number) => count ? `${switchCount(count)}在用` : '暂无交换机使用',
     ownedBy: (name: string) => `交换机 ${name}`,
     disableTitle: (target: EditTarget) => `停用${noun[target.kind]}「${assetName(target)}」？`,
@@ -298,8 +247,6 @@ export function editorLabels(zh: boolean) {
         case 'credentials':
         case 'profiles':
           return count ? `${switchCount(count)}使用此${noun[target.kind]}。重新启用之前，它们不参与解析，排队中的任务会直接失败，不会连接交换机。` : `目前没有交换机使用此${noun[target.kind]}。`
-        case 'snmp_credentials':
-          return count ? `${switchCount(count)}使用此 SNMP 凭据。重新启用之前，它们停止监控，监控告警会自动解决。` : '目前没有交换机使用此 SNMP 凭据。'
         case 'switches':
           return '其网段内的地址将不再解析到此交换机。排队中的任务会直接失败，不会连接交换机。'
         case 'groups':
@@ -309,7 +256,6 @@ export function editorLabels(zh: boolean) {
     statusChanged: (target: EditTarget, on: boolean) => `${noun[target.kind]}「${assetName(target)}」已${on ? '启用' : '停用'}。`,
     empty: {
       credentials: '还没有凭据。添加交换机之前需要先保存凭据。',
-      snmp_credentials: '还没有 SNMP 凭据。新建一个并分配给交换机后，系统就会开始监控它们。',
       profiles: '还没有命令模板。添加交换机之前需要先保存模板。',
       switches: '还没有交换机。',
       groups: '还没有分组。导入交换机时也会自动创建分组。',
@@ -320,21 +266,17 @@ export function editorLabels(zh: boolean) {
     name: 'Name', username: 'Device username', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
     keep: 'Leave empty to keep the stored value', clearSecret: 'Remove the stored privilege secret', managementIP: 'Management IPv4', credential: 'Credential', profile: 'Command profile',
     inactive: ' (disabled)', handlesRelease: 'Handles releases',
-    snmpCredential: 'SNMP credential', noSnmp: 'Not monitored', snmpPort: 'SNMP port', snmpHint: 'With an SNMP credential, the switch is polled for CPU, memory, temperature and ports at the monitoring interval. Polls only read.',
-    snmpVersion: 'SNMP version', community: 'Community (read-only)', snmpUser: 'SNMPv3 user', authProtocol: 'Authentication', authPassword: 'Authentication password', privProtocol: 'Privacy', privPassword: 'Privacy password',
-    noAuth: 'No authentication', noPriv: 'No privacy', passwordRule: 'SNMPv3 passwords are at least 8 characters.',
     handlesReleaseHint: 'For gateway switches: releases find it by its networks, which are read from its configuration.',
     vendor: 'Vendor', model: 'Model (optional)', site: 'Site or campus (optional)', group: 'Group', noGroup: 'No group', protocol: 'Login protocol', port: 'Port',
     invalidPort: 'Port must be a number from 1 to 65535.',
     editTitle: (kind: AssetKind) => `Edit ${noun[kind]}`,
     hint: {
       credentials: 'Stored passwords are never shown. Leave both password fields empty to keep them.',
-      snmp_credentials: 'Communities and passwords are never shown; leave them empty to keep them. Switches using it poll with the new settings next time.',
       profiles: 'Saving changes the commands this profile sends. Releases queued on its switches fail without contacting the switch and must be started again.',
       switches: 'After saving, releases queued on this switch fail without contacting it and must be started again.',
       groups: 'Groups filter devices and scope schedules and compliance rules.',
     } satisfies Record<AssetKind, string>,
-    invalidRule: (key: string) => key === 'port' || key === 'snmp_port' ? 'Port must be a number from 1 to 65535.' : `${ruleLabel(key, false)} must be a valid JSON ${arrayRules.has(key) ? 'array' : 'object'}.`,
+    invalidRule: (key: string) => key === 'port' ? 'Port must be a number from 1 to 65535.' : `${ruleLabel(key, false)} must be a valid JSON ${arrayRules.has(key) ? 'array' : 'object'}.`,
     usedBy: (count: number) => count ? `Used by ${switchCount(count)}` : 'Not used by any switch',
     ownedBy: (name: string) => `Switch ${name}`,
     disableTitle: (target: EditTarget) => `Disable ${noun[target.kind]} “${assetName(target)}”?`,
@@ -344,8 +286,6 @@ export function editorLabels(zh: boolean) {
         case 'credentials':
         case 'profiles':
           return count ? `${switchCount(count)} use${count === 1 ? 's' : ''} this ${noun[target.kind]}. Until it is enabled again they stop resolving, and their queued jobs fail without contacting the switch.` : `No switch uses this ${noun[target.kind]}.`
-        case 'snmp_credentials':
-          return count ? `${switchCount(count)} use${count === 1 ? 's' : ''} this SNMP credential. Until it is enabled again they are not monitored, and their monitoring alerts resolve.` : 'No switch uses this SNMP credential.'
         case 'switches':
           return 'Addresses in its networks stop resolving to it. Its queued jobs fail without contacting the switch.'
         case 'groups':
@@ -355,7 +295,6 @@ export function editorLabels(zh: boolean) {
     statusChanged: (target: EditTarget, on: boolean) => `${noun[target.kind][0].toUpperCase()}${noun[target.kind].slice(1)} “${assetName(target)}” ${on ? 'enabled' : 'disabled'}.`,
     empty: {
       credentials: 'No credentials yet. Switches need one before they can be added.',
-      snmp_credentials: 'No SNMP credentials yet. Create one and give it to switches to start monitoring them.',
       profiles: 'No command profiles yet. Switches need one before they can be added.',
       switches: 'No switches yet.',
       groups: 'No groups yet. Importing switches creates their groups too.',
@@ -399,7 +338,6 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
   const need = (id: string, key: string, label: string, choose = false): RequiredField => ({ id, label, value: value(key), choose })
   const required = useRequiredFields(zh, {
     credentials: [need('edit-name', 'name', labels.name), need('edit-username', 'username', labels.username)],
-    snmp_credentials: [need('edit-name', 'name', labels.name), ...(value('snmp_version') === 'v3' ? [need('edit-snmp-user', 'username', labels.snmpUser)] : [])],
     profiles: [need('edit-name', 'name', labels.name)],
     switches: [need('edit-name', 'name', labels.name), need('edit-management-ip', 'management_ip', labels.managementIP),
       need('edit-credential', 'credential_id', labels.credential, true), need('edit-profile', 'command_profile_id', labels.profile, true)],
@@ -472,7 +410,6 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
         </Field>
         {target.item.has_secret ? toggle('edit-clear-secret', 'clear_secret', labels.clearSecret) : null}
       </> : null}
-      {target.kind === 'snmp_credentials' ? <SnmpCredentialFields idPrefix="edit" form={form} labels={labels} keep onChange={set} required={required} /> : null}
       {target.kind === 'profiles' ? <>
         {text('edit-name', 'name', labels.name)}
         {choice('edit-vendor', 'vendor', labels.vendor, vendors.map((vendor) => ({ value: vendor, label: vendorName(vendor, zh) })))}
@@ -520,8 +457,6 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
             <FieldDescription>{labels.handlesReleaseHint}</FieldDescription>
           </div>
         </Field>
-        <SnmpChoice idPrefix="edit" credentialId={value('snmp_credential_id')} port={value('snmp_port')} invalidPort={invalidRule === 'snmp_port'} credentials={inventory?.snmp_credentials} labels={labels}
-          onCredential={(next) => set('snmp_credential_id', next)} onPort={(next) => set('snmp_port', next)} />
       </> : null}
       {target.kind === 'groups' ? <>
         {text('edit-name', 'name', labels.name)}
@@ -534,86 +469,6 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
       <Button type="submit" disabled={busy}>{busy ? labels.saving : labels.save}</Button>
     </DialogFooter>
   </form>
-}
-
-/** The switch's SNMP credential, which turns monitoring on, and its SNMP port. */
-export function SnmpChoice({ idPrefix, credentialId, port, invalidPort = false, credentials, labels, onCredential, onPort }: {
-  idPrefix: string; credentialId: string; port: string; invalidPort?: boolean; credentials?: SnmpCredential[]; labels: EditorLabels
-  onCredential: (id: string) => void; onPort: (port: string) => void
-}) {
-  return <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-    <Field>
-      <FieldLabel htmlFor={`${idPrefix}-snmp-credential`}>{labels.snmpCredential}</FieldLabel>
-      <Select value={credentialId || NONE} onValueChange={(next) => onCredential(next === NONE ? '' : next)}>
-        <SelectTrigger id={`${idPrefix}-snmp-credential`} aria-describedby={`${idPrefix}-snmp-hint`}><SelectValue /></SelectTrigger>
-        <SelectContent><SelectGroup>
-          <SelectItem value={NONE}>{labels.noSnmp}</SelectItem>
-          {(credentials ?? []).map((item) => <SelectItem key={item.id} value={item.id}>{item.name}{item.is_active ? '' : labels.inactive}</SelectItem>)}
-        </SelectGroup></SelectContent>
-      </Select>
-    </Field>
-    <Field data-invalid={invalidPort} data-disabled={!credentialId}>
-      <FieldLabel htmlFor={`${idPrefix}-snmp-port`}>{labels.snmpPort}</FieldLabel>
-      <Input id={`${idPrefix}-snmp-port`} inputMode="numeric" placeholder="161" disabled={!credentialId} aria-invalid={invalidPort || undefined}
-        value={port} onChange={(event) => onPort(event.target.value)} className="font-mono" />
-    </Field>
-    <FieldDescription id={`${idPrefix}-snmp-hint`} className="sm:col-span-2">{labels.snmpHint}</FieldDescription>
-  </div>
-}
-
-/** The fields of an SNMP credential: a community for v2c, or a user and its protocols for v3. */
-export function SnmpCredentialFields({ idPrefix, form, labels, keep = false, onChange, required }: {
-  idPrefix: string; form: Record<string, string | boolean>; labels: EditorLabels; keep?: boolean
-  onChange: (key: string, value: string) => void; required: ReturnType<typeof useRequiredFields>
-}) {
-  const value = (key: string) => String(form[key] ?? '')
-  const id = (key: string) => `${idPrefix}-snmp-${key}`
-  const v3 = value('snmp_version') === 'v3'
-  const authOn = value('auth_protocol') !== NONE
-  const privOn = authOn && value('priv_protocol') !== NONE
-  const secret = (key: string, label: string, hint?: string) => <Field data-invalid={required.invalid(id(key))}>
-    <FieldLabel htmlFor={id(key)}>{label}</FieldLabel>
-    <Input id={id(key)} type="password" autoComplete="new-password" placeholder={keep ? labels.keep : undefined} value={value(key)} onChange={(event) => onChange(key, event.target.value)}
-      {...required.control(id(key), hint ? `${id(key)}-hint` : undefined)} />
-    {hint ? <FieldDescription id={`${id(key)}-hint`}>{hint}</FieldDescription> : null}
-    {required.message(id(key))}
-  </Field>
-  const choice = (key: string, label: string, options: { value: string; label: string }[], disabled = false) => <Field data-disabled={disabled}>
-    <FieldLabel htmlFor={id(key)}>{label}</FieldLabel>
-    <Select value={value(key)} onValueChange={(next) => onChange(key, next)} disabled={disabled}>
-      <SelectTrigger id={id(key)}><SelectValue /></SelectTrigger>
-      <SelectContent><SelectGroup>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectGroup></SelectContent>
-    </Select>
-  </Field>
-  const nameId = idPrefix === 'edit' ? 'edit-name' : `${idPrefix}-snmp-name`
-  const userId = idPrefix === 'edit' ? 'edit-snmp-user' : `${idPrefix}-snmp-user`
-  return <>
-    <Field data-invalid={required.invalid(nameId)}>
-      <FieldLabel htmlFor={nameId}>{labels.name}</FieldLabel>
-      <Input id={nameId} value={value('name')} onChange={(event) => onChange('name', event.target.value)} {...required.control(nameId)} autoComplete="off" />
-      {required.message(nameId)}
-    </Field>
-    {choice('snmp_version', labels.snmpVersion, [{ value: 'v2c', label: 'SNMP v2c' }, { value: 'v3', label: 'SNMP v3' }])}
-    {v3 ? <>
-      <Field data-invalid={required.invalid(userId)}>
-        <FieldLabel htmlFor={userId}>{labels.snmpUser}</FieldLabel>
-        <Input id={userId} value={value('username')} onChange={(event) => onChange('username', event.target.value)} {...required.control(userId)} autoComplete="off" className="font-mono" />
-        {required.message(userId)}
-      </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {choice('auth_protocol', labels.authProtocol, [{ value: NONE, label: labels.noAuth }, ...snmpAuthProtocols.map((protocol) => ({ value: protocol, label: snmpProtocolName(protocol) }))])}
-        {authOn ? secret('auth_password', labels.authPassword, labels.passwordRule) : null}
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {choice('priv_protocol', labels.privProtocol, [{ value: NONE, label: labels.noPriv }, ...snmpPrivProtocols.map((protocol) => ({ value: protocol, label: snmpProtocolName(protocol) }))], !authOn)}
-        {privOn ? secret('priv_password', labels.privPassword) : null}
-      </div>
-    </> : secret('community', labels.community)}
-    <Field>
-      <FieldLabel htmlFor={id('description')}>{labels.description}</FieldLabel>
-      <Input id={id('description')} value={value('description')} onChange={(event) => onChange('description', event.target.value)} autoComplete="off" />
-    </Field>
-  </>
 }
 
 export function AssetEditDialog({ target, inventory, zh, onClose, onSave }: {
@@ -651,12 +506,7 @@ const fieldNames: Record<string, [string, string]> = {
   management_ip: ['management IP', '管理 IP'], credential_id: ['credential', '凭据'], command_profile_id: ['command profile', '命令模板'],
   switch_id: ['switch', '所属交换机'], cidr: ['CIDR', '网段'], vlan: ['VLAN', 'VLAN'], is_validated: ['validation', '验证状态'],
   vendor: ['vendor', '厂商'], model: ['model', '型号'], site: ['site', '站点'], protocol: ['protocol', '协议'], port: ['port', '端口'],
-  group_id: ['group', '分组'], handles_release: ['release role', '负责解绑'],
-  snmp_credential_id: ['SNMP credential', 'SNMP 凭据'], snmp_port: ['SNMP port', 'SNMP 端口'], snmp_version: ['SNMP version', 'SNMP 版本'],
-  encrypted_community: ['community', '团体字'], auth_protocol: ['authentication', '认证方式'], priv_protocol: ['privacy', '加密方式'],
-  encrypted_auth_password: ['authentication password', '认证密码'], encrypted_priv_password: ['privacy password', '加密密码'],
-  interval_minutes: ['poll interval', '采集间隔'], cpu_threshold: ['CPU threshold', 'CPU 阈值'], memory_threshold: ['memory threshold', '内存阈值'],
-  temperature_threshold: ['temperature threshold', '温度阈值'], consecutive_polls: ['polls in a row', '连续次数'], alert_on_restart: ['restart alerts', '重启告警'], kind: ['task type', '任务类型'], cron: ['schedule', '执行时间'], scope: ['scope', '范围'],
+  group_id: ['group', '分组'], handles_release: ['release role', '负责解绑'], kind: ['task type', '任务类型'], cron: ['schedule', '执行时间'], scope: ['scope', '范围'],
   pattern: ['pattern', '匹配规则'], mode: ['mode', '判定方式'], severity: ['severity', '严重级别'], switches: ['switches ungrouped', '移出分组的交换机'],
   ...Object.fromEntries(profileRuleKeys.map((key) => [key, [ruleText[key].label[0].toLowerCase(), ruleText[key].label[1]] as [string, string]])),
 }
@@ -690,8 +540,6 @@ export function describeChanges(changes: Record<string, unknown> | undefined, zh
 
 const actionNames: Record<string, [string, string]> = {
   'credential.create': ['Credential created', '新建凭据'], 'credential.update': ['Credential changed', '修改凭据'],
-  'snmp_credential.create': ['SNMP credential created', '新建 SNMP 凭据'], 'snmp_credential.update': ['SNMP credential changed', '修改 SNMP 凭据'],
-  'monitoring.update': ['Monitoring settings changed', '修改监控设置'],
   'profile.create': ['Profile created', '新建命令模板'], 'profile.update': ['Profile changed', '修改命令模板'],
   'switch.create': ['Switch created', '新建交换机'], 'switch.update': ['Switch changed', '修改交换机'],
   'switch.networks': ['Networks read from configuration', '从配置读取网段'],

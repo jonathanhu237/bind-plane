@@ -20,7 +20,7 @@ type ImportReport = {
 }
 
 // Switches only: networks are read from the release switches' configuration.
-const template = 'name,management_ip,vendor,model,group,site,protocol,port,credential,profile,description,handles_release,snmp_credential\nSZ-CORE-01,10.18.127.10,huawei,S12700E-4,Core,SZ,ssh,,,,,yes,\n'
+const template = 'name,management_ip,vendor,model,group,site,protocol,port,credential,profile,description,handles_release\nSZ-CORE-01,10.18.127.10,huawei,S12700E-4,Core,SZ,ssh,,,,,yes\n'
 // "No default" travels as this select value and is sent as ''.
 const NONE = 'none'
 
@@ -104,7 +104,7 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
             <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => { setCsv(template); setReport(null) }}>{pick(zh, '填入模板', 'Insert template')}</Button>
           </div>
           <Textarea id="import-csv" className="font-mono" rows={8} spellCheck={false} aria-describedby="import-csv-hint" value={csv} onChange={(event) => setCsv(event.target.value)} />
-          <FieldDescription id="import-csv-hint">{pick(zh, '首行为表头。也接受其他系统导出的表头，如“设备名称、IP地址、校区”和 NetSwitch Pro 的 ip_address、group_name、region；用不到的列会被忽略。handles_release（负责解绑）填“是”的网关交换机，导入后会自动读取网段；snmp_credential 填 SNMP 凭据的名称即开始监控。文件可以是 UTF-8 或 GBK 编码。', 'The first row is the header. Headings from other inventories, such as 设备名称 and IP地址 or NetSwitch Pro’s ip_address, group_name and region, work too; unused columns are ignored. Gateway switches with yes under handles_release have their networks read after the import; an SNMP credential’s name under snmp_credential starts monitoring. Files may be UTF-8 or GBK.')}</FieldDescription>
+          <FieldDescription id="import-csv-hint">{pick(zh, '首行为表头。也接受其他系统导出的表头，如“设备名称、IP地址、校区”和 NetSwitch Pro 的 ip_address、group_name、region；用不到的列会被忽略。handles_release（负责解绑）填“是”的网关交换机，导入后会自动读取网段。文件可以是 UTF-8 或 GBK 编码。', 'The first row is the header. Headings from other inventories, such as 设备名称 and IP地址 or NetSwitch Pro’s ip_address, group_name and region, work too; unused columns are ignored. Gateway switches with yes under handles_release have their networks read after the import. Files may be UTF-8 or GBK.')}</FieldDescription>
         </Field>
       </FieldGroup>
       {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}

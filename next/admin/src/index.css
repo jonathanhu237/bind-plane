@@ -24,8 +24,6 @@
   /* Status text on the page background: reachable or passed, and needs attention. */
   --success: oklch(0.508 0.118 165.612);
   --warning: oklch(0.473 0.137 46.201);
-  /* The one chart line colour (a monitoring chart shows one measure), checked at 3:1 or more on the page. */
-  --chart-1: #2a78d6;
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -58,7 +56,6 @@
   --destructive-foreground: oklch(0.985 0 0);
   --success: oklch(0.845 0.143 164.978);
   --warning: oklch(0.879 0.169 91.605);
-  --chart-1: #3987e5;
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -91,7 +88,6 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
-  --color-chart-1: var(--chart-1);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

@@ -54,8 +54,6 @@ func NewAdminHandler(db *sql.DB, identity Identity, cookie, origin string) (http
 	mux.HandleFunc("POST /api/releases/admin/profiles", a.profile)
 	mux.HandleFunc("POST /api/releases/admin/switches", a.switchAsset)
 	mux.HandleFunc("PATCH /api/releases/admin/credentials/{id}", a.editCredential)
-	mux.HandleFunc("POST /api/releases/admin/snmp-credentials", a.snmpCredential)
-	mux.HandleFunc("PATCH /api/releases/admin/snmp-credentials/{id}", a.editSnmpCredential)
 	mux.HandleFunc("PATCH /api/releases/admin/profiles/{id}", a.editProfile)
 	mux.HandleFunc("PATCH /api/releases/admin/switches/{id}", a.editSwitch)
 	mux.HandleFunc("POST /api/releases/admin/groups", a.group)
@@ -158,19 +156,15 @@ func (a *AdminHandler) profile(w http.ResponseWriter, r *http.Request) {
 		SuccessPatterns     json.RawMessage `json:"success_patterns"`
 		ErrorPatterns       json.RawMessage `json:"error_patterns"`
 		ParserRules         json.RawMessage `json:"parser_rules"`
-		SnmpRules           json.RawMessage `json:"snmp_rules"` // optional; without it, only standard MIBs are read
 	}
 	err := decode(r, &input)
 	input.Vendor = defaultString(input.Vendor, "other")
-	if len(input.SnmpRules) == 0 {
-		input.SnmpRules = json.RawMessage(`{}`)
-	}
 	if err != nil || strings.TrimSpace(input.Name) == "" || !switchVendors[input.Vendor] {
 		fail(w, 422, "invalid profile")
 		return
 	}
 	// Profiles remain device-specific data, but never accept invalid JSON types.
-	for _, v := range []json.RawMessage{input.LoginPromptPatterns, input.CommandTemplates, input.PromptPatterns, input.PaginationRules, input.ParserRules, input.SnmpRules} {
+	for _, v := range []json.RawMessage{input.LoginPromptPatterns, input.CommandTemplates, input.PromptPatterns, input.PaginationRules, input.ParserRules} {
 		if len(v) == 0 || v[0] != '{' {
 			fail(w, 422, "profile rules must be objects")
 			return
@@ -183,8 +177,8 @@ func (a *AdminHandler) profile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	id, err := a.createAudited(r.Context(), actor, "profile.create", input.Name,
-		`INSERT INTO bp_command_profiles(name,vendor,login_prompt_patterns,command_templates,prompt_patterns,pagination_rules,success_patterns,error_patterns,parser_rules,snmp_rules)
- VALUES($1,$9,$2,$3,$4,$5,$6,$7,$8,$10) RETURNING id::text`, input.Name, string(input.LoginPromptPatterns), string(input.CommandTemplates), string(input.PromptPatterns), string(input.PaginationRules), string(input.SuccessPatterns), string(input.ErrorPatterns), string(input.ParserRules), input.Vendor, string(input.SnmpRules))
+		`INSERT INTO bp_command_profiles(name,vendor,login_prompt_patterns,command_templates,prompt_patterns,pagination_rules,success_patterns,error_patterns,parser_rules)
+ VALUES($1,$9,$2,$3,$4,$5,$6,$7,$8) RETURNING id::text`, input.Name, string(input.LoginPromptPatterns), string(input.CommandTemplates), string(input.PromptPatterns), string(input.PaginationRules), string(input.SuccessPatterns), string(input.ErrorPatterns), string(input.ParserRules), input.Vendor)
 	if err != nil {
 		fail(w, 409, "profile could not be saved")
 		return
@@ -209,24 +203,20 @@ func (a *AdminHandler) switchAsset(w http.ResponseWriter, r *http.Request) {
 		Protocol         string `json:"protocol"`
 		Port             *int   `json:"port"`
 		HandlesRelease   bool   `json:"handles_release"`
-		SnmpCredentialID string `json:"snmp_credential_id"` // empty leaves the switch unmonitored
-		SnmpPort         *int   `json:"snmp_port"`
 	}
 	err := decode(r, &input)
 	input.Name, input.Vendor, input.Protocol = strings.TrimSpace(input.Name), strings.TrimSpace(input.Vendor), defaultString(input.Protocol, "telnet")
 	if err != nil || input.Name == "" || !validIPv4(input.ManagementIP) || !validID(input.CredentialID) || !validID(input.CommandProfileID) ||
-		input.Vendor != "" && !switchVendors[input.Vendor] || !validSwitchMeta(input.Protocol, input.Port, input.GroupID) ||
-		input.SnmpCredentialID != "" && !domain.IsCanonicalUUID(input.SnmpCredentialID) || input.SnmpPort != nil && (*input.SnmpPort < 1 || *input.SnmpPort > 65535) {
+		input.Vendor != "" && !switchVendors[input.Vendor] || !validSwitchMeta(input.Protocol, input.Port, input.GroupID) {
 		fail(w, 422, "invalid switch asset")
 		return
 	}
 	// Without a vendor of its own, a switch takes its profile's. A release switch has its
 	// networks read at once: the scheduler queues every one that has never been read.
 	id, err := a.createAudited(r.Context(), actor, "switch.create", input.Name,
-		`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port,handles_release,snmp_credential_id,snmp_port)
- VALUES($1,$2,$3,$4::uuid,COALESCE(NULLIF($5,''),(SELECT vendor FROM bp_command_profiles WHERE id=$4::uuid),'other'),NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11,$12,NULLIF($13,'')::uuid,$14) RETURNING id::text`,
-		input.Name, input.ManagementIP, input.CredentialID, input.CommandProfileID, input.Vendor, strings.TrimSpace(input.Model), strings.TrimSpace(input.Site), strings.TrimSpace(input.Description), input.GroupID, input.Protocol, input.Port, input.HandlesRelease,
-		input.SnmpCredentialID, input.SnmpPort)
+		`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port,handles_release)
+ VALUES($1,$2,$3,$4::uuid,COALESCE(NULLIF($5,''),(SELECT vendor FROM bp_command_profiles WHERE id=$4::uuid),'other'),NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11,$12) RETURNING id::text`,
+		input.Name, input.ManagementIP, input.CredentialID, input.CommandProfileID, input.Vendor, strings.TrimSpace(input.Model), strings.TrimSpace(input.Site), strings.TrimSpace(input.Description), input.GroupID, input.Protocol, input.Port, input.HandlesRelease)
 	if isConstraint(err, profileVendorConstraint) {
 		fail(w, 422, errProfileVendor)
 		return
@@ -299,12 +289,11 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 	result := map[string]any{}
 	// Secrets are never listed, only whether an optional privilege secret is stored.
 	queries := map[string]string{
-		"credentials":      `SELECT id::text,name,username,description,is_active,encrypted_secret IS NOT NULL,version FROM bp_credentials ORDER BY name`,
-		"snmp_credentials": `SELECT id::text,name,snmp_version,username,auth_protocol,priv_protocol,description,is_active,version FROM bp_snmp_credentials ORDER BY name`,
-		"profiles":         `SELECT id::text,name,vendor,is_active,version,login_prompt_patterns::text,command_templates::text,prompt_patterns::text,pagination_rules::text,success_patterns::text,error_patterns::text,parser_rules::text,snmp_rules::text FROM bp_command_profiles ORDER BY name`,
-		"switches":         `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled,version,vendor,model,site,description,group_id::text,protocol,port,handles_release,networks_succeeded_at,networks_error,snmp_credential_id::text,snmp_port FROM bp_switches ORDER BY name`,
-		"networks":         `SELECT id::text,switch_id::text,cidr::text,is_enabled,is_validated,vlan,description,interface,version FROM bp_networks ORDER BY cidr`,
-		"groups":           `SELECT id::text,name,description,version FROM bp_switch_groups ORDER BY name`,
+		"credentials": `SELECT id::text,name,username,description,is_active,encrypted_secret IS NOT NULL,version FROM bp_credentials ORDER BY name`,
+		"profiles":    `SELECT id::text,name,vendor,is_active,version,login_prompt_patterns::text,command_templates::text,prompt_patterns::text,pagination_rules::text,success_patterns::text,error_patterns::text,parser_rules::text FROM bp_command_profiles ORDER BY name`,
+		"switches":    `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled,version,vendor,model,site,description,group_id::text,protocol,port,handles_release,networks_succeeded_at,networks_error FROM bp_switches ORDER BY name`,
+		"networks":    `SELECT id::text,switch_id::text,cidr::text,is_enabled,is_validated,vlan,description,interface,version FROM bp_networks ORDER BY cidr`,
+		"groups":      `SELECT id::text,name,description,version FROM bp_switch_groups ORDER BY name`,
 	}
 	// Profile rules are read as text and passed through as the JSON they are.
 	jsonColumns := map[string]bool{}
@@ -319,12 +308,11 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 		}
 		items := []map[string]any{}
 		names := map[string][]string{
-			"credentials":      {"id", "name", "username", "description", "is_active", "has_secret", "version"},
-			"snmp_credentials": {"id", "name", "snmp_version", "username", "auth_protocol", "priv_protocol", "description", "is_active", "version"},
-			"profiles":         {"id", "name", "vendor", "is_active", "version", "login_prompt_patterns", "command_templates", "prompt_patterns", "pagination_rules", "success_patterns", "error_patterns", "parser_rules", "snmp_rules"},
-			"switches":         {"id", "name", "management_ip", "credential_id", "command_profile_id", "is_enabled", "version", "vendor", "model", "site", "description", "group_id", "protocol", "port", "handles_release", "networks_succeeded_at", "networks_error", "snmp_credential_id", "snmp_port"},
-			"networks":         {"id", "switch_id", "cidr", "is_enabled", "is_validated", "vlan", "description", "interface", "version"},
-			"groups":           {"id", "name", "description", "version"},
+			"credentials": {"id", "name", "username", "description", "is_active", "has_secret", "version"},
+			"profiles":    {"id", "name", "vendor", "is_active", "version", "login_prompt_patterns", "command_templates", "prompt_patterns", "pagination_rules", "success_patterns", "error_patterns", "parser_rules"},
+			"switches":    {"id", "name", "management_ip", "credential_id", "command_profile_id", "is_enabled", "version", "vendor", "model", "site", "description", "group_id", "protocol", "port", "handles_release", "networks_succeeded_at", "networks_error"},
+			"networks":    {"id", "switch_id", "cidr", "is_enabled", "is_validated", "vlan", "description", "interface", "version"},
+			"groups":      {"id", "name", "description", "version"},
 		}[category]
 		for rows.Next() {
 			values := make([]any, len(names))

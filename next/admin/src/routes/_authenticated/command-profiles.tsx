@@ -30,7 +30,7 @@ const blank: ProfileForm = {
   name: '', vendor: '',
   command_templates: '{\n  "single_arp_query": "",\n  "arp_release": "",\n  "config_backup": "display current-configuration"\n}',
   parser_rules: '{\n  "arp_entry_regex": "",\n  "static_type_values": [],\n  "dynamic_type_values": [],\n  "missing_patterns": []\n}',
-  login_prompt_patterns: '{}', prompt_patterns: '{}', pagination_rules: '{}', success_patterns: '[]', error_patterns: '[]', snmp_rules: '{}',
+  login_prompt_patterns: '{}', prompt_patterns: '{}', pagination_rules: '{}', success_patterns: '[]', error_patterns: '[]',
 }
 const vendorOrder = (vendor: string) => vendors.indexOf(vendor as (typeof vendors)[number])
 const queryCommand = (profile: Profile) => {

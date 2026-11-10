@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, Database, FileCode, Gauge, History, House, KeyRound, ListChecks, LogOut, Mail, Monitor, Network, ScrollText, Server, Settings, ShieldCheck, SquareTerminal, Unlink, UserCog, UserRound, Users, Wrench } from 'lucide-react'
+import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, Database, FileCode, History, House, KeyRound, ListChecks, LogOut, Mail, Monitor, Network, ScrollText, Server, Settings, ShieldCheck, SquareTerminal, Unlink, UserCog, UserRound, Users, Wrench } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -122,7 +122,6 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
   const releaseMenuExpanded = releaseMenuOpen || Boolean(releasePage)
   const opsPages = [
     { to: '/devices', icon: Server, label: zhShell ? '设备' : 'Devices' },
-    { to: '/monitoring', icon: Gauge, label: zhShell ? '设备监控' : 'Monitoring' },
     { to: '/schedules', icon: CalendarClock, label: zhShell ? '计划任务' : 'Schedules' },
     { to: '/compliance', icon: ClipboardCheck, label: zhShell ? '合规检查' : 'Compliance' },
     { to: '/alerts', icon: BellRing, label: zhShell ? '告警' : 'Alerts' },

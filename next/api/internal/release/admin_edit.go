@@ -43,7 +43,6 @@ var (
 		{column: "success_patterns", read: "success_patterns::text", json: true},
 		{column: "error_patterns", read: "error_patterns::text", json: true},
 		{column: "parser_rules", read: "parser_rules::text", json: true},
-		{column: "snmp_rules", read: "snmp_rules::text", json: true},
 	}}
 	switchFields = assetKind{"bp_switches", "switch.update", "name", []assetField{
 		{column: "name", read: "name"}, {column: "management_ip", read: "host(management_ip)"},
@@ -51,7 +50,6 @@ var (
 		{column: "is_enabled", read: "is_enabled"}, {column: "vendor", read: "vendor"}, {column: "model", read: "model"},
 		{column: "site", read: "site"}, {column: "description", read: "description"}, {column: "group_id", read: "group_id::text"},
 		{column: "protocol", read: "protocol"}, {column: "port", read: "port"}, {column: "handles_release", read: "handles_release"},
-		{column: "snmp_credential_id", read: "snmp_credential_id::text"}, {column: "snmp_port", read: "snmp_port"},
 	}}
 	groupFields = assetKind{"bp_switch_groups", "group.update", "name", []assetField{
 		{column: "name", read: "name"}, {column: "description", read: "description"},
@@ -280,7 +278,6 @@ func (a *AdminHandler) editProfile(w http.ResponseWriter, r *http.Request) {
 		SuccessPatterns     json.RawMessage `json:"success_patterns"`
 		ErrorPatterns       json.RawMessage `json:"error_patterns"`
 		ParserRules         json.RawMessage `json:"parser_rules"`
-		SnmpRules           json.RawMessage `json:"snmp_rules"`
 	}
 	next := map[string]any{}
 	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) || input.Vendor != nil && !switchVendors[*input.Vendor] {
@@ -298,7 +295,7 @@ func (a *AdminHandler) editProfile(w http.ResponseWriter, r *http.Request) {
 	}{
 		{"login_prompt_patterns", input.LoginPromptPatterns, '{'}, {"command_templates", input.CommandTemplates, '{'},
 		{"prompt_patterns", input.PromptPatterns, '{'}, {"pagination_rules", input.PaginationRules, '{'},
-		{"parser_rules", input.ParserRules, '{'}, {"snmp_rules", input.SnmpRules, '{'},
+		{"parser_rules", input.ParserRules, '{'},
 		{"success_patterns", input.SuccessPatterns, '['}, {"error_patterns", input.ErrorPatterns, '['},
 	} {
 		if rule.value == nil {
@@ -333,15 +330,11 @@ func (a *AdminHandler) editSwitch(w http.ResponseWriter, r *http.Request) {
 		Protocol         *string `json:"protocol"`
 		Port             *int    `json:"port"` // 0 restores the protocol's default port
 		HandlesRelease   *bool   `json:"handles_release"`
-		SnmpCredentialID *string `json:"snmp_credential_id"` // empty stops monitoring the switch
-		SnmpPort         *int    `json:"snmp_port"`          // 0 restores the standard port, 161
 	}
 	next := map[string]any{}
 	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) ||
 		input.Vendor != nil && !switchVendors[*input.Vendor] || input.Protocol != nil && *input.Protocol != "telnet" && *input.Protocol != "ssh" ||
-		input.Port != nil && (*input.Port < 0 || *input.Port > 65535) || input.GroupID != nil && *input.GroupID != "" && !domain.IsCanonicalUUID(*input.GroupID) ||
-		input.SnmpCredentialID != nil && *input.SnmpCredentialID != "" && !domain.IsCanonicalUUID(*input.SnmpCredentialID) ||
-		input.SnmpPort != nil && (*input.SnmpPort < 0 || *input.SnmpPort > 65535) {
+		input.Port != nil && (*input.Port < 0 || *input.Port > 65535) || input.GroupID != nil && *input.GroupID != "" && !domain.IsCanonicalUUID(*input.GroupID) {
 		fail(w, 422, "invalid switch asset")
 		return
 	}
@@ -354,13 +347,6 @@ func (a *AdminHandler) editSwitch(w http.ResponseWriter, r *http.Request) {
 	optionalText(next, "site", input.Site)
 	optionalText(next, "description", input.Description)
 	optionalText(next, "group_id", input.GroupID)
-	optionalText(next, "snmp_credential_id", input.SnmpCredentialID)
-	if input.SnmpPort != nil {
-		next["snmp_port"] = nil
-		if *input.SnmpPort > 0 {
-			next["snmp_port"] = *input.SnmpPort
-		}
-	}
 	if input.Port != nil {
 		next["port"] = nil
 		if *input.Port > 0 {
@@ -381,7 +367,7 @@ func (a *AdminHandler) editSwitch(w http.ResponseWriter, r *http.Request) {
 	optionalBool(next, "handles_release", input.HandlesRelease)
 	id := r.PathValue("id")
 	a.applyEditThen(w, r, actor, switchFields, input.Version, next, func(ctx context.Context, tx *sql.Tx, changes map[string]any) error {
-		return switchChanged(ctx, tx, id, changes)
+		return releaseRoleChanged(ctx, tx, id, changes)
 	})
 }
 
@@ -414,9 +400,9 @@ func releaseRoleChanged(ctx context.Context, tx *sql.Tx, id string, changes map[
 	return err
 }
 
-// bulkSwitches sets one value (group, site, credential, SNMP credential, enabled or release role) on
-// many switches in one transaction. Each switch it changes gets its own audit record, as if edited
-// alone. A disabled credential is refused, since no switch can release, back up or be polled with it.
+// bulkSwitches sets one value (group, site, credential, enabled or release role) on many switches
+// in one transaction. Each switch it changes gets its own audit record, as if edited alone.
+// A disabled credential is refused, since no switch can release or be backed up with it.
 func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 	actor, ok := a.authorize(w, r, true)
 	if !ok {
@@ -427,7 +413,6 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 		GroupID        *string  `json:"group_id"` // empty removes the group
 		Site           *string  `json:"site"`     // empty clears the site
 		CredentialID   *string  `json:"credential_id"`
-		SnmpCredential *string  `json:"snmp_credential_id"` // empty stops monitoring
 		IsEnabled      *bool    `json:"is_enabled"`
 		HandlesRelease *bool    `json:"handles_release"`
 	}
@@ -436,7 +421,6 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 	optionalText(next, "group_id", input.GroupID)
 	optionalText(next, "site", input.Site)
 	optionalText(next, "credential_id", input.CredentialID)
-	optionalText(next, "snmp_credential_id", input.SnmpCredential)
 	optionalBool(next, "is_enabled", input.IsEnabled)
 	optionalBool(next, "handles_release", input.HandlesRelease)
 	ids := map[string]bool{}
@@ -445,15 +429,14 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 	}
 	valid := err == nil && len(next) == 1 && len(ids) > 0 && len(ids) <= importMaxRows &&
 		(input.GroupID == nil || *input.GroupID == "" || domain.IsCanonicalUUID(*input.GroupID)) &&
-		(input.CredentialID == nil || domain.IsCanonicalUUID(*input.CredentialID)) &&
-		(input.SnmpCredential == nil || *input.SnmpCredential == "" || domain.IsCanonicalUUID(*input.SnmpCredential))
+		(input.CredentialID == nil || domain.IsCanonicalUUID(*input.CredentialID))
 	sorted := make([]string, 0, len(ids))
 	for id := range ids {
 		valid = valid && domain.IsCanonicalUUID(id)
 		sorted = append(sorted, id)
 	}
 	if !valid {
-		fail(w, 422, "switches and exactly one change (group, site, credential, SNMP credential, enabled or release role) required")
+		fail(w, 422, "switches and exactly one change (group, site, credential, enabled or release role) required")
 		return
 	}
 	sort.Strings(sorted) // one lock order, so two bulk changes never deadlock
@@ -463,13 +446,10 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	// Held until commit, so the credential cannot be disabled halfway through.
-	for table, id := range map[string]*string{"bp_credentials": input.CredentialID, "bp_snmp_credentials": input.SnmpCredential} {
-		if id == nil || *id == "" {
-			continue
-		}
+	if input.CredentialID != nil {
+		// Held until commit, so the credential cannot be disabled halfway through.
 		var active bool
-		err = tx.QueryRowContext(r.Context(), `SELECT is_active FROM `+table+` WHERE id=$1 FOR SHARE`, *id).Scan(&active)
+		err = tx.QueryRowContext(r.Context(), `SELECT is_active FROM bp_credentials WHERE id=$1 FOR SHARE`, *input.CredentialID).Scan(&active)
 		switch {
 		case errors.Is(err, sql.ErrNoRows) || err == nil && !active:
 			fail(w, 409, "credential is disabled or gone")
@@ -479,17 +459,12 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	changed, missing, polled := 0, 0, false
+	changed, missing := 0, 0
 	var pgErr *pgconn.PgError
 	for _, id := range sorted {
 		_, changes, err := updateRow(r.Context(), tx, actor, switchFields, id, 0, next)
 		if err == nil {
 			err = releaseRoleChanged(r.Context(), tx, id, changes)
-		}
-		if err == nil {
-			var touched bool
-			touched, err = pollSoon(r.Context(), tx, id, changes)
-			polled = polled || touched
 		}
 		switch {
 		case errors.Is(err, ErrNotFound):
@@ -504,13 +479,7 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 			changed++
 		}
 	}
-	if polled {
-		err = forgetUnmonitored(r.Context(), tx)
-	}
-	if err == nil {
-		err = tx.Commit()
-	}
-	if err != nil {
+	if err = tx.Commit(); err != nil {
 		fail(w, 503, "asset store unavailable")
 		return
 	}

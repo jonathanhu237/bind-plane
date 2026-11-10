@@ -53,10 +53,6 @@ func NewOpsHandler(db *sql.DB, identity Identity, cookie, origin string, loc *ti
 		"GET /api/ops/alerts":                   o.alerts,
 		"POST /api/ops/alerts/{id}/acknowledge": o.acknowledge,
 		"GET /api/ops/audit":                    o.audit,
-		"GET /api/ops/monitoring":               o.monitoring,
-		"PATCH /api/ops/monitoring/settings":    o.editMonitoringSettings,
-		"GET /api/ops/switches/{id}/metrics":    o.metrics,
-		"POST /api/ops/switches/{id}/poll":      o.pollNow,
 	}
 	for pattern, route := range routes {
 		o.mux.HandleFunc(pattern, route)
@@ -188,13 +184,7 @@ func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {
 		o.unavailable(w, err)
 		return
 	}
-	monitoring, err := o.monitoringSummary(ctx)
-	if err != nil {
-		o.unavailable(w, err)
-		return
-	}
 	write(w, 200, map[string]any{
-		"monitoring":     monitoring,
 		"switches":       map[string]int64{"total": total, "enabled": enabled, "reachable": reachable, "unreachable": unreachable, "unknown": unknown},
 		"backups":        map[string]int64{"backed_up": backedUp, "failing": failing, "never": never, "versions_24h": versions24h},
 		"compliance":     map[string]int64{"passed": passed, "failed": failed, "failing_switches": failingSwitches},
@@ -233,13 +223,13 @@ func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 		"protocol", "port", "is_enabled", "version", "credential_id", "credential_name", "command_profile_id", "profile_name",
 		"reachable", "reachability_checked_at", "reachability_latency_ms", "reachability_error", "login_ok", "login_checked_at", "login_error",
 		"config_checked_at", "config_succeeded_at", "config_error", "compliance_failed", "networks",
-		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error", "snmp_credential_id", "snmp_port", "total"},
+		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error", "total"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,s.group_id::text,g.name,
  s.protocol,s.port,s.is_enabled,s.version,s.credential_id::text,c.name,s.command_profile_id::text,p.name,
  s.reachable,s.reachability_checked_at,s.reachability_latency_ms,s.reachability_error,s.login_ok,s.login_checked_at,s.login_error,
  s.config_checked_at,s.config_succeeded_at,s.config_error,(SELECT count(*) FROM bp_compliance_results r WHERE r.switch_id=s.id AND NOT r.passed),
  (SELECT count(*) FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated),
- s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error,s.snmp_credential_id::text,s.snmp_port,count(*) OVER()
+ s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error,count(*) OVER()
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id
  WHERE `+switchFilter+` ORDER BY s.name,s.id LIMIT $9 OFFSET $10`, append(switchFilterArgs(r.URL.Query()), limit, offset)...)
@@ -271,7 +261,7 @@ func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 }
 
 var exportHeader = []string{"name", "management_ip", "vendor", "model", "group", "site", "protocol", "port", "credential", "profile", "description",
-	"handles_release", "snmp_credential", "enabled", "reachable", "login", "last_backup"}
+	"handles_release", "enabled", "reachable", "login", "last_backup"}
 
 // spreadsheetSafe keeps a cell from being read as a formula; the importer drops the quote again.
 func spreadsheetSafe(value string) string {
@@ -281,7 +271,7 @@ func spreadsheetSafe(value string) string {
 	return value
 }
 
-// exportSwitches writes the filtered inventory as CSV. Its first thirteen columns are the import
+// exportSwitches writes the filtered inventory as CSV. Its first twelve columns are the import
 // template's, so an edited export imports back as updates; the status columns are only read.
 func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 	if _, ok := o.authorize(w, r, false); !ok {
@@ -289,9 +279,9 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := o.db.QueryContext(r.Context(), `SELECT s.name,host(s.management_ip),s.vendor,COALESCE(s.model,''),COALESCE(g.name,''),COALESCE(s.site,''),
  s.protocol,COALESCE(s.port::text,''),c.name,p.name,COALESCE(s.description,''),CASE WHEN s.handles_release THEN 'yes' ELSE 'no' END,
- COALESCE(sc.name,''),s.is_enabled,s.reachable,s.login_ok,s.config_succeeded_at
+ s.is_enabled,s.reachable,s.login_ok,s.config_succeeded_at
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
- LEFT JOIN bp_switch_groups g ON g.id=s.group_id LEFT JOIN bp_snmp_credentials sc ON sc.id=s.snmp_credential_id
+ LEFT JOIN bp_switch_groups g ON g.id=s.group_id
  WHERE `+switchFilter+` ORDER BY s.name,s.id`, switchFilterArgs(r.URL.Query())...)
 	if err != nil {
 		o.unavailable(w, err)
@@ -312,7 +302,7 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 		return no
 	}
 	for rows.Next() {
-		record := make([]string, 13)
+		record := make([]string, 12)
 		var enabled bool
 		var reachable, login sql.NullBool
 		var backup sql.NullTime
@@ -359,13 +349,13 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
 	found, err := o.rows(ctx, []string{"id", "name", "management_ip", "vendor", "model", "site", "description", "group_name", "protocol", "port", "is_enabled",
 		"credential_name", "profile_name", "reachable", "reachability_checked_at", "reachability_changed_at", "reachability_latency_ms", "reachability_error",
 		"login_ok", "login_checked_at", "login_error", "config_checked_at", "config_succeeded_at", "config_error",
-		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error", "snmp_credential_name", "snmp_port", "monitored"},
+		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,g.name,s.protocol,s.port,s.is_enabled,c.name,p.name,
  s.reachable,s.reachability_checked_at,s.reachability_changed_at,s.reachability_latency_ms,s.reachability_error,
  s.login_ok,s.login_checked_at,s.login_error,s.config_checked_at,s.config_succeeded_at,s.config_error,
- s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error,sc.name,s.snmp_port,`+monitoredSwitch+`
+ s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
- LEFT JOIN bp_switch_groups g ON g.id=s.group_id LEFT JOIN bp_snmp_credentials sc ON sc.id=s.snmp_credential_id WHERE s.id=$1`, id)
+ LEFT JOIN bp_switch_groups g ON g.id=s.group_id WHERE s.id=$1`, id)
 	if err != nil {
 		o.unavailable(w, err)
 		return
@@ -397,9 +387,6 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
  OR e.action IN ('network.create','network.import','network.update') AND e.object_id IN (SELECT id FROM bp_networks WHERE switch_id=$1)
  ORDER BY e.id DESC LIMIT 50`,
 			[]string{"id", "action", "actor_name", "actor_email", "object_name", "changes", "created_at"}},
-		{"interfaces", `SELECT if_index,name,alias,if_type,admin_up,oper_up,speed_mbps,in_bps,out_bps,in_errors,out_errors,new_errors,counter_bits,sampled_at,oper_changed_at
- FROM bp_switch_interfaces WHERE switch_id=$1 ORDER BY if_index`,
-			[]string{"if_index", "name", "alias", "if_type", "admin_up", "oper_up", "speed_mbps", "in_bps", "out_bps", "in_errors", "out_errors", "new_errors", "counter_bits", "sampled_at", "oper_changed_at"}},
 	}
 	for _, section := range sections {
 		if detail[section.key], err = o.rows(ctx, section.columns, section.query, id); err != nil {
@@ -407,25 +394,6 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// The latest poll, or null for a switch that has not been polled.
-	latest, err := o.rows(ctx, []string{"polled_at", "succeeded_at", "error", "failures", "response_ms", "sys_name", "sys_descr", "sys_object_id",
-		"uptime_seconds", "restarted_at", "cpu_percent", "memory_percent", "temperature_c", "next_poll_at"},
-		`SELECT polled_at,succeeded_at,error,failures,response_ms,sys_name,sys_descr,sys_object_id,uptime_seconds,restarted_at,
- cpu_percent,memory_percent,temperature_c,next_poll_at FROM bp_switch_monitoring WHERE switch_id=$1`, id)
-	if err != nil {
-		o.unavailable(w, err)
-		return
-	}
-	detail["monitoring"] = nil
-	if len(latest) == 1 {
-		detail["monitoring"] = latest[0]
-	}
-	settings, err := o.monitoringSettings(ctx)
-	if err != nil {
-		o.unavailable(w, err)
-		return
-	}
-	detail["thresholds"] = map[string]any{"cpu": settings["cpu_threshold"], "memory": settings["memory_threshold"], "temperature": settings["temperature_threshold"]}
 	write(w, 200, detail)
 }
 

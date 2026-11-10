@@ -172,18 +172,6 @@ async def main():
         os.environ.get("FAKE_SWITCH_HOST", "0.0.0.0"),
         int(os.environ.get("FAKE_SWITCH_PORT", "23")),
     )
-    # With a community set, the switch also answers SNMP for monitoring, with readings that drift.
-    if os.environ.get("FAKE_SNMP_COMMUNITY"):
-        from worker.fake_snmp import FakeSnmpAgent
-
-        FakeSnmpAgent(
-            name=os.environ.get("FAKE_SNMP_NAME", switch.hostname),
-            community=os.environ["FAKE_SNMP_COMMUNITY"],
-            cpu=int(os.environ.get("FAKE_SNMP_CPU", "18")),
-            temperature=int(os.environ.get("FAKE_SNMP_TEMPERATURE", "42")),
-            ports=int(os.environ.get("FAKE_SNMP_PORTS", "8")),
-            wander=True,
-        ).start(os.environ.get("FAKE_SWITCH_HOST", "0.0.0.0"), 161)
     async with server:
         await server.serve_forever()
 

@@ -25,7 +25,6 @@ import { Route as AuthenticatedCredentialsRouteImport } from './routes/_authenti
 import { Route as AuthenticatedDevicesRouteImport } from './routes/_authenticated/devices'
 import { Route as AuthenticatedEmailTasksRouteImport } from './routes/_authenticated/email-tasks'
 import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
-import { Route as AuthenticatedMonitoringRouteImport } from './routes/_authenticated/monitoring'
 import { Route as AuthenticatedNetworksRouteImport } from './routes/_authenticated/networks'
 import { Route as AuthenticatedOnlineUsersRouteImport } from './routes/_authenticated/online-users'
 import { Route as AuthenticatedOperationLogsRouteImport } from './routes/_authenticated/operation-logs'
@@ -119,11 +118,6 @@ const AuthenticatedInvitationsRoute =
     path: '/invitations',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedMonitoringRoute = AuthenticatedMonitoringRouteImport.update({
-  id: '/monitoring',
-  path: '/monitoring',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const AuthenticatedNetworksRoute = AuthenticatedNetworksRouteImport.update({
   id: '/networks',
   path: '/networks',
@@ -194,7 +188,6 @@ export interface FileRoutesByFullPath {
   '/devices': typeof AuthenticatedDevicesRoute
   '/email-tasks': typeof AuthenticatedEmailTasksRoute
   '/invitations': typeof AuthenticatedInvitationsRoute
-  '/monitoring': typeof AuthenticatedMonitoringRoute
   '/networks': typeof AuthenticatedNetworksRoute
   '/online-users': typeof AuthenticatedOnlineUsersRoute
   '/operation-logs': typeof AuthenticatedOperationLogsRoute
@@ -221,7 +214,6 @@ export interface FileRoutesByTo {
   '/devices': typeof AuthenticatedDevicesRoute
   '/email-tasks': typeof AuthenticatedEmailTasksRoute
   '/invitations': typeof AuthenticatedInvitationsRoute
-  '/monitoring': typeof AuthenticatedMonitoringRoute
   '/networks': typeof AuthenticatedNetworksRoute
   '/online-users': typeof AuthenticatedOnlineUsersRoute
   '/operation-logs': typeof AuthenticatedOperationLogsRoute
@@ -251,7 +243,6 @@ export interface FileRoutesById {
   '/_authenticated/devices': typeof AuthenticatedDevicesRoute
   '/_authenticated/email-tasks': typeof AuthenticatedEmailTasksRoute
   '/_authenticated/invitations': typeof AuthenticatedInvitationsRoute
-  '/_authenticated/monitoring': typeof AuthenticatedMonitoringRoute
   '/_authenticated/networks': typeof AuthenticatedNetworksRoute
   '/_authenticated/online-users': typeof AuthenticatedOnlineUsersRoute
   '/_authenticated/operation-logs': typeof AuthenticatedOperationLogsRoute
@@ -282,7 +273,6 @@ export interface FileRouteTypes {
     | '/devices'
     | '/email-tasks'
     | '/invitations'
-    | '/monitoring'
     | '/networks'
     | '/online-users'
     | '/operation-logs'
@@ -309,7 +299,6 @@ export interface FileRouteTypes {
     | '/devices'
     | '/email-tasks'
     | '/invitations'
-    | '/monitoring'
     | '/networks'
     | '/online-users'
     | '/operation-logs'
@@ -338,7 +327,6 @@ export interface FileRouteTypes {
     | '/_authenticated/devices'
     | '/_authenticated/email-tasks'
     | '/_authenticated/invitations'
-    | '/_authenticated/monitoring'
     | '/_authenticated/networks'
     | '/_authenticated/online-users'
     | '/_authenticated/operation-logs'
@@ -475,13 +463,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInvitationsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/monitoring': {
-      id: '/_authenticated/monitoring'
-      path: '/monitoring'
-      fullPath: '/monitoring'
-      preLoaderRoute: typeof AuthenticatedMonitoringRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/networks': {
       id: '/_authenticated/networks'
       path: '/networks'
@@ -565,7 +546,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDevicesRoute: typeof AuthenticatedDevicesRoute
   AuthenticatedEmailTasksRoute: typeof AuthenticatedEmailTasksRoute
   AuthenticatedInvitationsRoute: typeof AuthenticatedInvitationsRoute
-  AuthenticatedMonitoringRoute: typeof AuthenticatedMonitoringRoute
   AuthenticatedNetworksRoute: typeof AuthenticatedNetworksRoute
   AuthenticatedOnlineUsersRoute: typeof AuthenticatedOnlineUsersRoute
   AuthenticatedOperationLogsRoute: typeof AuthenticatedOperationLogsRoute
@@ -589,7 +569,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDevicesRoute: AuthenticatedDevicesRoute,
   AuthenticatedEmailTasksRoute: AuthenticatedEmailTasksRoute,
   AuthenticatedInvitationsRoute: AuthenticatedInvitationsRoute,
-  AuthenticatedMonitoringRoute: AuthenticatedMonitoringRoute,
   AuthenticatedNetworksRoute: AuthenticatedNetworksRoute,
   AuthenticatedOnlineUsersRoute: AuthenticatedOnlineUsersRoute,
   AuthenticatedOperationLogsRoute: AuthenticatedOperationLogsRoute,
