@@ -107,6 +107,10 @@ Command templates and parsing rules belong in command profiles, not hard-coded b
 
 A command profile speaks one vendor's commands, and a vendor can have several profiles (say, one per OS line or login protocol). A switch only uses a profile of its own vendor; the database holds the two together. Choosing a switch's vendor narrows its profiles, and a vendor with one active profile gets it without asking.
 
+Bind Plane ships built-in profiles for the campus's command dialects: H3C Comware, Huawei VRP (S series), Huawei CE, old Quidway, and Ruijie RGOS. Their commands come from the previous release system; their parsing rules are checked against real replies in `next/worker/testdata/arp_samples.json` (captured read-only, addresses replaced). Migrations ship and update them, so the API only lets them be switched on or off; people copy one to make their own. A new sample of a reply goes into that file, with its addresses and MACs replaced, before a rule changes.
+
+When a reply names the address on a line the rules cannot read, the state is unknown, not missing: nothing is sent before release, and nothing is declared released after it.
+
 Command profiles should support:
 
 - Login and prompt matching rules

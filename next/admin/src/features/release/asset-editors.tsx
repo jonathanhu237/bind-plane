@@ -1,4 +1,4 @@
-import { CircleAlert, Pencil, Power, PowerOff } from 'lucide-react'
+import { CircleAlert, Copy, Pencil, Power, PowerOff } from 'lucide-react'
 import { useState } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -39,8 +39,8 @@ const ruleText: Record<RuleKey, { label: [string, string]; hint: [string, string
   parser_rules: {
     label: ['Parsing rules', '解析规则'],
     hint: [
-      'JSON object: arp_entry_regex with ip, mac and type groups, plus static_type_values, dynamic_type_values and missing_patterns.',
-      'JSON 对象：arp_entry_regex（含 ip、mac、type 分组），以及 static_type_values、dynamic_type_values、missing_patterns。',
+      'JSON object: arp_entry_regex with ip, mac and type groups, plus static_type_values, dynamic_type_values and missing_patterns. Where types cannot be listed, such as ages in minutes, static_type_pattern and dynamic_type_pattern take a regular expression.',
+      'JSON 对象：arp_entry_regex（含 ip、mac、type 分组），以及 static_type_values、dynamic_type_values、missing_patterns。类型无法逐个列出时（比如用分钟数表示的老化时间），可用 static_type_pattern、dynamic_type_pattern 写正则。',
     ],
   },
   login_prompt_patterns: { label: ['Login prompts', '登录提示符'], hint: ['JSON object of login prompt patterns; {} keeps the driver defaults.', 'JSON 对象，登录提示符的匹配规则；{} 表示沿用驱动默认值。'] },
@@ -59,7 +59,8 @@ export const ruleHint = (key: string, zh: boolean) => ruleText[key as RuleKey]?.
 export const NO_GROUP = 'none'
 
 export type Credential = { id: string; name: string; username: string; description: string | null; is_active: boolean; has_secret: boolean; version: number }
-export type Profile = { id: string; name: string; vendor: Vendor; is_active: boolean; version: number } & Record<RuleKey, unknown>
+/** `builtin` names a profile that ships with Bind Plane; its content stays as shipped. */
+export type Profile = { id: string; name: string; vendor: Vendor; builtin: string | null; is_active: boolean; version: number } & Record<RuleKey, unknown>
 export type Vendor = 'huawei' | 'h3c' | 'ruijie' | 'cisco' | 'other'
 export type SwitchAsset = {
   id: string; name: string; management_ip: string; credential_id: string; command_profile_id: string; is_enabled: boolean; version: number
@@ -222,7 +223,7 @@ export function editorLabels(zh: boolean) {
     : { credentials: 'credential', profiles: 'command profile', switches: 'switch', networks: 'network', groups: 'group' }
   const switchCount = (count: number) => zh ? `${count} 台交换机` : `${count} switch${count === 1 ? '' : 'es'}`
   return zh ? {
-    edit: '编辑', enable: '启用', disable: '停用', disabled: '已停用', unvalidated: '未验证', cancel: '取消', close: '关闭',
+    edit: '编辑', copy: '复制', builtin: '内置', enable: '启用', disable: '停用', disabled: '已停用', unvalidated: '未验证', cancel: '取消', close: '关闭',
     save: '保存修改', saving: '正在保存…', saved: '已保存。', choose: '请选择', noVendorProfile: '这个厂商还没有命令模板',
     name: '名称', username: '设备用户名', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
     keep: '留空则保留现有值', clearSecret: '删除已保存的特权密码', managementIP: '管理 IPv4', credential: '凭据', profile: '命令模板',
@@ -264,7 +265,7 @@ export function editorLabels(zh: boolean) {
       groups: '还没有分组。导入交换机时也会自动创建分组。',
     } satisfies Record<AssetKind, string>,
   } : {
-    edit: 'Edit', enable: 'Enable', disable: 'Disable', disabled: 'Disabled', unvalidated: 'Unvalidated', cancel: 'Cancel', close: 'Close',
+    edit: 'Edit', copy: 'Copy', builtin: 'Built-in', enable: 'Enable', disable: 'Disable', disabled: 'Disabled', unvalidated: 'Unvalidated', cancel: 'Cancel', close: 'Close',
     save: 'Save changes', saving: 'Saving…', saved: 'Saved.', choose: 'Choose…', noVendorProfile: 'No command profile for this vendor yet',
     name: 'Name', username: 'Device username', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
     keep: 'Leave empty to keep the stored value', clearSecret: 'Remove the stored privilege secret', managementIP: 'Management IPv4', credential: 'Credential', profile: 'Command profile',
@@ -309,9 +310,9 @@ export function editorLabels(zh: boolean) {
 }
 export type EditorLabels = ReturnType<typeof editorLabels>
 
-export function AssetRow({ title, detail, on, flag, mono = false, busy, labels, onEdit, onToggle }: {
+export function AssetRow({ title, detail, on, flag, mono = false, busy, labels, onEdit, onCopy, onToggle }: {
   title: string; detail?: React.ReactNode; on: boolean; flag?: React.ReactNode; mono?: boolean; busy: boolean
-  labels: EditorLabels; onEdit: () => void; onToggle?: () => void
+  labels: EditorLabels; onEdit?: () => void; onCopy?: () => void; onToggle?: () => void
 }) {
   // The 12rem basis lets the actions wrap below the text on narrow screens instead of squeezing it.
   return <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
@@ -324,7 +325,8 @@ export function AssetRow({ title, detail, on, flag, mono = false, busy, labels, 
       {detail ? <p className="mt-0.5 break-words text-xs text-muted-foreground">{detail}</p> : null}
     </div>
     <div className="ml-auto flex shrink-0 items-center gap-1">
-      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onEdit} aria-label={`${labels.edit} ${title}`}><Pencil aria-hidden="true" />{labels.edit}</Button>
+      {onEdit ? <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onEdit} aria-label={`${labels.edit} ${title}`}><Pencil aria-hidden="true" />{labels.edit}</Button> : null}
+      {onCopy ? <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCopy} aria-label={`${labels.copy} ${title}`}><Copy aria-hidden="true" />{labels.copy}</Button> : null}
       {onToggle ? <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onToggle} aria-label={`${on ? labels.disable : labels.enable} ${title}`}>
         {on ? <PowerOff aria-hidden="true" /> : <Power aria-hidden="true" />}{on ? labels.disable : labels.enable}
       </Button> : null}

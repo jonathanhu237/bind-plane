@@ -129,15 +129,44 @@ def output_matches_any(output: str, patterns: list[str]) -> bool:
     return False
 
 
+def _type_matches(parser_rules: dict, key: str, raw_type: str) -> bool:
+    """Whether the optional `static_type_pattern` or `dynamic_type_pattern` matches the whole value.
+
+    Some switches put a number where others write a type: a Ruijie row's age, for instance,
+    marks a dynamic entry with however many minutes it has left.
+    """
+    pattern = parser_rules.get(key)
+    if not isinstance(pattern, str) or not pattern.strip():
+        return False
+    try:
+        return re.fullmatch(pattern, raw_type, re.IGNORECASE) is not None
+    except re.error as exc:
+        raise CommandProfileError(f"Invalid regex pattern: {pattern}") from exc
+
+
 def _entry_type(raw_type: str, parser_rules: dict) -> ArpEntryType:
     static_values = {value.lower() for value in parser_rules.get("static_type_values", [])}
     dynamic_values = {value.lower() for value in parser_rules.get("dynamic_type_values", [])}
 
-    if raw_type.lower() in static_values:
+    value = raw_type.lower()
+    if value in static_values or _type_matches(parser_rules, "static_type_pattern", raw_type):
         return ArpEntryType.STATIC
-    if raw_type.lower() in dynamic_values:
+    if value in dynamic_values or _type_matches(parser_rules, "dynamic_type_pattern", raw_type):
         return ArpEntryType.DYNAMIC
     return ArpEntryType.UNKNOWN
+
+
+def _unread_row(output: str, target_ip: IPv4Address, missing_patterns: list) -> bool:
+    """Whether a line names the address yet is no "not found" message.
+
+    The address must appear whole, not as the start of a longer one (.14 in .140).
+    """
+    address = re.compile(rf"(?<![\d.]){re.escape(str(target_ip))}(?![\d.])")
+    patterns = missing_patterns if isinstance(missing_patterns, list) else []
+    return any(
+        address.search(line) and not output_matches_any(line, patterns)
+        for line in output.splitlines()
+    )
 
 
 def parse_arp_observation(
@@ -165,6 +194,14 @@ def parse_arp_observation(
             for observation in target_observations:
                 if observation.entry_type is entry_type:
                     return observation
+        # A row names the address but could not be read, so the address is not missing.
+        if _unread_row(output, target_ip, parser_rules.get("missing_patterns", [])):
+            return ArpObservation(
+                target_ip=target_ip,
+                entry_type=ArpEntryType.UNKNOWN,
+                mac=None,
+                raw_output=output,
+            )
 
     missing_patterns = parser_rules.get("missing_patterns", [])
     if isinstance(missing_patterns, list) and output_matches_any(output, missing_patterns):

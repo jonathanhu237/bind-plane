@@ -71,6 +71,7 @@ const fixed: Record<string, Words> = {
   'credential not found (give its exact name, or choose a default)': ['Credential not found. Give its exact name, or choose a default.', '找不到凭据。请填写准确名称，或选择默认凭据。'],
   'command profile not found (give its exact name, or choose a default)': ['Command profile not found. Give its exact name, or choose a default.', '找不到命令模板。请填写准确名称，或选择默认模板。'],
   'command profile is for another vendor': ['The command profile is for another vendor. Choose one of this switch’s vendor.', '命令模板属于其他厂商，请选择这台交换机所属厂商的模板。'],
+  'built-in command profiles cannot be changed; copy one to make your own': ['Built-in command profiles stay as shipped. Copy one to make your own.', '内置模板不能修改，可以复制一份改成自己的模板。'],
   'switches of another vendor use this command profile': ['Switches of another vendor use this command profile. Move them to another profile before changing its vendor.', '有其他厂商的交换机在用这个命令模板。先把它们换到别的模板，再修改厂商。'],
   'no single command profile for this vendor (name one, or choose a default of this vendor)': ['This vendor has no single command profile. Name one in the profile column, or choose a default of this vendor.', '这个厂商没有唯一的命令模板。请在“命令模板”列填写，或选择一个该厂商的默认模板。'],
   'a switch with this management IP already exists': ['A switch with this management IP already exists.', '已存在相同管理 IP 的交换机。'],

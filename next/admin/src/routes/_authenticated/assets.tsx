@@ -4,6 +4,7 @@ import { CircleAlert, Lock } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -16,7 +17,7 @@ import { GroupManager } from '@/features/ops/group-manager'
 import { Empty, PageHeader } from '@/features/ops/ui'
 import {
   AssetEditDialog, AssetRequestError, AssetRow, DisableAssetDialog, UnvalidatedBadge, callAssets, editorLabels, isOn,
-  profileRuleKeys, ruleHint, ruleLabel, statusBody, switchesUsing, vendorName, vendors, type AssetKind, type EditTarget, type Inventory,
+  profileRuleKeys, ruleHint, ruleLabel, statusBody, switchesUsing, vendorName, vendors, type AssetKind, type EditTarget, type Inventory, type Profile,
 } from '@/features/release/asset-editors'
 import { errorText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
@@ -82,6 +83,17 @@ function Assets() {
   }
   // Enabling is immediate; disabling explains its effect on resolution and queued jobs first.
   function toggle(target: EditTarget) { if (isOn(target)) setDisabling(target); else void setStatus(target, true) }
+  // Copying fills the new-profile form with a profile's content, so a built-in one can be changed as your own.
+  function copyProfile(item: Profile) {
+    setProfile({
+      name: zh ? `${item.name}（副本）` : `${item.name} copy`, vendor: item.vendor,
+      ...Object.fromEntries(profileRuleKeys.map((key) => [key, JSON.stringify(item[key] ?? {}, null, 2)])) as Record<(typeof profileRuleKeys)[number], string>,
+    })
+    profileRequired.reset()
+    const field = document.getElementById('profile-name')
+    field?.scrollIntoView({ behavior: 'smooth', block: 'center' }); field?.focus({ preventScroll: true })
+    notifySuccess(zh ? `已把「${item.name}」填入上方表单，修改后保存为新模板。` : `“${item.name}” is in the form above; change it and save it as a new profile.`)
+  }
   function rows(kind: AssetKind, items: React.ReactNode[]) {
     return items.length ? <ul className="divide-y">{items}</ul> : <Empty>{labels.empty[kind]}</Empty>
   }
@@ -128,7 +140,9 @@ function Assets() {
         </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>{zh ? '命令模板' : 'Command profiles'}</CardTitle><CardDescription>{zh ? '交换机执行的命令和输出解析规则。' : 'The commands a switch runs and how their output is read.'}</CardDescription></CardHeader>
+        <CardHeader><CardTitle>{zh ? '命令模板' : 'Command profiles'}</CardTitle><CardDescription>{zh
+          ? '交换机执行的命令和输出解析规则。内置模板随系统更新，不能修改；要改就复制一份，存成自己的模板。'
+          : 'The commands a switch runs and how their output is read. Built-in profiles stay as shipped and update with Bind Plane; copy one to make your own.'}</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-6">
           <form noValidate className="flex flex-col gap-6" onSubmit={onSubmit(profileRequired, () => {
             try {
@@ -161,7 +175,9 @@ function Assets() {
           <Separator />
           {rows('profiles', (data?.profiles ?? []).map((item) => {
             const target: EditTarget = { kind: 'profiles', item }
-            return <AssetRow key={item.id} title={item.name} on={item.is_active} busy={busy} labels={labels} onEdit={() => setEditing(target)} onToggle={() => toggle(target)}
+            return <AssetRow key={item.id} title={item.name} on={item.is_active} busy={busy} labels={labels}
+              flag={item.builtin ? <Badge variant="secondary" className="font-normal">{labels.builtin}</Badge> : null}
+              onEdit={item.builtin ? undefined : () => setEditing(target)} onCopy={() => copyProfile(item)} onToggle={() => toggle(target)}
               detail={`${vendorName(item.vendor, zh)} · ${labels.usedBy(switchesUsing(target, data))}`} />
           }))}
         </CardContent>

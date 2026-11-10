@@ -61,7 +61,12 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 
 	credential := obj(call(assets, "POST", "/api/releases/admin/credentials", `{"Name":"ops-cred","Username":"netops","Password":"secret"}`, 201))["id"].(string)
 	profile := obj(call(assets, "POST", "/api/releases/admin/profiles", `{"name":"ops-profile","vendor":"huawei","command_templates":{"config_backup":"display current-configuration"},"parser_rules":{},"login_prompt_patterns":{},"prompt_patterns":{},"pagination_rules":{},"success_patterns":[],"error_patterns":[]}`, 201))["id"].(string)
-	h3cProfile := obj(call(assets, "POST", "/api/releases/admin/profiles", `{"name":"ops-h3c","vendor":"h3c","command_templates":{},"parser_rules":{},"login_prompt_patterns":{},"prompt_patterns":{},"pagination_rules":{},"success_patterns":[],"error_patterns":[]}`, 201))["id"].(string)
+	// Bind Plane ships a profile per command dialect; H3C has exactly one.
+	var builtinH3C string
+	var builtins int
+	if err = db.QueryRow(`SELECT (SELECT id::text FROM bp_command_profiles WHERE builtin='h3c-comware'),(SELECT count(*) FROM bp_command_profiles WHERE builtin IS NOT NULL)`).Scan(&builtinH3C, &builtins); err != nil || builtins != 5 {
+		t.Fatalf("built-in profiles: %d, %v", builtins, err)
+	}
 	importCSV := func(kind, csv string, dryRun bool) map[string]any {
 		return obj(call(assets, "POST", "/api/releases/admin/import", jsonBody(map[string]any{"kind": kind, "csv": csv, "dry_run": dryRun, "default_credential_id": credential, "default_profile_id": profile}), 200))
 	}
@@ -90,14 +95,21 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	}
 
 	// A command profile speaks one vendor's commands. An imported row without a profile takes the
-	// default of its vendor or the vendor's only profile, so the H3C switch has the H3C one.
+	// default of its vendor or the vendor's only profile, so the H3C switch has the built-in one.
 	var profileB string
-	if err = db.QueryRow(`SELECT command_profile_id::text FROM bp_switches WHERE id=$1`, switchB).Scan(&profileB); err != nil || profileB != h3cProfile {
-		t.Fatalf("the H3C switch uses profile %q, want %q: %v", profileB, h3cProfile, err)
+	if err = db.QueryRow(`SELECT command_profile_id::text FROM bp_switches WHERE id=$1`, switchB).Scan(&profileB); err != nil || profileB != builtinH3C {
+		t.Fatalf("the H3C switch uses profile %q, want %q: %v", profileB, builtinH3C, err)
 	}
-	if rows := fmt.Sprint(importCSV("switches", "name,management_ip,vendor,profile\nOPS-R,192.0.2.120,ruijie,\nOPS-X,192.0.2.121,h3c,ops-profile\n", true)["rows"]); !strings.Contains(rows, "no single command profile for this vendor") || !strings.Contains(rows, errProfileVendor) {
+	if rows := fmt.Sprint(importCSV("switches", "name,management_ip,vendor,profile\nOPS-R,192.0.2.120,cisco,\nOPS-X,192.0.2.121,h3c,ops-profile\n", true)["rows"]); !strings.Contains(rows, "no single command profile for this vendor") || !strings.Contains(rows, errProfileVendor) {
 		t.Fatalf("rows without a profile of their vendor: %s", rows)
 	}
+	// Built-in profiles keep their content as shipped, but can be switched off and on.
+	if body := fmt.Sprint(call(assets, "PATCH", "/api/releases/admin/profiles/"+builtinH3C, `{"version":1,"name":"mine"}`, 409)); !strings.Contains(body, errBuiltinProfile) {
+		t.Fatalf("renaming a built-in profile: %s", body)
+	}
+	call(assets, "PATCH", "/api/releases/admin/profiles/"+builtinH3C, `{"version":1,"is_active":false}`, 200)
+	call(assets, "PATCH", "/api/releases/admin/profiles/"+builtinH3C, `{"version":2,"is_active":true}`, 200)
+	h3cProfile := obj(call(assets, "POST", "/api/releases/admin/profiles", `{"name":"ops-h3c","vendor":"h3c","command_templates":{},"parser_rules":{},"login_prompt_patterns":{},"prompt_patterns":{},"pagination_rules":{},"success_patterns":[],"error_patterns":[]}`, 201))["id"].(string)
 	// The API holds switches to their profile's vendor, and a switch without a vendor takes it.
 	call(assets, "POST", "/api/releases/admin/switches", jsonBody(map[string]any{"name": "VENDOR-MIX", "management_ip": "192.0.2.130", "credential_id": credential, "command_profile_id": profile, "vendor": "h3c"}), 422)
 	taken := obj(call(assets, "POST", "/api/releases/admin/switches", jsonBody(map[string]any{"name": "VENDOR-TAKEN", "management_ip": "192.0.2.131", "credential_id": credential, "command_profile_id": h3cProfile}), 201))["id"].(string)

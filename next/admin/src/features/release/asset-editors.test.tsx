@@ -8,7 +8,7 @@ import {
 
 const credential: Credential = { id: 'c1', name: 'core', username: 'netops', description: null, is_active: true, has_secret: true, version: 2 }
 const profile: Profile = {
-  id: 'p1', name: 'vendor-a', vendor: 'huawei', is_active: true, version: 1, command_templates: { single_arp_query: 'show arp $ip' }, parser_rules: {},
+  id: 'p1', name: 'vendor-a', vendor: 'huawei', builtin: null, is_active: true, version: 1, command_templates: { single_arp_query: 'show arp $ip' }, parser_rules: {},
   login_prompt_patterns: {}, prompt_patterns: {}, pagination_rules: {}, success_patterns: [], error_patterns: [],
 }
 const edge: SwitchAsset = {

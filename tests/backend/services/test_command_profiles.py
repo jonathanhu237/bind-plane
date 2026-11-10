@@ -343,3 +343,61 @@ def test_classify_release_needs_manual_confirmation_for_unknown_after_state() ->
     )
 
     assert classified.status == ReleaseJobStatus.NEEDS_MANUAL_CONFIRMATION
+
+
+def test_parse_type_patterns_classify_values_that_are_not_listed() -> None:
+    rules = {
+        "arp_entry_regex": (r"^Internet\s+(?P<ip>\S+)\s+(?P<type><static>|--|\d+)\s+(?P<mac>\S+)"),
+        "static_type_values": ["<static>"],
+        "dynamic_type_pattern": r"\d+",
+    }
+    output = (
+        "Internet  192.0.2.7  <static>  0011.2233.4455  arpa\n"
+        "Internet  192.0.2.8  29  0011.2233.4466  arpa\n"
+        "Internet  192.0.2.9  --  0011.2233.4477  arpa\n"
+    )
+
+    def entry(ip: str) -> ArpEntryType:
+        observation = parse_arp_observation(
+            target_ip=IPv4Address(ip), output=output, parser_rules=rules
+        )
+        return observation.entry_type
+
+    assert entry("192.0.2.7") == ArpEntryType.STATIC
+    assert entry("192.0.2.8") == ArpEntryType.DYNAMIC
+    assert entry("192.0.2.9") == ArpEntryType.UNKNOWN
+
+
+def test_parse_unreadable_row_for_the_address_is_unknown_not_missing() -> None:
+    rules = {
+        "arp_entry_regex": (
+            r"^(?P<ip>\d+\.\d+\.\d+\.\d+)\s+"
+            r"(?P<mac>[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4})\s+(?P<type>[SD])\s*$"
+        ),
+        "static_type_values": ["S"],
+        "missing_patterns": [r"IP ADDRESS\s+MAC ADDRESS"],
+    }
+    header = "IP ADDRESS      MAC ADDRESS     TYPE\n"
+
+    def entry(row: str) -> ArpEntryType:
+        observation = parse_arp_observation(
+            target_ip=IPv4Address("192.0.2.14"), output=header + row, parser_rules=rules
+        )
+        return observation.entry_type
+
+    # A longer address that starts with the target is someone else's row.
+    assert entry("192.0.2.140     0011-2233-4455  S\n") == ArpEntryType.MISSING
+    assert entry("192.0.2.14      Incomplete      D\n") == ArpEntryType.UNKNOWN
+
+
+def test_parse_not_found_message_naming_the_address_is_missing() -> None:
+    observation = parse_arp_observation(
+        target_ip=IPv4Address("192.0.2.14"),
+        output="% No ARP entry for 192.0.2.14\n",
+        parser_rules={
+            "arp_entry_regex": r"^(?P<ip>\S+)\s+(?P<mac>[0-9a-f.]+)\s+(?P<type>\S+)",
+            "missing_patterns": ["No ARP entry"],
+        },
+    )
+
+    assert observation.entry_type == ArpEntryType.MISSING

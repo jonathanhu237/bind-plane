@@ -1,0 +1,171 @@
+{
+ "_about": "Replies to single-address ARP queries captured read-only from campus switches in 2026-11, with every address and MAC replaced by documentation values. The Quidway profile has no live sample; it is checked against the H3C replies it is assumed to share.",
+ "cases": [
+  {
+   "profiles": [
+    "h3c-comware",
+    "huawei-quidway"
+   ],
+   "target": "192.0.2.2",
+   "expect": "static",
+   "note": "H3C S5800-32F, a static binding",
+   "output": "                Type: S-Static    D-Dynamic\nIP Address       MAC Address     VLAN ID  Interface              Aging Type\n192.0.2.2    eeee-eeee-eeee  N/A      N/A                    N/A   S\n"
+  },
+  {
+   "profiles": [
+    "h3c-comware",
+    "huawei-quidway"
+   ],
+   "target": "192.0.2.74",
+   "expect": "dynamic",
+   "note": "H3C S5800-32F, a dynamic entry",
+   "output": "                Type: S-Static    D-Dynamic\nIP Address       MAC Address     VLAN ID  Interface              Aging Type\n192.0.2.74       0200-5e00-0001  1003     XGE1/0/28              14    D\n"
+  },
+  {
+   "profiles": [
+    "h3c-comware",
+    "huawei-quidway"
+   ],
+   "target": "192.0.2.62",
+   "expect": "dynamic",
+   "note": "H3C E552, a dynamic entry",
+   "output": "                Type: S-Static    D-Dynamic\nIP Address       MAC Address     VLAN ID  Interface              Aging Type\n192.0.2.62     0200-5e00-0001  4        GE1/0/52               10    D\n"
+  },
+  {
+   "profiles": [
+    "h3c-comware",
+    "huawei-quidway"
+   ],
+   "target": "192.0.2.61",
+   "expect": "missing",
+   "note": "H3C E552, no entry: the header alone",
+   "output": "                Type: S-Static    D-Dynamic\nIP Address       MAC Address     VLAN ID  Interface              Aging Type\n"
+  },
+  {
+   "profiles": [
+    "ruijie-rgos"
+   ],
+   "target": "192.0.2.21",
+   "expect": "static",
+   "note": "Ruijie S2328G, a static binding without an interface",
+   "output": "Protocol  Address          Age(min)  Hardware        Type   Interface               \nInternet  192.0.2.21    <static>  eeee.eeee.eeee  arpa                           \n"
+  },
+  {
+   "profiles": [
+    "ruijie-rgos"
+   ],
+   "target": "192.0.2.63",
+   "expect": "static",
+   "note": "Ruijie S2328G, a static binding on a VLAN",
+   "output": "Protocol  Address          Age(min)  Hardware        Type   Interface               \nInternet  192.0.2.63   <static>  eeee.eeee.eeee  arpa   VLAN 1190               \n"
+  },
+  {
+   "profiles": [
+    "ruijie-rgos"
+   ],
+   "target": "192.0.2.1",
+   "expect": "dynamic",
+   "note": "Ruijie S2328G, a dynamic entry aged in minutes",
+   "output": "Protocol  Address          Age(min)  Hardware        Type   Interface               \nInternet  192.0.2.1      29        0200.5e00.0001  arpa   VLAN 4                  \n"
+  },
+  {
+   "profiles": [
+    "ruijie-rgos"
+   ],
+   "target": "192.0.2.126",
+   "expect": "unknown",
+   "note": "Ruijie S2328G, the switch's own address (age --)",
+   "output": "Protocol  Address          Age(min)  Hardware        Type   Interface               \nInternet  192.0.2.126  --        0200.5e00.0001  arpa   VLAN 1190               \n"
+  },
+  {
+   "profiles": [
+    "ruijie-rgos"
+   ],
+   "target": "192.0.2.1",
+   "expect": "missing",
+   "note": "Ruijie S2328G, no entry",
+   "output": "Protocol  Address          Age(min)  Hardware        Type   Interface               \nNo such ARP entries exist\n"
+  },
+  {
+   "profiles": [
+    "huawei-vrp"
+   ],
+   "target": "192.0.2.14",
+   "expect": "static",
+   "note": "Huawei S2700, a static binding among longer addresses that include matched",
+   "output": "IP ADDRESS      MAC ADDRESS     EXPIRE(M) TYPE        INTERFACE   VPN-INSTANCE \n                                    VLAN/CEVLAN(SIP/DIP)\n------------------------------------------------------------------------------\n192.0.2.140   0200-5e00-0001  11        D-0         XGE2/0/8\n192.0.2.14    0200-5e00-0002            S--\n192.0.2.141   eeee-eeee-eeee            S--\n192.0.2.142   eeee-eeee-eeee            S--\n192.0.2.143   eeee-eeee-eeee            S--\n192.0.2.144   eeee-eeee-eeee            S--\n192.0.2.145   eeee-eeee-eeee            S--\n192.0.2.146   eeee-eeee-eeee            S--\n192.0.2.147   eeee-eeee-eeee            S--\n192.0.2.148   eeee-eeee-eeee            S--\n192.0.2.149   eeee-eeee-eeee            S--\n------------------------------------------------------------------------------\nTotal:591       Dynamic:85      Static:502   Interface:4    \n"
+  },
+  {
+   "profiles": [
+    "huawei-vrp"
+   ],
+   "target": "192.0.2.32",
+   "expect": "dynamic",
+   "note": "Huawei S2700, a dynamic entry",
+   "output": "IP ADDRESS      MAC ADDRESS     EXPIRE(M) TYPE        INTERFACE   VPN-INSTANCE \n                                    VLAN/CEVLAN(SIP/DIP)\n------------------------------------------------------------------------------\n192.0.2.32   0200-5e00-0001  14        D-0         XGE2/0/0\n------------------------------------------------------------------------------\nTotal:295       Dynamic:278     Static:0     Interface:17   \n"
+  },
+  {
+   "profiles": [
+    "huawei-vrp"
+   ],
+   "target": "192.0.2.40",
+   "expect": "unknown",
+   "note": "Huawei S2700, the switch's own interface",
+   "output": "IP ADDRESS      MAC ADDRESS     EXPIRE(M) TYPE        INTERFACE   VPN-INSTANCE \n                                    VLAN/CEVLAN(SIP/DIP)\n------------------------------------------------------------------------------\n192.0.2.40    0200-5e00-0001            I -         Eth0/0/0\n------------------------------------------------------------------------------\nTotal:295       Dynamic:278     Static:0     Interface:17   \n"
+  },
+  {
+   "profiles": [
+    "huawei-vrp"
+   ],
+   "target": "192.0.2.61",
+   "expect": "missing",
+   "note": "Huawei S2700, no entry: header and totals",
+   "output": "IP ADDRESS      MAC ADDRESS     EXPIRE(M) TYPE        INTERFACE   VPN-INSTANCE \n                                    VLAN/CEVLAN(SIP/DIP)\n------------------------------------------------------------------------------\n------------------------------------------------------------------------------\nTotal:295       Dynamic:278     Static:0     Interface:17   \n"
+  },
+  {
+   "profiles": [
+    "huawei-vrp"
+   ],
+   "target": "192.0.2.14",
+   "expect": "missing",
+   "note": "Huawei S2700, only longer addresses that start with the target",
+   "output": "IP ADDRESS      MAC ADDRESS     EXPIRE(M) TYPE        INTERFACE   VPN-INSTANCE \n                                    VLAN/CEVLAN(SIP/DIP)\n------------------------------------------------------------------------------\n192.0.2.140   0200-5e00-0001  11        D-0         XGE2/0/8\n192.0.2.141   eeee-eeee-eeee            S--\n192.0.2.142   eeee-eeee-eeee            S--\n192.0.2.143   eeee-eeee-eeee            S--\n192.0.2.144   eeee-eeee-eeee            S--\n192.0.2.145   eeee-eeee-eeee            S--\n192.0.2.146   eeee-eeee-eeee            S--\n192.0.2.147   eeee-eeee-eeee            S--\n192.0.2.148   eeee-eeee-eeee            S--\n192.0.2.149   eeee-eeee-eeee            S--\n------------------------------------------------------------------------------\nTotal:591       Dynamic:85      Static:502   Interface:4    \n"
+  },
+  {
+   "profiles": [
+    "huawei-ce"
+   ],
+   "target": "192.0.2.1",
+   "expect": "static",
+   "note": "Huawei CE6851, a static binding with its VLAN among longer addresses",
+   "output": "ARP Entry Types: D - Dynamic, S - Static, I - Interface, O - OpenFlow\nEXP: Expire-time VLAN:VLAN or Bridge Domain\n\nIP ADDRESS      MAC ADDRESS    EXP(M) TYPE/VLAN       INTERFACE        VPN-INSTANCE\n------------------------------------------------------------------------------\n192.0.2.1     0200-5e00-0001        S/1780          10GE1/0/5        \n192.0.2.10    0200-5e00-0002        S/1780          10GE1/0/6        \n192.0.2.11    0200-5e00-0003        S                                \n192.0.2.12    0200-5e00-0004        S/1780          10GE1/0/6        \n192.0.2.13    0200-5e00-0005        S                                \n192.0.2.14    0200-5e00-0006        S/1780          10GE1/0/1        \n192.0.2.15    0200-5e00-0007        S                                \n192.0.2.16    0200-5e00-0008        S/1780          10GE1/0/6        \n192.0.2.17    0200-5e00-0009        S/1780          10GE1/0/6        \n192.0.2.18    0200-5e00-000a        S/1780          10GE1/0/6        \n192.0.2.19    0200-5e00-000b        S                                \n192.0.2.100   0200-5e00-000c        S/1780          10GE1/0/9        \n192.0.2.101   0200-5e00-000d        S/1780          10GE1/0/9        \n192.0.2.102   0200-5e00-000e        S/1780          10GE1/0/9        \n192.0.2.103   0200-5e00-000f        S                                \n192.0.2.104   0200-5e00-0010        S/1780          10GE1/0/9        \n192.0.2.105   0200-5e00-0011        S                                \n192.0.2.107   0200-5e00-0012        S/1780          10GE1/0/9        \n192.0.2.108   0200-5e00-0013        S/1780          10GE1/0/9        \n192.0.2.109   0200-5e00-0014        S/1780          10GE1/0/9        \n192.0.2.110   0200-5e00-0015        S/1780          10GE1/0/37       \n192.0.2.111   0200-5e00-0016        S/1780          10GE1/0/42       \n192.0.2.112   0200-5e00-0017        S/1780          10GE1/0/39       \n192.0.2.113   0200-5e00-0018        S/1780          10GE1/0/16       \n192.0.2.114   0200-5e00-0019        S/1780          10GE1/0/18       \n192.0.2.115   eeee-eeee-eeee        S                                \n192.0.2.116   0200-5e00-001a        S/1780          10GE1/0/18       \n192.0.2.117   eeee-eeee-eeee        S                                \n192.0.2.118   0200-5e00-001b        S/1780          10GE1/0/19       \n192.0.2.119   eeee-eeee-eeee        S                                \n192.0.2.120   0200-5e00-001c        S/1780          10GE1/0/38       \n192.0.2.121   0200-5e00-001d        S/1780          10GE1/0/13       \n192.0.2.122   0200-5e00-001e        S/1780          10GE1/0/24       \n192.0.2.123   0200-5e00-001f        S                                \n192.0.2.124   0200-5e00-0020        S/1780          10GE1/0/1        \n192.0.2.125   0200-5e00-0021        S/1780          10GE1/0/7        \n192.0.2.126   0200-5e00-0022        S/1780          10GE1/0/23       \n192.0.2.127   0200-5e00-0023        S/1780          10GE1/0/22       \n192.0.2.128   eeee-eeee-eeee        S                                \n192.0.2.129   0200-5e00-0024        S                                \n192.0.2.130   0200-5e00-0025        S/1780          10GE1/0/33       \n192.0.2.131   eeee-eeee-eeee        S                                \n192.0.2.132   eeee-eeee-eeee        S                                \n192.0.2.133   eeee-eeee-eeee        S                                \n192.0.2.134   0200-5e00-0026        S/1780          10GE1/0/40       \n192.0.2.135   0200-5e00-0027        S/1780          10GE1/0/33       \n192.0.2.136   0200-5e00-0028        S/1780          10GE1/0/33       \n192.0.2.137   eeee-eeee-eeee        S                                \n192.0.2.138   eeee-eeee-eeee        S                                \n192.0.2.139   eeee-eeee-eeee        S                                \n192.0.2.140   0200-5e00-0029        S/1780          10GE1/0/41       \n192.0.2.141   0200-5e00-002a        S                                \n192.0.2.142   0200-5e00-002b        S/1780          10GE1/0/37       \n192.0.2.143   0200-5e00-002c        S/1780          10GE1/0/36       \n192.0.2.144   0200-5e00-002d        S/1780          10GE1/0/37       \n192.0.2.145   0200-5e00-002e        S/1780          10GE1/0/18       \n192.0.2.146   0200-5e00-002f        S/1780          10GE1/0/18       \n192.0.2.147   0200-5e00-0030        S                                \n192.0.2.148   0200-5e00-0031        S                                \n192.0.2.149   eeee-eeee-eeee        S                                \n192.0.2.150   0200-5e00-0032        S                                \n192.0.2.151   0200-5e00-0033        S/1780          10GE1/0/1        \n192.0.2.152   0200-5e00-0034        S/1780          10GE1/0/7        \n192.0.2.153   0200-5e00-0035        S/1780          10GE1/0/7        \n192.0.2.154   0200-5e00-0036        S/1780          10GE1/0/11       \n192.0.2.155   eeee-eeee-eeee        S                                \n192.0.2.156   eeee-eeee-eeee        S                                \n192.0.2.157   0200-5e00-0037        S/1780          10GE1/0/32       \n192.0.2.158   0200-5e00-0038        S/1780          10GE1/0/30       \n192.0.2.159   eeee-eeee-eeee        S                                \n192.0.2.160   eeee-eeee-eeee        S                                \n192.0.2.161   eeee-eeee-eeee        S                                \n192.0.2.162   0200-5e00-0039        S/1780          10GE1/0/14       \n192.0.2.163   0200-5e00-003a        S/1780          10GE1/0/14       \n192.0.2.164   0200-5e00-003b        S/1780          10GE1/0/18       \n192.0.2.165   eeee-eeee-eeee        S                                \n192.0.2.166   0200-5e00-003c        S/1780          10GE1/0/5        \n192.0.2.167   0200-5e00-003d        S/1780          10GE1/0/32       \n192.0.2.168   0200-5e00-003e        S/1780          10GE1/0/32       \n192.0.2.169   0200-5e00-003f        S/1780          10GE1/0/32       \n192.0.2.170   eeee-eeee-eeee        S                                \n192.0.2.171   eeee-eeee-eeee        S                                \n192.0.2.172   eeee-eeee-eeee        S                                \n192.0.2.173   eeee-eeee-eeee        S                                \n192.0.2.174   0200-5e00-0040        S/1780          10GE1/0/26       \n192.0.2.175   0200-5e00-0041        S/1780          10GE1/0/34       \n192.0.2.176   eeee-eeee-eeee        S                                \n192.0.2.177   0200-5e00-0042        S/1780          10GE1/0/5        \n192.0.2.178   0200-5e00-0043        S/1780          10GE1/0/5        \n192.0.2.179   eeee-eeee-eeee        S                                \n192.0.2.180   0200-5e00-0044        S/1780          10GE1/0/15       \n192.0.2.181   0200-5e00-0045        S/1780          10GE1/0/35       \n192.0.2.182   0200-5e00-0046        S/1780          10GE1/0/15       \n192.0.2.183   0200-5e00-0047        S/1780          10GE1/0/15       \n192.0.2.184   0200-5e00-0048        S/1780          10GE1/0/15       \n192.0.2.185   0200-5e00-0049        S                                \n192.0.2.186   0200-5e00-004a        S                                \n192.0.2.187   0200-5e00-004b        S                                \n192.0.2.188   eeee-eeee-eeee        S                                \n192.0.2.189   0200-5e00-004c        S/1780          10GE1/0/29       \n192.0.2.190   0200-5e00-004d        S                                \n192.0.2.191   0200-5e00-004e        S/1780          10GE1/0/5        \n192.0.2.192   0200-5e00-004f        S/1780          10GE1/0/14       \n192.0.2.193   0200-5e00-0050        S                                \n192.0.2.195   0200-5e00-0051        S                                \n192.0.2.197   eeee-eeee-eeee        S                                \n192.0.2.198   0200-5e00-0052        S                                \n192.0.2.199   0200-5e00-0053        S/1780          10GE1/0/34       \n------------------------------------------------------------------------------\nTotal:1087         Dynamic:73       Static:1009    Interface:5    OpenFlow:0\n"
+  },
+  {
+   "profiles": [
+    "huawei-ce"
+   ],
+   "target": "192.0.2.43",
+   "expect": "static",
+   "note": "Huawei CE6851, a static binding without a VLAN",
+   "output": "ARP Entry Types: D - Dynamic, S - Static, I - Interface, O - OpenFlow\nEXP: Expire-time VLAN:VLAN or Bridge Domain\n\nIP ADDRESS      MAC ADDRESS    EXP(M) TYPE/VLAN       INTERFACE        VPN-INSTANCE\n------------------------------------------------------------------------------\n192.0.2.43    eeee-eeee-eeee        S                                \n------------------------------------------------------------------------------\nTotal:1087         Dynamic:73       Static:1009    Interface:5    OpenFlow:0\n"
+  },
+  {
+   "profiles": [
+    "huawei-ce"
+   ],
+   "target": "192.0.2.201",
+   "expect": "dynamic",
+   "note": "Huawei CE6851, a dynamic entry",
+   "output": "ARP Entry Types: D - Dynamic, S - Static, I - Interface, O - OpenFlow\nEXP: Expire-time VLAN:VLAN or Bridge Domain\n\nIP ADDRESS      MAC ADDRESS    EXP(M) TYPE/VLAN       INTERFACE        VPN-INSTANCE\n------------------------------------------------------------------------------\n192.0.2.201   0200-5e00-0001   10   D               10GE1/0/48       \n------------------------------------------------------------------------------\nTotal:1087         Dynamic:73       Static:1009    Interface:5    OpenFlow:0\n"
+  },
+  {
+   "profiles": [
+    "huawei-ce"
+   ],
+   "target": "192.0.2.124",
+   "expect": "missing",
+   "note": "Huawei CE6851, no entry: header and totals",
+   "output": "ARP Entry Types: D - Dynamic, S - Static, I - Interface, O - OpenFlow\nEXP: Expire-time VLAN:VLAN or Bridge Domain\n\nIP ADDRESS      MAC ADDRESS    EXP(M) TYPE/VLAN       INTERFACE        VPN-INSTANCE\n------------------------------------------------------------------------------\n------------------------------------------------------------------------------\nTotal:1087         Dynamic:73       Static:1009    Interface:5    OpenFlow:0\n"
+  }
+ ]
+}
