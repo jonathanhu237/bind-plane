@@ -1,4 +1,5 @@
 import type { NetworkAsset, Vendor } from '@/features/release/asset-editors'
+import { saveBlob } from './csv'
 
 export class OpsRequestError extends Error {
   status: number
@@ -38,14 +39,7 @@ export async function opsDownload(path: string): Promise<void> {
     const data: unknown = await response.json().catch(() => ({}))
     throw new OpsRequestError((data as { detail?: string }).detail || `HTTP ${response.status}`, response.status)
   }
-  const url = URL.createObjectURL(await response.blob())
-  const link = document.createElement('a')
-  link.href = url
-  link.download = attachmentName(response.headers.get('Content-Disposition')) ?? 'download'
-  document.body.append(link)
-  link.click()
-  link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  saveBlob(attachmentName(response.headers.get('Content-Disposition')) ?? 'download', await response.blob())
 }
 
 export type TaskKind = 'config_backup' | 'login_check' | 'network_read'

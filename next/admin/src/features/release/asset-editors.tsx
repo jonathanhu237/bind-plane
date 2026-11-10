@@ -551,6 +551,7 @@ const actionNames: Record<string, [string, string]> = {
   'task.run': ['Task started', '发起任务'], 'config.view': ['Configuration viewed', '查看配置'], 'config.diff': ['Configurations compared', '对比配置'],
   'config.download': ['Configuration downloaded', '下载配置'], 'config.export': ['Configuration exported', '导出配置'],
   'alert.acknowledge': ['Alert acknowledged', '确认告警'],
+  'audit.export': ['Audit log exported', '导出审计日志'],
 }
 
 export function actionName(action: string, zh: boolean): string {

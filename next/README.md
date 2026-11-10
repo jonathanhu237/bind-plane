@@ -13,7 +13,7 @@ Admins (never Operators) manage the switch inventory and its operations:
 - **Schedules**: cron schedules (in `BIND_PLANE_TIMEZONE`, default Asia/Shanghai) for backups over all switches or one group; manual runs from the Devices page. A switch never has two pending operations of one kind. Runs are kept 30 days.
 - **Compliance**: baseline rules (`must_contain` / `must_not_contain`, RE2 patterns, scoped by vendor or group) evaluated on each switch's latest backup whenever a backup or rule changes. RE2 runs in linear time, so no pattern can stall the evaluator.
 - **Alerts**: failed backups, critical compliance failures and failed network reads, the problems only Bind Plane knows about. They resolve themselves when the cause clears; acknowledging records who is handling it. Resolved alerts are kept 180 days.
-- **Audit log**: every asset change, import, schedule or rule edit, manual run, configuration read and alert acknowledgement, kept indefinitely.
+- **Audit log**: every asset change, import, schedule or rule edit, manual run, configuration read or download and alert acknowledgement, kept indefinitely. It exports as CSV by its current filters (up to 50,000 events at a time, newest first), and each export is recorded as well.
 
 Device operations only read from switches, so a worker that dies mid-operation fails the item and the next run retries. Release jobs run in their own worker loop and are never delayed by a long backup run.
 

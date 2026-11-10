@@ -249,6 +249,15 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 		t.Fatalf("downloads recorded %d times on the switch: %v", count, err)
 	}
 
+	// The audit log exports every event its filters match, and the export is recorded too.
+	exportedAudit := obj(call(ops, "GET", "/api/ops/audit/export?action=config", "", 200))
+	if events := exportedAudit["events"].([]any); len(events) != 4 || exportedAudit["truncated"] != false || obj(events[0])["action"] != "config.export" {
+		t.Fatalf("audit export %v", exportedAudit)
+	}
+	if err = db.QueryRow(`SELECT count(*) FROM bp_asset_events WHERE action='audit.export' AND object_id=$1 AND object_name='4 events'`, actorID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("audit export recorded %d times: %v", count, err)
+	}
+
 	// Schedules fire once when due and move to the next future match. They only back up: whether
 	// switches are up is Zabbix's to watch, so there is no port check to schedule or run.
 	call(ops, "POST", "/api/ops/schedules", `{"name":"bad cron","kind":"config_backup","cron":"61 * * * *","scope":"all"}`, 422)

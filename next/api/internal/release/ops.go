@@ -55,6 +55,7 @@ func NewOpsHandler(db *sql.DB, identity Identity, cookie, origin string, loc *ti
 		"GET /api/ops/alerts":                   o.alerts,
 		"POST /api/ops/alerts/{id}/acknowledge": o.acknowledge,
 		"GET /api/ops/audit":                    o.audit,
+		"GET /api/ops/audit/export":             o.exportAudit,
 	}
 	for pattern, route := range routes {
 		o.mux.HandleFunc(pattern, route)
@@ -123,16 +124,24 @@ func (o *OpsHandler) unavailable(w http.ResponseWriter, err error) {
 	fail(w, 503, "device operations store unavailable")
 }
 
+// auditColumns and auditQuery list the audit trail by category (action prefix), actor and object
+// name, newest first; $4 pages back from an event ID and $5 limits the rows.
+var auditColumns = []string{"id", "actor_name", "actor_email", "action", "object_id", "object_name", "changes", "created_at"}
+
+const auditQuery = `SELECT id,actor_name,actor_email,action,object_id::text,object_name,changes::text,created_at FROM bp_asset_events
+ WHERE ($1='' OR action LIKE $1||'.%') AND ($2='' OR actor_email ILIKE '%'||$2||'%' OR actor_name ILIKE '%'||$2||'%') AND ($3='' OR object_name ILIKE '%'||$3||'%') AND ($4=0 OR id<$4)
+ ORDER BY id DESC LIMIT $5`
+
+// maxAuditExport bounds one export; narrower filters reach older events.
+const maxAuditExport = 50000
+
 func (o *OpsHandler) audit(w http.ResponseWriter, r *http.Request) {
 	if _, ok := o.authorize(w, r, false); !ok {
 		return
 	}
 	q := r.URL.Query()
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
-	items, err := o.rows(r.Context(), []string{"id", "actor_name", "actor_email", "action", "object_id", "object_name", "changes", "created_at"},
-		`SELECT id,actor_name,actor_email,action,object_id::text,object_name,changes::text,created_at FROM bp_asset_events
- WHERE ($1='' OR action LIKE $1||'.%') AND ($2='' OR actor_email ILIKE '%'||$2||'%' OR actor_name ILIKE '%'||$2||'%') AND ($3='' OR object_name ILIKE '%'||$3||'%') AND ($4=0 OR id<$4)
- ORDER BY id DESC LIMIT 51`, q.Get("action"), q.Get("actor"), q.Get("q"), before)
+	items, err := o.rows(r.Context(), auditColumns, auditQuery, q.Get("action"), q.Get("actor"), q.Get("q"), before, 51)
 	if err != nil {
 		o.unavailable(w, err)
 		return
@@ -143,6 +152,30 @@ func (o *OpsHandler) audit(w http.ResponseWriter, r *http.Request) {
 		next = items[49]["id"]
 	}
 	write(w, 200, map[string]any{"events": items, "next_before": next})
+}
+
+// exportAudit returns every event the audit log's filters match, newest first and at most
+// maxAuditExport, for the browser to write out in the interface language. The export is itself
+// recorded before any event leaves.
+func (o *OpsHandler) exportAudit(w http.ResponseWriter, r *http.Request) {
+	actor, ok := o.authorize(w, r, false)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	items, err := o.rows(r.Context(), auditColumns, auditQuery, q.Get("action"), q.Get("actor"), q.Get("q"), 0, maxAuditExport+1)
+	truncated := len(items) > maxAuditExport
+	if truncated {
+		items = items[:maxAuditExport]
+	}
+	if err == nil {
+		err = o.auditRead(r.Context(), actor, "audit.export", actor.User.ID, fmt.Sprintf("%d events", len(items)))
+	}
+	if err != nil {
+		o.unavailable(w, err)
+		return
+	}
+	write(w, 200, map[string]any{"events": items, "truncated": truncated})
 }
 
 func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {

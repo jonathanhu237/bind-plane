@@ -1,24 +1,39 @@
 import { createFileRoute, useLoaderData } from '@tanstack/react-router'
 import { useInfiniteQuery } from '@tanstack/react-query'
+import { Download } from 'lucide-react'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { opsRequest, type AuditEvent, type TaskKind } from '@/features/ops/api'
+import { encodeCSV, saveText } from '@/features/ops/csv'
 import { AdminOnly, Empty, ErrorNote, PageHeader, actorText, formatTime, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import { actionName, describeChanges } from '@/features/release/asset-editors'
+import { errorText } from '@/features/release/messages'
+import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 
 export const Route = createFileRoute('/_authenticated/audit')({ component: AuditPage })
 
-const categories = ['credential', 'profile', 'switch', 'network', 'group', 'schedule', 'rule', 'task', 'config', 'alert'] as const
+const categories = ['credential', 'profile', 'switch', 'network', 'group', 'schedule', 'rule', 'task', 'config', 'alert', 'audit'] as const
 // "Every category" travels as this select value and is sent as no filter.
 const ALL = 'all'
+
+const two = (n: number) => String(n).padStart(2, '0')
+/** A time as spreadsheets sort it, in the browser's time zone. */
+const csvTime = (value: string) => {
+  const d = new Date(value)
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
+}
+const fileStamp = (d: Date) => `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`
 
 function AuditPage() {
   const { user } = useLoaderData({ from: '/_authenticated' })
   const zh = useZh()
+  const { t } = useTranslation()
   const admin = isAdmin(user)
+  const [exporting, setExporting] = useState(false)
   const [action, setAction] = useState('')
   const [actor, setActor] = useState('')
   const [q, setQ] = useState('')
@@ -32,14 +47,34 @@ function AuditPage() {
   const categoryName: Record<(typeof categories)[number], string> = {
     credential: pick(zh, '凭据', 'Credentials'), profile: pick(zh, '命令模板', 'Profiles'), switch: pick(zh, '交换机', 'Switches'), network: pick(zh, '网段', 'Networks'),
     group: pick(zh, '分组', 'Groups'), schedule: pick(zh, '计划任务', 'Schedules'), rule: pick(zh, '合规规则', 'Compliance rules'), task: pick(zh, '手动任务', 'Manual tasks'),
-    config: pick(zh, '查看与对比配置', 'Configuration reads'), alert: pick(zh, '告警处理', 'Alert handling'),
+    config: pick(zh, '查看、对比与下载配置', 'Configuration reads'), alert: pick(zh, '告警处理', 'Alert handling'), audit: pick(zh, '导出审计日志', 'Audit exports'),
   }
   const describe = (event: AuditEvent) => event.action === 'task.run'
     ? `${kindLabel(event.changes.kind as TaskKind, zh)} · ${pick(zh, `${String(event.changes.queued)} 台排队`, `${String(event.changes.queued)} queued`)}`
     : describeChanges(event.changes, zh)
   const rows = events.data?.pages.flatMap((page) => page.events) ?? []
+  /** Every event the filters match, as the page words them; the export itself is recorded. */
+  async function exportCSV() {
+    setExporting(true)
+    try {
+      const result = await opsRequest<{ events: AuditEvent[]; truncated: boolean }>(`audit/export?${filters}`)
+      const header = [pick(zh, '时间', 'Time'), pick(zh, '操作者', 'Actor'), pick(zh, '邮箱', 'Email'), pick(zh, '操作', 'Action'), pick(zh, '对象', 'Object'), pick(zh, '变更', 'Changes')]
+      const lines = result.events.map((event) => [csvTime(event.created_at), event.actor_name || (event.actor_email ? '' : pick(zh, '系统', 'System')),
+        event.actor_email, actionName(event.action, zh), event.object_name, describe(event)])
+      saveText(`audit-${fileStamp(new Date())}.csv`, encodeCSV([header, ...lines]))
+      const count = result.events.length
+      notifySuccess(result.truncated
+        ? pick(zh, `已导出最近的 ${count} 条记录。更早的记录请缩小筛选范围后再导出。`, `Exported the latest ${count} events. Narrow the filters to export older ones.`)
+        : pick(zh, `已导出 ${count} 条记录。`, `Exported ${count} event${count === 1 ? '' : 's'}.`))
+      void events.refetch()
+    } catch (cause) { notifyRequestError(cause, t, { description: errorText(cause, zh) }) }
+    finally { setExporting(false) }
+  }
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-    <PageHeader title={pick(zh, '审计日志', 'Audit log')} />
+    <PageHeader title={pick(zh, '审计日志', 'Audit log')}>
+      <Button type="button" variant="outline" disabled={exporting} title={pick(zh, '按当前筛选条件导出全部记录', 'Exports every event the filters match')} onClick={() => void exportCSV()}>
+        <Download aria-hidden="true" data-icon="inline-start" />{exporting ? pick(zh, '正在导出…', 'Exporting…') : pick(zh, '导出 CSV', 'Export CSV')}</Button>
+    </PageHeader>
     <div className="flex flex-wrap items-center gap-2">
       <Select value={action || ALL} onValueChange={(value) => setAction(value === ALL ? '' : value)}>
         <SelectTrigger aria-label={pick(zh, '操作类别', 'Category')} className="w-auto min-w-36"><SelectValue /></SelectTrigger>
