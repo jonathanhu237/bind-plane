@@ -318,16 +318,6 @@ func (a *AdminHandler) editProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		next[rule.column] = string(rule.value)
 	}
-	// A built-in profile can only be switched on or off.
-	var builtin bool
-	if err := a.db.QueryRowContext(r.Context(), `SELECT builtin IS NOT NULL FROM bp_command_profiles WHERE id::text=$1`, r.PathValue("id")).Scan(&builtin); err == nil && builtin {
-		for column := range next {
-			if column != "is_active" {
-				fail(w, 409, errBuiltinProfile)
-				return
-			}
-		}
-	}
 	a.applyEdit(w, r, actor, profileFields, input.Version, next)
 }
 

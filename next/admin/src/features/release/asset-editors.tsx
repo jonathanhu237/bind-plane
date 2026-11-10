@@ -59,8 +59,7 @@ export const ruleHint = (key: string, zh: boolean) => ruleText[key as RuleKey]?.
 export const NO_GROUP = 'none'
 
 export type Credential = { id: string; name: string; username: string; description: string | null; is_active: boolean; has_secret: boolean; version: number }
-/** `builtin` names a profile that ships with Bind Plane; its content stays as shipped. */
-export type Profile = { id: string; name: string; vendor: Vendor; builtin: string | null; is_active: boolean; version: number } & Record<RuleKey, unknown>
+export type Profile = { id: string; name: string; vendor: Vendor; is_active: boolean; version: number } & Record<RuleKey, unknown>
 export type Vendor = 'huawei' | 'h3c' | 'ruijie' | 'cisco' | 'other'
 export type SwitchAsset = {
   id: string; name: string; management_ip: string; credential_id: string; command_profile_id: string; is_enabled: boolean; version: number
@@ -223,7 +222,7 @@ export function editorLabels(zh: boolean) {
     : { credentials: 'credential', profiles: 'command profile', switches: 'switch', networks: 'network', groups: 'group' }
   const switchCount = (count: number) => zh ? `${count} 台交换机` : `${count} switch${count === 1 ? '' : 'es'}`
   return zh ? {
-    edit: '编辑', copy: '复制', builtin: '内置', enable: '启用', disable: '停用', disabled: '已停用', unvalidated: '未验证', cancel: '取消', close: '关闭',
+    edit: '编辑', copy: '复制', enable: '启用', disable: '停用', disabled: '已停用', unvalidated: '未验证', cancel: '取消', close: '关闭',
     save: '保存修改', saving: '正在保存…', saved: '已保存。', choose: '请选择', noVendorProfile: '这个厂商还没有命令模板',
     name: '名称', username: '设备用户名', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
     keep: '留空则保留现有值', clearSecret: '删除已保存的特权密码', managementIP: '管理 IPv4', credential: '凭据', profile: '命令模板',
@@ -265,7 +264,7 @@ export function editorLabels(zh: boolean) {
       groups: '还没有分组。导入交换机时也会自动创建分组。',
     } satisfies Record<AssetKind, string>,
   } : {
-    edit: 'Edit', copy: 'Copy', builtin: 'Built-in', enable: 'Enable', disable: 'Disable', disabled: 'Disabled', unvalidated: 'Unvalidated', cancel: 'Cancel', close: 'Close',
+    edit: 'Edit', copy: 'Copy', enable: 'Enable', disable: 'Disable', disabled: 'Disabled', unvalidated: 'Unvalidated', cancel: 'Cancel', close: 'Close',
     save: 'Save changes', saving: 'Saving…', saved: 'Saved.', choose: 'Choose…', noVendorProfile: 'No command profile for this vendor yet',
     name: 'Name', username: 'Device username', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
     keep: 'Leave empty to keep the stored value', clearSecret: 'Remove the stored privilege secret', managementIP: 'Management IPv4', credential: 'Credential', profile: 'Command profile',

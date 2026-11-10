@@ -240,8 +240,6 @@ const (
 	profileVendorConstraint = "bp_switches_profile_vendor_fkey"
 	errProfileVendor        = "command profile is for another vendor"
 	errProfileInUse         = "switches of another vendor use this command profile"
-	// Built-in profiles ship with Bind Plane and migrations keep them current.
-	errBuiltinProfile = "built-in command profiles cannot be changed; copy one to make your own"
 )
 
 func isConstraint(err error, name string) bool {
@@ -322,7 +320,7 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 	// Secrets are never listed, only whether an optional privilege secret is stored.
 	queries := map[string]string{
 		"credentials": `SELECT id::text,name,username,description,is_active,encrypted_secret IS NOT NULL,version FROM bp_credentials ORDER BY name`,
-		"profiles":    `SELECT id::text,name,vendor,builtin,is_active,version,login_prompt_patterns::text,command_templates::text,prompt_patterns::text,pagination_rules::text,success_patterns::text,error_patterns::text,parser_rules::text FROM bp_command_profiles ORDER BY name`,
+		"profiles":    `SELECT id::text,name,vendor,is_active,version,login_prompt_patterns::text,command_templates::text,prompt_patterns::text,pagination_rules::text,success_patterns::text,error_patterns::text,parser_rules::text FROM bp_command_profiles ORDER BY name`,
 		"switches":    `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled,version,vendor,model,site,description,group_id::text,protocol,port FROM bp_switches ORDER BY name`,
 		"networks":    `SELECT id::text,switch_id::text,cidr::text,is_enabled,is_validated,vlan,description,version FROM bp_networks ORDER BY cidr`,
 		"groups":      `SELECT id::text,name,description,version FROM bp_switch_groups ORDER BY name`,
@@ -341,7 +339,7 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 		items := []map[string]any{}
 		names := map[string][]string{
 			"credentials": {"id", "name", "username", "description", "is_active", "has_secret", "version"},
-			"profiles":    {"id", "name", "vendor", "builtin", "is_active", "version", "login_prompt_patterns", "command_templates", "prompt_patterns", "pagination_rules", "success_patterns", "error_patterns", "parser_rules"},
+			"profiles":    {"id", "name", "vendor", "is_active", "version", "login_prompt_patterns", "command_templates", "prompt_patterns", "pagination_rules", "success_patterns", "error_patterns", "parser_rules"},
 			"switches":    {"id", "name", "management_ip", "credential_id", "command_profile_id", "is_enabled", "version", "vendor", "model", "site", "description", "group_id", "protocol", "port"},
 			"networks":    {"id", "switch_id", "cidr", "is_enabled", "is_validated", "vlan", "description", "version"},
 			"groups":      {"id", "name", "description", "version"},

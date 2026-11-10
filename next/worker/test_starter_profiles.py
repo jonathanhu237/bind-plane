@@ -1,4 +1,4 @@
-"""The built-in command profiles, as migrated, read real switch replies correctly."""
+"""The starter command profiles, as migrated, read real switch replies correctly."""
 
 import json
 import os
@@ -17,19 +17,19 @@ def _json(value):
 
 
 @pytest.mark.asyncio
-async def test_builtin_profiles_read_captured_switch_replies():
+async def test_starter_profiles_read_captured_switch_replies():
     dsn = os.getenv("EXECUTOR_TEST_DATABASE_URL")
     if not dsn:
         pytest.skip("isolated migrated test database required")
     conn = await asyncpg.connect(dsn)
     try:
         rows = await conn.fetch(
-            "SELECT builtin,vendor,command_templates,parser_rules,pagination_rules"
-            " FROM bp_command_profiles WHERE builtin IS NOT NULL"
+            "SELECT seed,vendor,command_templates,parser_rules,pagination_rules"
+            " FROM bp_command_profiles WHERE seed IS NOT NULL"
         )
     finally:
         await conn.close()
-    profiles = {row["builtin"]: row for row in rows}
+    profiles = {row["seed"]: row for row in rows}
     shipped = {"h3c-comware", "huawei-vrp", "huawei-ce", "huawei-quidway", "ruijie-rgos"}
     assert set(profiles) == shipped
 

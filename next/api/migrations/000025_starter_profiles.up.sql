@@ -1,14 +1,15 @@
--- Command profiles that ship with Bind Plane. Their commands are the ones the campus's previous
--- release system used for years; their parsing rules were written against replies captured
--- read-only from live switches (next/worker/testdata/arp_samples.json). Later migrations keep
--- them up to date, so the API leaves their content as shipped: copy one to change it.
-ALTER TABLE bp_command_profiles ADD COLUMN builtin text UNIQUE;
+-- Starter command profiles, so a new install can add switches straight away. They are ordinary
+-- profiles that anyone can edit. Their commands are the ones the campus's previous release
+-- system used for years; their parsing rules were written against replies captured read-only
+-- from live switches (next/worker/testdata/arp_samples.json).
+--
+-- `seed` records which starter a profile began as. It is never shown; it lets a later migration
+-- correct a starter where nobody has edited it yet (version 1).
+ALTER TABLE bp_command_profiles ADD COLUMN seed text UNIQUE;
 
-INSERT INTO bp_command_profiles (builtin, name, vendor, command_templates, parser_rules, pagination_rules, error_patterns)
-SELECT v.builtin,
-       -- A profile someone already named like this keeps its name.
-       v.name || CASE WHEN EXISTS (SELECT 1 FROM bp_command_profiles p WHERE p.name = v.name) THEN '（内置）' ELSE '' END,
-       v.vendor, v.command_templates::jsonb, v.parser_rules::jsonb, v.pagination_rules::jsonb, v.error_patterns::jsonb
+-- A profile someone already gave one of these names is left alone, and that starter is skipped.
+INSERT INTO bp_command_profiles (seed, name, vendor, command_templates, parser_rules, pagination_rules, error_patterns)
+SELECT v.seed, v.name, v.vendor, v.command_templates::jsonb, v.parser_rules::jsonb, v.pagination_rules::jsonb, v.error_patterns::jsonb
 FROM (VALUES
     ('h3c-comware', 'H3C Comware', 'h3c',
      $j${"single_arp_query": "display arp $ip", "arp_release": "undo arp $ip", "super": "super",
@@ -49,4 +50,5 @@ FROM (VALUES
          "missing_patterns": ["No such ARP entries exist", "Protocol\\s+Address\\s+Age"]}$j$,
      $j${"disable_paging_command": "terminal length 0"}$j$,
      $j$["% Invalid input", "% Unknown command", "% Incomplete command", "% Ambiguous command"]$j$)
-) AS v (builtin, name, vendor, command_templates, parser_rules, pagination_rules, error_patterns);
+) AS v (seed, name, vendor, command_templates, parser_rules, pagination_rules, error_patterns)
+ON CONFLICT (name) DO NOTHING;
