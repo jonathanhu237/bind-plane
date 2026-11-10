@@ -100,6 +100,12 @@ export type Overview = {
   trend: TrendDay[]
 }
 
+export type ConfigMatch = { line: number; text: string; section: string }
+export type ConfigSearch = {
+  searched: number; without_backup: number; matched: number; lines: number; truncated: boolean
+  results: { backup_id: number; switch_id: string; switch_name: string; management_ip: string; group_name: string | null; captured_at: string; count: number; matches: ConfigMatch[] }[]
+}
+
 export type TrendDay = { date: string; changed: number; backup_failed: number }
 export type DayChanges = {
   date: string

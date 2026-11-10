@@ -21,6 +21,7 @@ import { Route as AuthenticatedAssetsRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedCommandProfilesRouteImport } from './routes/_authenticated/command-profiles'
 import { Route as AuthenticatedComplianceRouteImport } from './routes/_authenticated/compliance'
+import { Route as AuthenticatedConfigSearchRouteImport } from './routes/_authenticated/config-search'
 import { Route as AuthenticatedCredentialsRouteImport } from './routes/_authenticated/credentials'
 import { Route as AuthenticatedDevicesRouteImport } from './routes/_authenticated/devices'
 import { Route as AuthenticatedEmailTasksRouteImport } from './routes/_authenticated/email-tasks'
@@ -96,6 +97,12 @@ const AuthenticatedComplianceRoute = AuthenticatedComplianceRouteImport.update({
   path: '/compliance',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedConfigSearchRoute =
+  AuthenticatedConfigSearchRouteImport.update({
+    id: '/config-search',
+    path: '/config-search',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedCredentialsRoute =
   AuthenticatedCredentialsRouteImport.update({
     id: '/credentials',
@@ -184,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/audit': typeof AuthenticatedAuditRoute
   '/command-profiles': typeof AuthenticatedCommandProfilesRoute
   '/compliance': typeof AuthenticatedComplianceRoute
+  '/config-search': typeof AuthenticatedConfigSearchRoute
   '/credentials': typeof AuthenticatedCredentialsRoute
   '/devices': typeof AuthenticatedDevicesRoute
   '/email-tasks': typeof AuthenticatedEmailTasksRoute
@@ -210,6 +218,7 @@ export interface FileRoutesByTo {
   '/audit': typeof AuthenticatedAuditRoute
   '/command-profiles': typeof AuthenticatedCommandProfilesRoute
   '/compliance': typeof AuthenticatedComplianceRoute
+  '/config-search': typeof AuthenticatedConfigSearchRoute
   '/credentials': typeof AuthenticatedCredentialsRoute
   '/devices': typeof AuthenticatedDevicesRoute
   '/email-tasks': typeof AuthenticatedEmailTasksRoute
@@ -239,6 +248,7 @@ export interface FileRoutesById {
   '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/command-profiles': typeof AuthenticatedCommandProfilesRoute
   '/_authenticated/compliance': typeof AuthenticatedComplianceRoute
+  '/_authenticated/config-search': typeof AuthenticatedConfigSearchRoute
   '/_authenticated/credentials': typeof AuthenticatedCredentialsRoute
   '/_authenticated/devices': typeof AuthenticatedDevicesRoute
   '/_authenticated/email-tasks': typeof AuthenticatedEmailTasksRoute
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/command-profiles'
     | '/compliance'
+    | '/config-search'
     | '/credentials'
     | '/devices'
     | '/email-tasks'
@@ -295,6 +306,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/command-profiles'
     | '/compliance'
+    | '/config-search'
     | '/credentials'
     | '/devices'
     | '/email-tasks'
@@ -323,6 +335,7 @@ export interface FileRouteTypes {
     | '/_authenticated/audit'
     | '/_authenticated/command-profiles'
     | '/_authenticated/compliance'
+    | '/_authenticated/config-search'
     | '/_authenticated/credentials'
     | '/_authenticated/devices'
     | '/_authenticated/email-tasks'
@@ -435,6 +448,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedComplianceRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/config-search': {
+      id: '/_authenticated/config-search'
+      path: '/config-search'
+      fullPath: '/config-search'
+      preLoaderRoute: typeof AuthenticatedConfigSearchRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/credentials': {
       id: '/_authenticated/credentials'
       path: '/credentials'
@@ -542,6 +562,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedCommandProfilesRoute: typeof AuthenticatedCommandProfilesRoute
   AuthenticatedComplianceRoute: typeof AuthenticatedComplianceRoute
+  AuthenticatedConfigSearchRoute: typeof AuthenticatedConfigSearchRoute
   AuthenticatedCredentialsRoute: typeof AuthenticatedCredentialsRoute
   AuthenticatedDevicesRoute: typeof AuthenticatedDevicesRoute
   AuthenticatedEmailTasksRoute: typeof AuthenticatedEmailTasksRoute
@@ -565,6 +586,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedCommandProfilesRoute: AuthenticatedCommandProfilesRoute,
   AuthenticatedComplianceRoute: AuthenticatedComplianceRoute,
+  AuthenticatedConfigSearchRoute: AuthenticatedConfigSearchRoute,
   AuthenticatedCredentialsRoute: AuthenticatedCredentialsRoute,
   AuthenticatedDevicesRoute: AuthenticatedDevicesRoute,
   AuthenticatedEmailTasksRoute: AuthenticatedEmailTasksRoute,

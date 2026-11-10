@@ -47,7 +47,7 @@ function AuditPage() {
   const categoryName: Record<(typeof categories)[number], string> = {
     credential: pick(zh, '凭据', 'Credentials'), profile: pick(zh, '命令模板', 'Profiles'), switch: pick(zh, '交换机', 'Switches'), network: pick(zh, '网段', 'Networks'),
     group: pick(zh, '分组', 'Groups'), schedule: pick(zh, '计划任务', 'Schedules'), rule: pick(zh, '合规规则', 'Compliance rules'), task: pick(zh, '手动任务', 'Manual tasks'),
-    config: pick(zh, '查看、对比与下载配置', 'Configuration reads'), alert: pick(zh, '告警处理', 'Alert handling'), audit: pick(zh, '导出审计日志', 'Audit exports'),
+    config: pick(zh, '读取配置（查看、搜索、下载）', 'Configuration reads'), alert: pick(zh, '告警处理', 'Alert handling'), audit: pick(zh, '导出审计日志', 'Audit exports'),
   }
   const describe = (event: AuditEvent) => event.action === 'task.run'
     ? `${kindLabel(event.changes.kind as TaskKind, zh)} · ${pick(zh, `${String(event.changes.queued)} 台排队`, `${String(event.changes.queued)} queued`)}`

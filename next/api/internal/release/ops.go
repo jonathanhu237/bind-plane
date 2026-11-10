@@ -57,6 +57,7 @@ func NewOpsHandler(db *sql.DB, identity Identity, cookie, origin string, loc *ti
 		"GET /api/ops/audit":                    o.audit,
 		"GET /api/ops/audit/export":             o.exportAudit,
 		"GET /api/ops/changes":                  o.changes,
+		"GET /api/ops/config-search":            o.configSearch,
 	}
 	for pattern, route := range routes {
 		o.mux.HandleFunc(pattern, route)

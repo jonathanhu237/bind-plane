@@ -14,7 +14,7 @@ function Info({ label, children }: { label: string; children: React.ReactNode })
   return <div className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-0.5 break-words text-sm">{children}</dd></div>
 }
 
-function ConfigDialog({ backupId, zh, onClose }: { backupId: number | null; zh: boolean; onClose: () => void }) {
+export function ConfigDialog({ backupId, zh, onClose }: { backupId: number | null; zh: boolean; onClose: () => void }) {
   const query = useQuery({ queryKey: ['ops-backup', backupId], queryFn: () => opsRequest<{ switch_name: string; captured_at: string; content: string }>(`backups/${backupId}`), enabled: backupId !== null, staleTime: Infinity })
   const lines = query.data?.content.split('\n') ?? []
   return <Dialog open={backupId !== null} onOpenChange={(open) => { if (!open) onClose() }}>

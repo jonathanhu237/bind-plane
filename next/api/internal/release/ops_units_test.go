@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestCronNextMatchesStandardSemantics(t *testing.T) {
@@ -102,5 +103,32 @@ func TestConfigSealingIsBoundToItsPurpose(t *testing.T) {
 	}
 	if _, err = openConfig(key, "v1:AAAA"); err == nil {
 		t.Fatal("truncated ciphertext opened")
+	}
+}
+
+func TestSearchLinesNamesTheSectionOfEachMatch(t *testing.T) {
+	config := "sysname CORE\n#\ninterface Vlanif10\n description 办公\n ip address 10.20.30.1 255.255.255.0\n#\ninterface Vlanif20\n ip address 10.20.40.1 255.255.255.0\n#\nip route-static 0.0.0.0 0.0.0.0 10.0.0.1\nreturn"
+	match, err := configMatcher("IP ADDRESS", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, count := searchLines(config, match, 20)
+	if count != 2 || len(found) != 2 || found[0] != (configMatch{Line: 5, Text: " ip address 10.20.30.1 255.255.255.0", Section: "interface Vlanif10"}) ||
+		found[1].Section != "interface Vlanif20" {
+		t.Fatalf("text search found %d: %+v", count, found)
+	}
+	// A pattern is RE2; a match on a block's own line has no section, and the limit only cuts what is shown.
+	match, err = configMatcher(`^(interface|ip route-static) `, "regex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found, count = searchLines(config, match, 1); count != 3 || len(found) != 1 || found[0].Section != "" || found[0].Line != 3 {
+		t.Fatalf("pattern search found %d: %+v", count, found)
+	}
+	if _, err = configMatcher("(unclosed", "regex"); err == nil || !strings.HasPrefix(err.Error(), "invalid pattern: ") {
+		t.Fatalf("bad pattern: %v", err)
+	}
+	if long := clip(strings.Repeat("证", 600)); utf8.RuneCountInString(long) != searchLineChars+1 {
+		t.Fatalf("clipped to %d characters", utf8.RuneCountInString(long))
 	}
 }

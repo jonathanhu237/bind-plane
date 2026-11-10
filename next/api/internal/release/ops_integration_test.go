@@ -271,6 +271,30 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	}
 	call(ops, "GET", "/api/ops/changes?date=yesterday", "", 422)
 
+	// Configuration search reads the newest version of each switch, signs in to nothing, and is
+	// recorded with its text, since matched lines can hold secrets.
+	found := obj(call(ops, "GET", "/api/ops/config-search?q=OPS-&text=COMMUNITY", "", 200))
+	if found["matched"] != float64(1) || found["searched"] != float64(1) || found["lines"] != float64(1) || found["without_backup"].(float64) < 1 {
+		t.Fatalf("search %v", found)
+	}
+	hit := obj(found["results"].([]any)[0])
+	if line := obj(hit["matches"].([]any)[0]); hit["switch_name"] != "OPS-A" || hit["backup_id"] != float64(second) || line["line"] != float64(3) || !strings.Contains(line["text"].(string), "%^private") {
+		t.Fatalf("search hit %v", hit) // the newest version only: the first one said "public"
+	}
+	if none := obj(call(ops, "GET", "/api/ops/config-search?q=OPS-&text=public", "", 200)); none["matched"] != float64(0) {
+		t.Fatalf("an older version matched: %v", none)
+	}
+	if pattern := obj(call(ops, "GET", "/api/ops/config-search?q=OPS-&mode=regex&text=%5Esnmp-agent+community+read+%5CS%2B%24", "", 200)); pattern["matched"] != float64(1) {
+		t.Fatalf("pattern search %v", pattern)
+	}
+	call(ops, "GET", "/api/ops/config-search?text=x", "", 422)
+	if bad := fmt.Sprint(call(ops, "GET", "/api/ops/config-search?mode=regex&text=%28unclosed", "", 422)); !strings.Contains(bad, "invalid pattern") {
+		t.Fatalf("bad pattern: %s", bad)
+	}
+	if err = db.QueryRow(`SELECT count(*) FROM bp_asset_events WHERE action='config.search' AND object_id=$1`, actorID).Scan(&count); err != nil || count != 3 {
+		t.Fatalf("searches recorded %d times: %v", count, err)
+	}
+
 	// Schedules fire once when due and move to the next future match. They only back up: whether
 	// switches are up is Zabbix's to watch, so there is no port check to schedule or run.
 	call(ops, "POST", "/api/ops/schedules", `{"name":"bad cron","kind":"config_backup","cron":"61 * * * *","scope":"all"}`, 422)

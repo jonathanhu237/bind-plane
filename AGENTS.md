@@ -155,7 +155,7 @@ The devices page is the switch inventory that releases, backups, schedules, comp
 - Switches are disabled, never deleted: release jobs, configuration versions and the audit log keep pointing at them.
 - The connection test signs in once and out again and sends no command; a port that does not answer is a failed connection, not an alert. Schedules run only backups, never sign-in tests.
 - Alerts are the problems only Bind Plane knows about: failed backups, compliance failures and failed network reads.
-- Configurations can be viewed, compared and downloaded (one version, or the newest version of many switches as a zip); each of these is recorded in the switch's history before the configuration leaves.
+- Configurations can be viewed, compared and downloaded (one version, or the newest version of many switches as a zip); each of these is recorded in the switch's history before the configuration leaves. Configuration search looks through the newest version of every switch without signing in to any, and records each search with its text.
 - A backup is overdue when the last successful one is more than seven days old. A release switch has no usable network until its networks have been read.
 - Imports match existing switches by management IP; in update mode only filled-in cells change anything. An export imports back.
 - A group that a schedule or compliance rule targets cannot be deleted, since the rule would widen to every switch.
@@ -176,7 +176,7 @@ Navigation stays small:
 
 - Home
 - Release: release console, release history
-- Device operations (admins), what is used day to day: devices, schedules, compliance, alerts, audit log
+- Device operations (admins), what is used day to day: devices, configuration search, schedules, compliance, alerts, audit log
 - Asset settings (admins), what is set up once and rarely changed: credentials, command profiles, networks. Switches and their groups live on the devices page. The networks page only shows the networks read from the release switches and looks an address up, saying which switch a release of it would go to, by the same rule releases use.
 - User and system administration
 
