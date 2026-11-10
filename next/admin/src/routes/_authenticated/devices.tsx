@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -22,7 +22,7 @@ import { FacetFilter } from '@/features/ops/facet-filter'
 import { ImportDialog } from '@/features/ops/import-dialog'
 import { AdminOnly, Empty, ErrorNote, LoginBadge, PageHeader, Pager, ReachabilityBadge, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import {
-  AssetEditDialog, AssetRequestError, DisableAssetDialog, NO_GROUP, callAssets, statusBody, vendorName, vendors, type EditTarget, type Inventory,
+  AssetEditDialog, AssetRequestError, DisableAssetDialog, NO_GROUP, callAssets, defaultPort, portFollowing, statusBody, vendorName, vendors, type EditTarget, type Inventory,
 } from '@/features/release/asset-editors'
 import { errorText, serverText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
@@ -57,7 +57,7 @@ function filterParams(search: DeviceSearch): URLSearchParams {
 }
 
 function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open: boolean; zh: boolean; inventory?: Inventory; onClose: () => void; onCreated: () => void }) {
-  const empty = { name: '', management_ip: '', credential_id: '', command_profile_id: '', vendor: 'huawei', model: '', protocol: 'ssh', port: '', group_id: '', site: '', description: '' }
+  const empty = { name: '', management_ip: '', credential_id: '', command_profile_id: '', vendor: 'huawei', model: '', protocol: 'ssh', port: defaultPort('ssh'), group_id: '', site: '', description: '' }
   const [form, setForm] = useState(empty)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -70,14 +70,16 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
     { id: 'new-credential', label: label.credential, value: form.credential_id, choose: true },
     { id: 'new-profile', label: label.profile, value: form.command_profile_id, choose: true },
   ])
-  const set = (key: keyof typeof empty, value: string) => setForm((current) => ({ ...current, [key]: value }))
+  const set = (key: keyof typeof empty, value: string) => setForm((current) => ({ ...current, [key]: value, ...portFollowing(current, key, value) }))
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!required.check()) return
     if (form.port && !/^\d+$/.test(form.port)) { setError(pick(zh, '端口必须是 1–65535 之间的数字。', 'Port must be a number from 1 to 65535.')); return }
     setBusy(true); setError('')
     try {
-      await callAssets('switches', { ...form, management_ip: form.management_ip.trim(), port: form.port ? Number(form.port) : null })
+      // On its protocol's default port a switch stores none, so it follows the protocol if that changes.
+      const port = form.port.trim() ? Number(form.port) : null
+      await callAssets('switches', { ...form, management_ip: form.management_ip.trim(), port: port === Number(defaultPort(form.protocol)) ? null : port })
       setForm(empty); required.reset(); onCreated()
     } catch (cause) { setError(errorText(cause, zh)) }
     finally { setBusy(false) }
@@ -114,9 +116,8 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
             {text('model', pick(zh, '型号（可选）', 'Model (optional)'))}
             {choose('new-protocol', 'protocol', pick(zh, '登录协议', 'Login protocol'), [{ value: 'ssh', label: 'SSH' }, { value: 'telnet', label: 'Telnet' }])}
             <Field>
-              <FieldLabel htmlFor="new-port">{pick(zh, '端口（可选）', 'Port (optional)')}</FieldLabel>
-              <Input id="new-port" inputMode="numeric" className="font-mono" placeholder={form.protocol === 'ssh' ? '22' : '23'} aria-describedby="new-port-hint" value={form.port} onChange={(event) => set('port', event.target.value)} />
-              <FieldDescription id="new-port-hint">{pick(zh, '留空则使用协议默认端口。', 'Leave empty for the protocol default.')}</FieldDescription>
+              <FieldLabel htmlFor="new-port">{pick(zh, '端口', 'Port')}</FieldLabel>
+              <Input id="new-port" inputMode="numeric" className="font-mono" placeholder={defaultPort(form.protocol)} value={form.port} onChange={(event) => set('port', event.target.value)} />
             </Field>
             <Field>
               <FieldLabel htmlFor="new-group">{pick(zh, '分组', 'Group')}</FieldLabel>

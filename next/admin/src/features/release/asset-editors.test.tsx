@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  AssetEditDialog, AssetRequestError, DisableAssetDialog, describeChanges, editRequest,
+  AssetEditDialog, AssetRequestError, DisableAssetDialog, describeChanges, editRequest, portFollowing,
   type Credential, type Inventory, type Profile, type SwitchAsset,
 } from './asset-editors'
 
@@ -41,6 +41,25 @@ describe('asset edit requests', () => {
   it('rejects a port that is not a number', () => {
     const form = { name: 'edge-1', management_ip: '192.0.2.10', credential_id: 'c1', command_profile_id: 'p1', vendor: 'huawei', model: '', site: '', description: '', group_id: '', protocol: 'ssh', port: '22a' }
     expect(editRequest({ kind: 'switches', item: edge }, form)).toEqual({ invalidRule: 'port' })
+  })
+
+  it('keeps a switch on its protocol default following the protocol', () => {
+    const form = { name: 'edge-1', management_ip: '192.0.2.10', credential_id: 'c1', command_profile_id: 'p1', vendor: 'huawei', model: '', site: '', description: '', group_id: '', protocol: 'telnet', port: '23' }
+    const port = (item: SwitchAsset, fields: Record<string, string>) => {
+      const request = editRequest({ kind: 'switches', item }, { ...form, ...fields })
+      return 'body' in request ? request.body.port : request
+    }
+    expect(port(edge, {})).toBe(0)
+    expect(port(edge, { port: '' })).toBe(0)
+    expect(port(edge, { port: '2323' })).toBe(2323)
+    expect(port({ ...edge, port: 22 }, { protocol: 'ssh', port: '22' })).toBe(22)
+  })
+
+  it('moves a default port along when the protocol changes', () => {
+    expect(portFollowing({ protocol: 'ssh', port: '22' }, 'protocol', 'telnet')).toEqual({ port: '23' })
+    expect(portFollowing({ protocol: 'ssh', port: '' }, 'protocol', 'telnet')).toEqual({ port: '23' })
+    expect(portFollowing({ protocol: 'ssh', port: '2222' }, 'protocol', 'telnet')).toEqual({})
+    expect(portFollowing({ protocol: 'ssh', port: '22' }, 'model', 'S5720')).toEqual({})
   })
 
   it('summarizes audit changes without repeating values', () => {

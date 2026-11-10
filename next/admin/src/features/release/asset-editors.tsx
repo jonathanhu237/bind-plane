@@ -110,6 +110,16 @@ export function assetName(target: EditTarget): string {
   return target.kind === 'networks' ? target.item.cidr : target.item.name
 }
 
+/** The port a login protocol uses unless the switch says otherwise. */
+export const defaultPort = (protocol: string) => (protocol === 'ssh' ? '22' : '23')
+
+/** Switching protocol moves a port that was empty or the old protocol's default to the new protocol's. */
+export function portFollowing(current: Record<string, unknown>, key: string, next: unknown): { port?: string } {
+  if (key !== 'protocol' || typeof next !== 'string') return {}
+  const port = String(current.port ?? '').trim()
+  return !port || port === defaultPort(String(current.protocol)) ? { port: defaultPort(next) } : {}
+}
+
 export const vendorName = (vendor: string, zh: boolean) =>
   ({ huawei: zh ? '华为' : 'Huawei', h3c: 'H3C', ruijie: zh ? '锐捷' : 'Ruijie', cisco: 'Cisco', other: zh ? '其他' : 'Other' })[vendor] ?? vendor
 
@@ -131,7 +141,7 @@ function initialForm(target: EditTarget): Form {
       return {
         name: target.item.name, management_ip: target.item.management_ip, credential_id: target.item.credential_id, command_profile_id: target.item.command_profile_id,
         vendor: target.item.vendor ?? 'other', model: target.item.model ?? '', site: target.item.site ?? '', description: target.item.description ?? '',
-        group_id: target.item.group_id ?? '', protocol: target.item.protocol ?? 'telnet', port: target.item.port ? String(target.item.port) : '',
+        group_id: target.item.group_id ?? '', protocol: target.item.protocol ?? 'telnet', port: target.item.port ? String(target.item.port) : defaultPort(target.item.protocol ?? 'telnet'),
       }
     case 'groups':
       return { name: target.item.name, description: target.item.description ?? '' }
@@ -173,14 +183,17 @@ export function editRequest(target: EditTarget, form: Form): EditRequest {
       return { path, body }
     }
     case 'switches': {
-      // An empty port restores the protocol default (22 for SSH, 23 for Telnet).
       const port = text('port').trim()
       if (port && !/^\d+$/.test(port)) return { invalidRule: 'port' }
+      // A switch that never had a port of its own keeps none while it uses its protocol's default, so it
+      // goes on following the protocol; 0 asks the API for that. An empty field means the default too.
+      const fallback = Number(defaultPort(text('protocol')))
+      const chosen = port ? Number(port) : fallback
       return {
         path,
         body: {
           version, name: text('name'), management_ip: text('management_ip').trim(), credential_id: text('credential_id'), command_profile_id: text('command_profile_id'),
-          vendor: text('vendor'), model: text('model'), site: text('site'), description: text('description'), group_id: text('group_id'), protocol: text('protocol'), port: port ? Number(port) : 0,
+          vendor: text('vendor'), model: text('model'), site: text('site'), description: text('description'), group_id: text('group_id'), protocol: text('protocol'), port: !target.item.port && chosen === fallback ? 0 : chosen,
         },
       }
     }
@@ -202,8 +215,8 @@ export function editorLabels(zh: boolean) {
     name: '名称', username: '设备用户名', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
     keep: '留空则保留现有值', clearSecret: '删除已保存的特权密码', managementIP: '管理 IPv4', credential: '凭据', profile: '命令模板',
     switch: '所属交换机', cidr: 'IPv4 CIDR', vlan: 'VLAN（可选）', validated: '已人工验证网段归属', inactive: '（已停用）',
-    vendor: '厂商', model: '型号（可选）', site: '站点或校区（可选）', group: '分组', noGroup: '不分组', protocol: '登录协议', port: '端口（可选）',
-    portHint: '留空则使用协议默认端口（SSH 22，Telnet 23）', invalidPort: '端口必须是 1–65535 之间的数字。',
+    vendor: '厂商', model: '型号（可选）', site: '站点或校区（可选）', group: '分组', noGroup: '不分组', protocol: '登录协议', port: '端口',
+    invalidPort: '端口必须是 1–65535 之间的数字。',
     editTitle: (kind: AssetKind) => `编辑${noun[kind]}`,
     hint: {
       credentials: '密码不会回显。两个密码框留空即保留现有值。',
@@ -244,8 +257,8 @@ export function editorLabels(zh: boolean) {
     name: 'Name', username: 'Device username', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
     keep: 'Leave empty to keep the stored value', clearSecret: 'Remove the stored privilege secret', managementIP: 'Management IPv4', credential: 'Credential', profile: 'Command profile',
     switch: 'Switch', cidr: 'IPv4 CIDR', vlan: 'VLAN (optional)', validated: 'Network ownership manually validated', inactive: ' (disabled)',
-    vendor: 'Vendor', model: 'Model (optional)', site: 'Site or campus (optional)', group: 'Group', noGroup: 'No group', protocol: 'Login protocol', port: 'Port (optional)',
-    portHint: 'Leave empty for the protocol default (SSH 22, Telnet 23).', invalidPort: 'Port must be a number from 1 to 65535.',
+    vendor: 'Vendor', model: 'Model (optional)', site: 'Site or campus (optional)', group: 'Group', noGroup: 'No group', protocol: 'Login protocol', port: 'Port',
+    invalidPort: 'Port must be a number from 1 to 65535.',
     editTitle: (kind: AssetKind) => `Edit ${noun[kind]}`,
     hint: {
       credentials: 'Stored passwords are never shown. Leave both password fields empty to keep them.',
@@ -328,7 +341,7 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
     groups: [need('edit-name', 'name', labels.name)],
     networks: [need('edit-switch', 'switch_id', labels.switch, true), need('edit-cidr', 'cidr', labels.cidr)],
   }[target.kind])
-  const set = (key: string, next: string | boolean) => setForm((current) => ({ ...current, [key]: next }))
+  const set = (key: string, next: string | boolean) => setForm((current) => ({ ...current, [key]: next, ...portFollowing(current, key, next) }))
   const text = (id: string, key: string, label: string, options: { mono?: boolean; inputMode?: 'decimal' } = {}) =>
     <Field data-invalid={required.invalid(id)}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -413,9 +426,8 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
           {choice('edit-protocol', 'protocol', labels.protocol, [{ value: 'ssh', label: 'SSH' }, { value: 'telnet', label: 'Telnet' }])}
           <Field data-invalid={invalidRule === 'port'}>
             <FieldLabel htmlFor="edit-port">{labels.port}</FieldLabel>
-            <Input id="edit-port" inputMode="numeric" placeholder={form.protocol === 'ssh' ? '22' : '23'} aria-describedby="edit-port-hint" aria-invalid={invalidRule === 'port' || undefined}
+            <Input id="edit-port" inputMode="numeric" placeholder={defaultPort(String(form.protocol))} aria-invalid={invalidRule === 'port' || undefined}
               value={value('port')} onChange={(event) => set('port', event.target.value)} className="font-mono" />
-            <FieldDescription id="edit-port-hint">{labels.portHint}</FieldDescription>
           </Field>
         </div>
         <Field>
