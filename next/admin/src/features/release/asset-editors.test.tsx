@@ -14,6 +14,7 @@ const profile: Profile = {
 const edge: SwitchAsset = {
   id: 's1', name: 'edge-1', management_ip: '192.0.2.10', credential_id: 'c1', command_profile_id: 'p1', is_enabled: true, version: 3,
   vendor: 'huawei', model: 'S5720', site: null, description: null, group_id: 'g1', protocol: 'ssh', port: null,
+  handles_release: true, networks_succeeded_at: null, networks_error: null,
 }
 const inventory: Inventory = {
   credentials: [credential], profiles: [profile], switches: [edge, { ...edge, id: 's2', name: 'edge-2', management_ip: '192.0.2.11' }], networks: [],
@@ -91,7 +92,7 @@ describe('asset editors', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     expect(onSave).toHaveBeenCalledWith('switches/s1', {
       version: 3, name: 'edge-1', management_ip: '192.0.2.12', credential_id: 'c1', command_profile_id: 'p1',
-      vendor: 'huawei', model: 'S5720', site: '', description: '', group_id: 'g1', protocol: 'ssh', port: 0,
+      vendor: 'huawei', model: 'S5720', site: '', description: '', group_id: 'g1', protocol: 'ssh', port: 0, handles_release: true,
     })
   })
 

@@ -20,7 +20,7 @@ export async function opsRequest<T>(path: string, body?: unknown, method = body 
   return data as T
 }
 
-export type TaskKind = 'config_backup' | 'reachability' | 'login_check'
+export type TaskKind = 'config_backup' | 'reachability' | 'login_check' | 'network_read'
 
 export type OpsSwitch = {
   id: string; name: string; management_ip: string; vendor: Vendor; model: string | null; site: string | null; description: string | null
@@ -31,6 +31,8 @@ export type OpsSwitch = {
   config_checked_at: string | null; config_succeeded_at: string | null; config_error: string | null; compliance_failed: number
   /** Enabled, validated networks: the ones release resolution can use. */
   networks: number
+  /** A release switch's networks are read from its configuration. */
+  handles_release: boolean; networks_checked_at: string | null; networks_succeeded_at: string | null; networks_error: string | null
 }
 export type Page<T> = { items: T[]; total: number; page_size: number }
 export type SwitchPage = Page<OpsSwitch> & { sites: string[] }
@@ -59,7 +61,7 @@ export type ComplianceResult = {
   passed: boolean; detail: string | null; evaluated_at: string; backup_id: number
 }
 export type Alert = {
-  id: number; kind: 'device_unreachable' | 'backup_failed' | 'compliance_violation'; severity: Severity; switch_id: string; switch_name: string
+  id: number; kind: 'device_unreachable' | 'backup_failed' | 'compliance_violation' | 'network_read_failed'; severity: Severity; switch_id: string; switch_name: string
   management_ip: string; rule_id: string | null; rule_name: string | null; message: string; status: 'open' | 'acknowledged' | 'resolved'
   opened_at: string; last_seen_at: string; acknowledged_at: string | null; acknowledged_by: string | null; resolved_at: string | null
 }

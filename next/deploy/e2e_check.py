@@ -122,9 +122,18 @@ profile = call("POST", f"{admin}/profiles", PROFILE, 201)["id"]
 group = call("POST", f"{admin}/groups", {"name": "Lab", "description": "Simulated switches"}, 201)["id"]
 switch = call("POST", f"{admin}/switches", {"name": "FAKE-SW", "management_ip": os.environ["FAKE_SWITCH_IP"], "credential_id": credential,
                                             "command_profile_id": profile, "vendor": "huawei", "model": "S5735", "protocol": "telnet",
-                                            "port": 23, "group_id": group, "site": "Lab bench"}, 201)["id"]
-call("POST", f"{admin}/networks", {"switch_id": switch, "cidr": "10.20.30.0/24", "is_validated": True}, 201)
-ok("credential, profile, group, switch and network created")
+                                            "port": 23, "group_id": group, "site": "Lab bench", "handles_release": True}, 201)["id"]
+ok("credential, profile, group and release switch created")
+
+
+def read_networks():
+    found = call("GET", f"/api/ops/switches/{switch}")
+    return found if found["networks_succeeded_at"] else None
+
+
+networks = sorted(n["cidr"] for n in wait("networks read from the configuration", read_networks, 90)["networks"])
+assert networks == ["10.20.30.0/24", "10.20.40.0/24"], networks
+ok(f"the new release switch's networks were read from its configuration: {', '.join(networks)}")
 
 run_task("reachability")
 first = run_task("config_backup")

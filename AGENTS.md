@@ -45,7 +45,7 @@ The normal operator flow is:
 1. Login.
 2. Enter one IPv4 address.
 3. Require a reason selection.
-4. Resolve the switch from enabled and validated network data.
+4. Resolve the switch from the networks of the switches that handle releases.
 5. Create a background release job.
 6. Worker connects to the switch over Telnet.
 7. Worker queries state before release. If the binding is not static, it stops without sending anything.
@@ -93,11 +93,13 @@ Credentials must be encrypted at rest. App user passwords must use a strong one-
 
 Nobody selects a switch by hand. Resolve the switch from local asset and network data.
 
-Only enabled and validated network data may participate in production resolution.
+Only switches that handle releases (the gateways, marked 负责解绑) own networks, and nobody types one in: each network is an interface address in the switch's running configuration. The worker reads them as soon as a switch takes up handling releases, again every day, after each successful backup of it, and when someone presses 刷新网段. Reading networks is a device operation of its own; it does not depend on backups being scheduled.
 
-If no switch matches, stop; the fix is to register the address's network.
+A read never empties a switch's networks by mistake. It changes nothing unless the configuration ends the way a whole one does (`return` or `end`), and it keeps every network when it finds no interface address, or when a read nobody asked for would remove most of them (someone who asked may accept that). Every change it makes is recorded on the switch with the networks added and removed, and a failed read raises an alert.
 
-If multiple equally specific matches exist, stop and require admin data correction.
+If no switch matches, stop; the fix is to mark the address's gateway switch as handling releases, or to check why its networks were not read.
+
+If multiple equally specific matches exist, stop; the fix is in the switches' configuration. Management VLANs that several switches share do this harmlessly, since nobody releases those addresses.
 
 Longest-prefix matching is acceptable for overlapping networks. Ambiguous same-prefix matches must not silently choose one.
 
@@ -147,7 +149,7 @@ The devices page is the switch inventory that releases, backups, schedules, comp
 
 - Switches are disabled, never deleted: release jobs, configuration versions and the audit log keep pointing at them.
 - The connection test signs in once and out again and sends no command. Schedules run only port checks and backups, never sign-in tests.
-- A backup is overdue when the last successful one is more than seven days old. A switch has no usable network until one is enabled and validated.
+- A backup is overdue when the last successful one is more than seven days old. A release switch has no usable network until its networks have been read.
 - Imports match existing switches by management IP; in update mode only filled-in cells change anything. An export imports back.
 - A group that a schedule or compliance rule targets cannot be deleted, since the rule would widen to every switch.
 
@@ -168,7 +170,7 @@ Navigation stays small:
 - Home
 - Release: release console, release history
 - Device operations (admins), what is used day to day: devices, schedules, compliance, alerts, audit log
-- Asset settings (admins), what is set up once and rarely changed: credentials, command profiles, networks. Switches and their groups live on the devices page. The networks page looks an address up and says which switch a release of it would go to, by the same rule releases use.
+- Asset settings (admins), what is set up once and rarely changed: credentials, command profiles, networks. Switches and their groups live on the devices page. The networks page only shows the networks read from the release switches and looks an address up, saying which switch a release of it would go to, by the same rule releases use.
 - User and system administration
 
 The Chinese interface calls the action 解绑 everywhere: 解绑 IP in the sidebar, 发起解绑 on the buttons that open the console, 解绑 on the button that starts one, 重新解绑 on the button that releases an address again, 解绑控制台, 解绑记录. Never mix in 释放. The English interface and the code keep "release".

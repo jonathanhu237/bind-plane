@@ -19,7 +19,8 @@ export function contains(cidr: string, address: number): boolean {
 }
 
 export type NetworkRow = { network: NetworkAsset; owner?: SwitchAsset; bits: number }
-export const usable = (row: NetworkRow) => row.network.is_enabled && row.network.is_validated && Boolean(row.owner?.is_enabled)
+/** A network release resolution uses: its switch is enabled and handles releases (the API also wants its credential and profile on). */
+export const usable = (row: NetworkRow) => row.network.is_enabled && row.network.is_validated && Boolean(row.owner?.is_enabled && row.owner.handles_release)
 
 /**
  * Which network a release of the address would use, by the API's rule: the longest usable prefix,

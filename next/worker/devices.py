@@ -1,4 +1,5 @@
-"""Device operations: reachability checks, connection tests and configuration backups.
+"""Device operations: reachability checks, connection tests, configuration backups and the
+release switches' network reads.
 
 All of them only read from switches, so a lost lease fails the item instead of risking a
 duplicate change, and the next scheduled run tries again.
@@ -24,6 +25,7 @@ from bind_plane.worker.sessions import (
 )
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from netmiko.exceptions import NetmikoTimeoutException, ReadTimeout
+from worker.networks import IncompleteConfiguration, configuration_networks
 
 logger = logging.getLogger("bind_plane.worker.devices")
 
@@ -191,9 +193,13 @@ def read_switch_configuration(dep, settings_builder) -> str:
     return text
 
 
+class NetworksKept(Exception):
+    """A read whose result would wipe out a switch's networks, so they are kept as they were."""
+
+
 def describe_failure(exc: BaseException) -> str:
     """A message safe to store and show: never connection secrets or raw device output."""
-    if isinstance(exc, BackupRejected):
+    if isinstance(exc, (BackupRejected, IncompleteConfiguration, NetworksKept)):
         return str(exc)
     if isinstance(exc, SwitchSessionError):
         return str(exc)
@@ -243,6 +249,7 @@ async def claim_device_items(pool, limit):
             """UPDATE bp_device_task_items SET status='running',started_at=now(),
             lease_token=gen_random_uuid(),lease_until=now()+CASE kind
                 WHEN 'config_backup' THEN interval '10 minutes'
+                WHEN 'network_read' THEN interval '10 minutes'
                 WHEN 'login_check' THEN interval '3 minutes' ELSE interval '2 minutes' END
             WHERE id IN (SELECT id FROM bp_device_task_items WHERE status='queued' ORDER BY id
                          FOR UPDATE SKIP LOCKED LIMIT $1)
@@ -269,8 +276,8 @@ async def finish_item(conn, item, status, message=None, *, changed=None, backup_
 async def load_device(pool, switch_id):
     async with pool.acquire() as conn:
         return await conn.fetchrow(
-            """SELECT s.id,host(s.management_ip) AS management_ip,s.vendor,s.protocol,s.port,
-            s.is_enabled,
+            """SELECT s.id,s.name,host(s.management_ip) AS management_ip,s.vendor,s.protocol,s.port,
+            s.is_enabled,s.handles_release,
             c.username,c.encrypted_password,c.encrypted_secret,c.is_active AS credential_active,
             p.is_active AS profile_active,p.login_prompt_patterns,p.command_templates,
             p.prompt_patterns,
@@ -431,6 +438,145 @@ async def back_up(pool, item, dep, settings_builder, key):
         )
         await record_login(conn, dep["id"], None)  # the backup signed in
         await resolve_alert(conn, alert_key)
+    if dep["handles_release"]:
+        # The configuration in hand is as current as a network read's, so it saves one.
+        async with pool.acquire() as conn, conn.transaction():
+            try:
+                await sync_networks(conn, dep, text, requested=False)
+            except (IncompleteConfiguration, NetworksKept) as exc:
+                await record_network_failure(conn, dep, describe_failure(exc))
+
+
+def network_plan(existing, found, *, requested: bool):
+    """What a read changes: (added, removed, kept) by CIDR.
+
+    Networks typed in before they were read from configuration (no interface) give way to the
+    first read. A read that finds nothing, or that would remove most of the networks read before,
+    keeps them all: a cut-short session or a configuration in an unknown format must not empty
+    the routing. Someone who asked for this read has seen the switch and may accept the latter.
+    """
+    found_by_cidr = {network.cidr: network for network in found}
+    before = {row["cidr"]: row for row in existing}
+    read_before = [cidr for cidr, row in before.items() if row["interface"] is not None]
+    removed = sorted(cidr for cidr in before if cidr not in found_by_cidr)
+    if not found and before:
+        raise NetworksKept("No interface addresses in the configuration; networks kept")
+    lost = [cidr for cidr in read_before if cidr not in found_by_cidr]
+    if not requested and len(lost) >= 3 and len(lost) * 2 > len(read_before):
+        raise NetworksKept(
+            f"The configuration would remove {len(lost)} of {len(read_before)} networks; "
+            "networks kept"
+        )
+    added = [found_by_cidr[cidr] for cidr in sorted(found_by_cidr) if cidr not in before]
+    kept = [found_by_cidr[cidr] for cidr in sorted(found_by_cidr) if cidr in before]
+    return added, removed, kept
+
+
+async def sync_networks(conn, dep, text, *, requested: bool) -> str:
+    """Makes the switch's networks those of its configuration and records the change."""
+    found = configuration_networks(text)
+    existing = await conn.fetch(
+        "SELECT id,cidr::text AS cidr,interface FROM bp_networks WHERE switch_id=$1 FOR UPDATE",
+        dep["id"],
+    )
+    added, removed, kept = network_plan(existing, found, requested=requested)
+    if removed:
+        await conn.execute(
+            "DELETE FROM bp_networks WHERE switch_id=$1 AND cidr::text = ANY($2::text[])",
+            dep["id"],
+            removed,
+        )
+    for network in kept:
+        await conn.execute(
+            """UPDATE bp_networks SET interface=$3,vlan=$4,description=$5,is_enabled=true,
+            is_validated=true WHERE switch_id=$1 AND cidr=$2::cidr""",
+            dep["id"],
+            network.cidr,
+            network.interface,
+            network.vlan,
+            network.description,
+        )
+    for network in added:
+        await conn.execute(
+            """INSERT INTO bp_networks(switch_id,cidr,interface,vlan,description,is_validated)
+            VALUES ($1,$2::cidr,$3,$4,$5,true)""",
+            dep["id"],
+            network.cidr,
+            network.interface,
+            network.vlan,
+            network.description,
+        )
+    if added or removed:
+        # The worker acts for nobody in particular, so the record names no person.
+        await conn.execute(
+            """INSERT INTO bp_asset_events(actor_email,action,object_id,object_name,changes)
+            VALUES ('','switch.networks',$1,$2,$3::jsonb)""",
+            dep["id"],
+            dep["name"],
+            json.dumps({"added": [n.cidr for n in added], "removed": removed}),
+        )
+    await conn.execute(
+        """UPDATE bp_switches SET networks_checked_at=now(),networks_succeeded_at=now(),
+        networks_error=NULL WHERE id=$1""",
+        dep["id"],
+    )
+    await resolve_alert(conn, f"network_read_failed:{dep['id']}")
+    if not (added or removed):
+        return "Networks unchanged"
+    return f"Networks changed: {len(added)} added, {len(removed)} removed"
+
+
+async def record_network_failure(conn, dep, message):
+    await conn.execute(
+        "UPDATE bp_switches SET networks_checked_at=now(),networks_error=$2 WHERE id=$1",
+        dep["id"],
+        message,
+    )
+    await upsert_alert(
+        conn,
+        "network_read_failed",
+        "warning",
+        dep["id"],
+        f"Network read failed: {message}",
+        f"network_read_failed:{dep['id']}",
+    )
+
+
+async def read_networks(pool, item, dep, settings_builder):
+    """Reads a release switch's configuration and makes its networks match it."""
+    async with pool.acquire() as conn:
+        requested = await conn.fetchval(
+            """SELECT t.actor_id IS NOT NULL FROM bp_device_tasks t
+            JOIN bp_device_task_items i ON i.task_id=t.id WHERE i.id=$1""",
+            item["id"],
+        )
+    try:
+        if not dep["handles_release"]:
+            raise BackupRejected("Switch does not handle releases")
+        if not (dep["credential_active"] and dep["profile_active"]):
+            raise BackupRejected("Credential or command profile is disabled")
+        text = await asyncio.to_thread(read_switch_configuration, dep, settings_builder)
+    except Exception as exc:  # every failure is recorded on the item, never raised past it
+        message = describe_failure(exc)
+        if not isinstance(exc, (BackupRejected, SwitchSessionError, OSError)):
+            logger.exception("network read of switch %s failed", dep["id"])
+        async with pool.acquire() as conn, conn.transaction():
+            if await finish_item(conn, item, "failed", message) and dep["handles_release"]:
+                await record_network_failure(conn, dep, message)
+                if isinstance(exc, SwitchAuthenticationError):
+                    await record_login(conn, dep["id"], message)
+        return
+    async with pool.acquire() as conn, conn.transaction():
+        try:
+            async with conn.transaction():  # a kept read rolls back only its own changes
+                message = await sync_networks(conn, dep, text, requested=bool(requested))
+            status = "succeeded"
+        except (IncompleteConfiguration, NetworksKept) as exc:
+            message, status = describe_failure(exc), "failed"
+            await record_network_failure(conn, dep, message)
+        if not await finish_item(conn, item, status, message):
+            raise RuntimeError("lost device item lease")  # rolls the networks back
+        await record_login(conn, dep["id"], None)  # the read signed in
 
 
 async def process_device_item(pool, item, settings_builder, key):
@@ -444,6 +590,8 @@ async def process_device_item(pool, item, settings_builder, key):
             await check_reachability(pool, item, dep)
         elif item["kind"] == "login_check":
             await check_login(pool, item, dep, settings_builder)
+        elif item["kind"] == "network_read":
+            await read_networks(pool, item, dep, settings_builder)
         else:
             await back_up(pool, item, dep, settings_builder, key)
     except Exception:

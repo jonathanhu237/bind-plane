@@ -196,8 +196,9 @@ func (o *OpsHandler) overview(w http.ResponseWriter, r *http.Request) {
 }
 
 // switchFilter is the condition the device list and its export share; its arguments start at $1.
-// A backup is overdue when the last successful one is more than seven days old. "No networks"
-// means none that release resolution can use: enabled and validated.
+// A backup is overdue when the last successful one is more than seven days old. The release
+// filter picks the switches that handle releases ("release"), those of them without a network
+// release resolution can use ("none"), or the rest ("other").
 const switchFilter = `($1='' OR s.name ILIKE '%'||$1||'%' OR host(s.management_ip) LIKE $1||'%' OR s.site ILIKE '%'||$1||'%')
  AND ($2='' OR $2='none' AND s.group_id IS NULL OR s.group_id::text=$2) AND ($3='' OR s.vendor=$3) AND ($4='' OR s.site=$4)
  AND ($5='' OR $5='reachable' AND s.reachable OR $5='unreachable' AND NOT s.reachable OR $5='unknown' AND s.reachable IS NULL
@@ -205,7 +206,8 @@ const switchFilter = `($1='' OR s.name ILIKE '%'||$1||'%' OR host(s.management_i
  AND ($6='' OR $6='failed' AND s.config_error IS NOT NULL OR $6='never' AND s.config_succeeded_at IS NULL
   OR $6='ok' AND s.config_error IS NULL AND s.config_succeeded_at IS NOT NULL
   OR $6='overdue' AND s.config_succeeded_at < now()-interval '7 days')
- AND ($7='' OR $7='none' AND NOT EXISTS (SELECT 1 FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated))
+ AND ($7='' OR $7='release' AND s.handles_release OR $7='other' AND NOT s.handles_release
+  OR $7='none' AND s.handles_release AND NOT EXISTS (SELECT 1 FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated))
  AND ($8='' OR $8='enabled' AND s.is_enabled OR $8='disabled' AND NOT s.is_enabled)`
 
 func switchFilterArgs(q url.Values) []any {
@@ -220,12 +222,14 @@ func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 	items, err := o.rows(r.Context(), []string{"id", "name", "management_ip", "vendor", "model", "site", "description", "group_id", "group_name",
 		"protocol", "port", "is_enabled", "version", "credential_id", "credential_name", "command_profile_id", "profile_name",
 		"reachable", "reachability_checked_at", "reachability_latency_ms", "reachability_error", "login_ok", "login_checked_at", "login_error",
-		"config_checked_at", "config_succeeded_at", "config_error", "compliance_failed", "networks", "total"},
+		"config_checked_at", "config_succeeded_at", "config_error", "compliance_failed", "networks",
+		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error", "total"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,s.group_id::text,g.name,
  s.protocol,s.port,s.is_enabled,s.version,s.credential_id::text,c.name,s.command_profile_id::text,p.name,
  s.reachable,s.reachability_checked_at,s.reachability_latency_ms,s.reachability_error,s.login_ok,s.login_checked_at,s.login_error,
  s.config_checked_at,s.config_succeeded_at,s.config_error,(SELECT count(*) FROM bp_compliance_results r WHERE r.switch_id=s.id AND NOT r.passed),
- (SELECT count(*) FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated),count(*) OVER()
+ (SELECT count(*) FROM bp_networks n WHERE n.switch_id=s.id AND n.is_enabled AND n.is_validated),
+ s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error,count(*) OVER()
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id
  WHERE `+switchFilter+` ORDER BY s.name,s.id LIMIT $9 OFFSET $10`, append(switchFilterArgs(r.URL.Query()), limit, offset)...)
@@ -257,7 +261,7 @@ func (o *OpsHandler) switches(w http.ResponseWriter, r *http.Request) {
 }
 
 var exportHeader = []string{"name", "management_ip", "vendor", "model", "group", "site", "protocol", "port", "credential", "profile", "description",
-	"enabled", "reachable", "login", "last_backup"}
+	"handles_release", "enabled", "reachable", "login", "last_backup"}
 
 // spreadsheetSafe keeps a cell from being read as a formula; the importer drops the quote again.
 func spreadsheetSafe(value string) string {
@@ -267,14 +271,15 @@ func spreadsheetSafe(value string) string {
 	return value
 }
 
-// exportSwitches writes the filtered inventory as CSV. Its first eleven columns are the import
+// exportSwitches writes the filtered inventory as CSV. Its first twelve columns are the import
 // template's, so an edited export imports back as updates; the status columns are only read.
 func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 	if _, ok := o.authorize(w, r, false); !ok {
 		return
 	}
 	rows, err := o.db.QueryContext(r.Context(), `SELECT s.name,host(s.management_ip),s.vendor,COALESCE(s.model,''),COALESCE(g.name,''),COALESCE(s.site,''),
- s.protocol,COALESCE(s.port::text,''),c.name,p.name,COALESCE(s.description,''),s.is_enabled,s.reachable,s.login_ok,s.config_succeeded_at
+ s.protocol,COALESCE(s.port::text,''),c.name,p.name,COALESCE(s.description,''),CASE WHEN s.handles_release THEN 'yes' ELSE 'no' END,
+ s.is_enabled,s.reachable,s.login_ok,s.config_succeeded_at
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id
  WHERE `+switchFilter+` ORDER BY s.name,s.id`, switchFilterArgs(r.URL.Query())...)
@@ -297,7 +302,7 @@ func (o *OpsHandler) exportSwitches(w http.ResponseWriter, r *http.Request) {
 		return no
 	}
 	for rows.Next() {
-		record := make([]string, 11)
+		record := make([]string, 12)
 		var enabled bool
 		var reachable, login sql.NullBool
 		var backup sql.NullTime
@@ -343,10 +348,12 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	found, err := o.rows(ctx, []string{"id", "name", "management_ip", "vendor", "model", "site", "description", "group_name", "protocol", "port", "is_enabled",
 		"credential_name", "profile_name", "reachable", "reachability_checked_at", "reachability_changed_at", "reachability_latency_ms", "reachability_error",
-		"login_ok", "login_checked_at", "login_error", "config_checked_at", "config_succeeded_at", "config_error"},
+		"login_ok", "login_checked_at", "login_error", "config_checked_at", "config_succeeded_at", "config_error",
+		"handles_release", "networks_checked_at", "networks_succeeded_at", "networks_error"},
 		`SELECT s.id::text,s.name,host(s.management_ip),s.vendor,s.model,s.site,s.description,g.name,s.protocol,s.port,s.is_enabled,c.name,p.name,
  s.reachable,s.reachability_checked_at,s.reachability_changed_at,s.reachability_latency_ms,s.reachability_error,
- s.login_ok,s.login_checked_at,s.login_error,s.config_checked_at,s.config_succeeded_at,s.config_error
+ s.login_ok,s.login_checked_at,s.login_error,s.config_checked_at,s.config_succeeded_at,s.config_error,
+ s.handles_release,s.networks_checked_at,s.networks_succeeded_at,s.networks_error
  FROM bp_switches s JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
  LEFT JOIN bp_switch_groups g ON g.id=s.group_id WHERE s.id=$1`, id)
 	if err != nil {
@@ -371,11 +378,12 @@ func (o *OpsHandler) switchDetail(w http.ResponseWriter, r *http.Request) {
 			[]string{"id", "kind", "status", "message", "changed", "backup_id", "created_at", "finished_at"}},
 		{"alerts", `SELECT id,kind,severity,message,status,opened_at FROM bp_alerts WHERE switch_id=$1 AND status<>'resolved' ORDER BY opened_at DESC`,
 			[]string{"id", "kind", "severity", "message", "status", "opened_at"}},
-		{"networks", `SELECT id::text,switch_id::text,cidr::text,vlan,description,is_enabled,is_validated,version FROM bp_networks WHERE switch_id=$1 ORDER BY cidr`,
-			[]string{"id", "switch_id", "cidr", "vlan", "description", "is_enabled", "is_validated", "version"}},
-		// Changes to the switch and to the networks it owns now; a network moved away takes its history along.
+		{"networks", `SELECT id::text,switch_id::text,cidr::text,vlan,description,interface,is_enabled,is_validated,version FROM bp_networks WHERE switch_id=$1 ORDER BY cidr`,
+			[]string{"id", "switch_id", "cidr", "vlan", "description", "interface", "is_enabled", "is_validated", "version"}},
+		// Changes to the switch and its networks, including networks typed in before they were read
+		// from configuration; a network moved away takes its history along.
 		{"history", `SELECT e.id,e.action,e.actor_name,e.actor_email,e.object_name,e.changes::text,e.created_at FROM bp_asset_events e
- WHERE e.object_id=$1 AND e.action IN ('switch.create','switch.import','switch.update')
+ WHERE e.object_id=$1 AND e.action IN ('switch.create','switch.import','switch.update','switch.networks')
  OR e.action IN ('network.create','network.import','network.update') AND e.object_id IN (SELECT id FROM bp_networks WHERE switch_id=$1)
  ORDER BY e.id DESC LIMIT 50`,
 			[]string{"id", "action", "actor_name", "actor_email", "object_name", "changes", "created_at"}},
@@ -529,9 +537,10 @@ func (o *OpsHandler) task(w http.ResponseWriter, r *http.Request) {
 }
 
 // deviceTaskKinds can be started by hand. A connection test signs in to every switch it covers,
-// so schedules keep to the port check and backups (scheduleKinds).
+// so schedules keep to the port check and backups (scheduleKinds). Network reads run by themselves
+// every day (queueNetworkReads) and only on release switches.
 var (
-	deviceTaskKinds = map[string]bool{"config_backup": true, "reachability": true, "login_check": true}
+	deviceTaskKinds = map[string]bool{"config_backup": true, "reachability": true, "login_check": true, "network_read": true}
 	scheduleKinds   = map[string]bool{"config_backup": true, "reachability": true}
 )
 
@@ -566,6 +575,9 @@ func enqueueDeviceTask(ctx context.Context, tx *sql.Tx, kind string, scheduleID,
 	}
 	if param == "" {
 		filter += ` AND $3=''`
+	}
+	if kind == "network_read" {
+		filter += ` AND s.handles_release`
 	}
 	queued, err := tx.ExecContext(ctx, `INSERT INTO bp_device_task_items(task_id,kind,switch_id) SELECT $1,$2,s.id FROM bp_switches s WHERE s.is_enabled AND `+filter+`
  ON CONFLICT (switch_id,kind) WHERE status IN ('queued','running') DO NOTHING`, taskID, kind, param)

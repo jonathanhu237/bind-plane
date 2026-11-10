@@ -13,24 +13,20 @@ import { FileButton } from '@/shared/file-button'
 import { decodeCSV } from './csv'
 import { ToneBadge, pick } from './ui'
 
-type ImportKind = 'switches' | 'networks'
 type ImportMode = 'create' | 'update'
 type ImportReport = {
   dry_run: boolean; committed: boolean; created: number; updated: number; skipped: number; errors: number; new_groups: string[]
   rows: { line: number; status: 'create' | 'update' | 'skip' | 'error'; label: string; message?: string }[]
 }
 
-const templates: Record<ImportKind, string> = {
-  switches: 'name,management_ip,vendor,model,group,site,protocol,port,credential,profile,description\nSZ-CORE-01,10.18.127.10,huawei,S12700E-4,Core,SZ,ssh,,,,\n',
-  networks: 'cidr,switch,vlan,description,validated\n10.88.117.0/24,10.18.127.10,117,Building 1,true\n',
-}
+// Switches only: networks are read from the release switches' configuration.
+const template = 'name,management_ip,vendor,model,group,site,protocol,port,credential,profile,description,handles_release\nSZ-CORE-01,10.18.127.10,huawei,S12700E-4,Core,SZ,ssh,,,,,yes\n'
 // "No default" travels as this select value and is sent as ''.
 const NONE = 'none'
 
 export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
   open: boolean; zh: boolean; inventory?: Inventory; onClose: () => void; onImported: () => void
 }) {
-  const [kind, setKind] = useState<ImportKind>('switches')
   const [mode, setMode] = useState<ImportMode>('create')
   const [csv, setCsv] = useState('')
   const [fileName, setFileName] = useState('')
@@ -40,7 +36,7 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
   const [previewed, setPreviewed] = useState('') // the exact request the clean preview was made for
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const body = { kind, csv, mode: kind === 'switches' ? mode : 'create', default_credential_id: credential, default_profile_id: profile }
+  const body = { kind: 'switches', csv, mode, default_credential_id: credential, default_profile_id: profile }
   const request = JSON.stringify(body)
   const canCommit = report !== null && report.dry_run && report.errors === 0 && report.created + report.updated > 0 && previewed === request
 
@@ -80,46 +76,35 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
       </DialogHeader>
       <FieldGroup>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor="import-kind">{pick(zh, '导入内容', 'Import')}</FieldLabel>
-            <Select value={kind} onValueChange={(value) => { setKind(value as ImportKind); setReport(null) }}>
-              <SelectTrigger id="import-kind"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectGroup>
-                <SelectItem value="switches">{pick(zh, '交换机', 'Switches')}</SelectItem><SelectItem value="networks">{pick(zh, '网段', 'Networks')}</SelectItem>
-              </SelectGroup></SelectContent>
-            </Select>
-          </Field>
-          <Field>
+          <Field className="sm:col-span-2">
             <FieldLabel htmlFor="import-file">{pick(zh, 'CSV 文件', 'CSV file')}</FieldLabel>
             <FileButton id="import-file" accept=".csv,text/csv" label={pick(zh, '选择 CSV 文件', 'Choose a CSV file')} status={fileName || pick(zh, '未选择文件', 'No file chosen')} onFile={readFile} />
           </Field>
-          {kind === 'switches' ? <>
-            <Field className="sm:col-span-2">
-              <FieldLabel htmlFor="import-mode">{pick(zh, '已存在的交换机（按管理 IP 识别）', 'Switches that exist (matched by management IP)')}</FieldLabel>
-              <Select value={mode} onValueChange={(value) => { setMode(value as ImportMode); setReport(null) }}>
-                <SelectTrigger id="import-mode" aria-describedby="import-mode-hint"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectGroup>
-                  <SelectItem value="create">{pick(zh, '跳过，只新建', 'Skip them; only create new ones')}</SelectItem>
-                  <SelectItem value="update">{pick(zh, '用 CSV 更新', 'Update them from the CSV')}</SelectItem>
-                </SelectGroup></SelectContent>
-              </Select>
-              <FieldDescription id="import-mode-hint">{mode === 'update'
-                ? pick(zh, '只改 CSV 里填了的列，空单元格保留原值。启用状态不会被导入修改。', 'Only filled-in cells change anything; empty cells keep the stored value. Import never enables or disables a switch.')
-                : pick(zh, '已存在的交换机保持不变。', 'Switches that exist stay as they are.')}</FieldDescription>
-            </Field>
-            {defaultSelect('import-credential', pick(zh, '默认凭据（CSV 未填写时使用）', 'Default credential (when the CSV has none)'), credential, setCredential, inventory?.credentials ?? [])}
-            {defaultSelect('import-profile', pick(zh, '默认命令模板（可选）', 'Default profile (optional)'), profile, setProfile,
-              (inventory?.profiles ?? []).map((item) => ({ id: item.id, name: `${item.name} · ${vendorName(item.vendor, zh)}` })),
-              pick(zh, 'CSV 没写命令模板时，同厂商的行用这个模板；只有一个模板的厂商会自动用它。', 'Rows without a profile use this one when they are of its vendor; a vendor with one profile gets it automatically.'))}
-          </> : null}
+          <Field className="sm:col-span-2">
+            <FieldLabel htmlFor="import-mode">{pick(zh, '已存在的交换机（按管理 IP 识别）', 'Switches that exist (matched by management IP)')}</FieldLabel>
+            <Select value={mode} onValueChange={(value) => { setMode(value as ImportMode); setReport(null) }}>
+              <SelectTrigger id="import-mode" aria-describedby="import-mode-hint"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectGroup>
+                <SelectItem value="create">{pick(zh, '跳过，只新建', 'Skip them; only create new ones')}</SelectItem>
+                <SelectItem value="update">{pick(zh, '用 CSV 更新', 'Update them from the CSV')}</SelectItem>
+              </SelectGroup></SelectContent>
+            </Select>
+            <FieldDescription id="import-mode-hint">{mode === 'update'
+              ? pick(zh, '只改 CSV 里填了的列，空单元格保留原值。启用状态不会被导入修改。', 'Only filled-in cells change anything; empty cells keep the stored value. Import never enables or disables a switch.')
+              : pick(zh, '已存在的交换机保持不变。', 'Switches that exist stay as they are.')}</FieldDescription>
+          </Field>
+          {defaultSelect('import-credential', pick(zh, '默认凭据（CSV 未填写时使用）', 'Default credential (when the CSV has none)'), credential, setCredential, inventory?.credentials ?? [])}
+          {defaultSelect('import-profile', pick(zh, '默认命令模板（可选）', 'Default profile (optional)'), profile, setProfile,
+            (inventory?.profiles ?? []).map((item) => ({ id: item.id, name: `${item.name} · ${vendorName(item.vendor, zh)}` })),
+            pick(zh, 'CSV 没写命令模板时，同厂商的行用这个模板；只有一个模板的厂商会自动用它。', 'Rows without a profile use this one when they are of its vendor; a vendor with one profile gets it automatically.'))}
         </div>
         <Field>
           <div className="flex items-center justify-between gap-2">
             <FieldLabel htmlFor="import-csv">{pick(zh, 'CSV 内容', 'CSV text')}</FieldLabel>
-            <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => { setCsv(templates[kind]); setReport(null) }}>{pick(zh, '填入模板', 'Insert template')}</Button>
+            <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => { setCsv(template); setReport(null) }}>{pick(zh, '填入模板', 'Insert template')}</Button>
           </div>
           <Textarea id="import-csv" className="font-mono" rows={8} spellCheck={false} aria-describedby="import-csv-hint" value={csv} onChange={(event) => setCsv(event.target.value)} />
-          <FieldDescription id="import-csv-hint">{pick(zh, '首行为表头。也接受其他系统导出的表头，如“设备名称、IP地址、校区”和 NetSwitch Pro 的 ip_address、group_name、region；用不到的列会被忽略。文件可以是 UTF-8 或 GBK 编码。', 'The first row is the header. Headings from other inventories, such as 设备名称 and IP地址 or NetSwitch Pro’s ip_address, group_name and region, work too; unused columns are ignored. Files may be UTF-8 or GBK.')}</FieldDescription>
+          <FieldDescription id="import-csv-hint">{pick(zh, '首行为表头。也接受其他系统导出的表头，如“设备名称、IP地址、校区”和 NetSwitch Pro 的 ip_address、group_name、region；用不到的列会被忽略。handles_release（负责解绑）填“是”的网关交换机，导入后会自动读取网段。文件可以是 UTF-8 或 GBK 编码。', 'The first row is the header. Headings from other inventories, such as 设备名称 and IP地址 or NetSwitch Pro’s ip_address, group_name and region, work too; unused columns are ignored. Gateway switches with yes under handles_release have their networks read after the import. Files may be UTF-8 or GBK.')}</FieldDescription>
         </Field>
       </FieldGroup>
       {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}

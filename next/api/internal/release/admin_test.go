@@ -89,7 +89,6 @@ func TestAssetEditRejectsInvalidInputBeforeStorage(t *testing.T) {
 		{"missing version", "switches/" + id, `{"is_enabled":false}`, admin, 422},
 		{"blank name", "switches/" + id, `{"version":1,"name":"  "}`, admin, 422},
 		{"non-canonical address", "switches/" + id, `{"version":1,"management_ip":"10.0.0.01"}`, admin, 422},
-		{"non-canonical cidr", "networks/" + id, `{"version":1,"cidr":"10.0.0.1/24"}`, admin, 422},
 		{"profile rule type", "profiles/" + id, `{"version":1,"command_templates":[]}`, admin, 422},
 		{"secret replaced and cleared", "credentials/" + id, `{"version":1,"secret":"x","clear_secret":true}`, admin, 422},
 		{"unknown field", "credentials/" + id, `{"version":1,"encrypted_password":"v1:x"}`, admin, 422},

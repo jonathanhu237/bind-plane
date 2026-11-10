@@ -67,9 +67,13 @@ func TestAssetEditsAreVersionedAuditedAndFenceReleases(t *testing.T) {
 
 	credential := call("POST", "credentials", `{"Name":"edit-cred","Username":"device","Password":"first-switch-secret"}`, 201)["id"].(string)
 	profile := call("POST", "profiles", `{"name":"edit-profile","command_templates":{"single_arp_query":"show arp $ip"},"parser_rules":{},"login_prompt_patterns":{},"prompt_patterns":{},"pagination_rules":{},"success_patterns":[],"error_patterns":[]}`, 201)["id"].(string)
-	switchA := call("POST", "switches", fmt.Sprintf(`{"name":"edit-switch-a","management_ip":"192.0.2.21","credential_id":%q,"command_profile_id":%q}`, credential, profile), 201)["id"].(string)
-	switchB := call("POST", "switches", fmt.Sprintf(`{"name":"edit-switch-b","management_ip":"192.0.2.22","credential_id":%q,"command_profile_id":%q}`, credential, profile), 201)["id"].(string)
-	network := call("POST", "networks", fmt.Sprintf(`{"switch_id":%q,"cidr":"10.30.0.0/16","is_validated":true}`, switchA), 201)["id"].(string)
+	switchA := call("POST", "switches", fmt.Sprintf(`{"name":"edit-switch-a","management_ip":"192.0.2.21","credential_id":%q,"command_profile_id":%q,"handles_release":true}`, credential, profile), 201)["id"].(string)
+	switchB := call("POST", "switches", fmt.Sprintf(`{"name":"edit-switch-b","management_ip":"192.0.2.22","credential_id":%q,"command_profile_id":%q,"handles_release":true}`, credential, profile), 201)["id"].(string)
+	// Networks are read from the release switches' configuration by the worker.
+	var network string
+	if err = db.QueryRow(`INSERT INTO bp_networks(switch_id,cidr,is_validated,interface) VALUES ($1,'10.30.0.0/16',true,'Vlanif30') RETURNING id::text`, switchA).Scan(&network); err != nil {
+		t.Fatal(err)
+	}
 
 	// A rotated password is audited as replaced, never as plaintext or ciphertext.
 	if got := call("PATCH", "credentials/"+credential, `{"version":1,"name":"edit-cred-renamed","password":"rotated-switch-secret"}`, 200); got["version"] != float64(2) {
@@ -114,7 +118,10 @@ func TestAssetEditsAreVersionedAuditedAndFenceReleases(t *testing.T) {
 	if moved.SwitchManagementIP != "192.0.2.23" {
 		t.Fatalf("job snapshot %+v", moved)
 	}
-	call("PATCH", "networks/"+network, fmt.Sprintf(`{"version":1,"switch_id":%q}`, switchB), 200)
+	// The network moved to switch B's configuration and a read found it there.
+	if _, err = db.ExecContext(ctx, `UPDATE bp_networks SET switch_id=$2 WHERE id=$1`, network, switchB); err != nil {
+		t.Fatal(err)
+	}
 
 	// A retry resolves again and pins the new owner's current revision.
 	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='failed',phase='finished' WHERE id=$1`, moved.JobID); err != nil {
@@ -132,5 +139,36 @@ func TestAssetEditsAreVersionedAuditedAndFenceReleases(t *testing.T) {
 	}
 	if _, latest := events(switchB); !strings.Contains(latest, `"is_enabled": {"to": false, "from": true}`) {
 		t.Fatalf("disable audit %s", latest)
+	}
+
+	// A switch that gives up handling releases stops owning networks; one taking it up again has
+	// them read at once, and so does a release switch reached another way.
+	if _, err = db.ExecContext(ctx, `UPDATE bp_switches SET networks_checked_at=now() WHERE id=$1`, switchB); err != nil {
+		t.Fatal(err)
+	}
+	call("PATCH", "switches/"+switchB, `{"version":2,"handles_release":false}`, 200)
+	var owned int
+	if err = db.QueryRow(`SELECT count(*) FROM bp_networks WHERE switch_id=$1`, switchB).Scan(&owned); err != nil || owned != 0 {
+		t.Fatalf("switch B owns %d networks after giving up releases: %v", owned, err)
+	}
+	unread := func(id string) bool {
+		t.Helper()
+		var never bool
+		if err := db.QueryRow(`SELECT networks_checked_at IS NULL FROM bp_switches WHERE id=$1`, id).Scan(&never); err != nil {
+			t.Fatal(err)
+		}
+		return never
+	}
+	if _, err = db.ExecContext(ctx, `UPDATE bp_switches SET networks_checked_at=now() WHERE id=ANY($1::uuid[])`, "{"+switchA+","+switchB+"}"); err != nil {
+		t.Fatal(err)
+	}
+	call("PATCH", "switches/"+switchB, `{"version":3,"handles_release":true}`, 200)
+	call("PATCH", "switches/"+switchA, `{"version":2,"description":"core"}`, 200)
+	if !unread(switchB) || unread(switchA) {
+		t.Fatalf("taking up releases must queue a read, a description edit must not")
+	}
+	call("PATCH", "switches/"+switchA, `{"version":3,"port":2323}`, 200)
+	if !unread(switchA) {
+		t.Fatalf("a release switch reached another way must be read again")
 	}
 }

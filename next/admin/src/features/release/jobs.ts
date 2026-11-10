@@ -65,12 +65,12 @@ type Words = [english: string, chinese: string]
 const say = (words: Words | undefined, zh: boolean, fallback: string) => (words ? words[zh ? 1 : 0] : fallback)
 
 const noSwitch: Words = [
-  'No enabled switch owns a validated network containing this address. An admin can look the address up under Asset settings → Networks.',
-  '没有哪台已启用的交换机拥有包含该地址、且已验证的网段。管理员可以在“资产配置 → 网段”里查这个地址。',
+  'No switch that handles releases has a network containing this address. An admin can look the address up under Asset settings → Networks.',
+  '没有负责解绑的交换机配置了包含该地址的网段。管理员可以在“资产配置 → 网段”里查这个地址。',
 ]
 const ambiguousSwitch: Words = [
-  'Several switches own equally specific networks containing this address. An admin must correct the network data first.',
-  '有多台交换机的网段同样精确地包含该地址，需要管理员先修正网段数据。',
+  'Several switches have equally specific networks containing this address. An admin must correct the switch configuration first.',
+  '有多台交换机配置了同样精确地包含该地址的网段，需要管理员先改正交换机上的配置。',
 ]
 
 // Refusals whose meaning is specific to releases; everything else goes through serverText.

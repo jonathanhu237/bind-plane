@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -67,8 +66,8 @@ var importHeaderAliases = map[string]string{
 	"name": "name", "设备名称": "name", "名称": "name", "vendor": "vendor", "厂商": "vendor", "model": "model", "型号": "model",
 	"group": "group", "group_name": "group", "分组": "group", "site": "site", "region": "site", "校区": "site", "站点": "site", "protocol": "protocol", "协议": "protocol",
 	"port": "port", "ssh_port": "port", "端口": "port", "credential": "credential", "凭据": "credential", "profile": "profile", "命令模板": "profile",
-	"description": "description", "描述": "description", "备注": "description", "cidr": "cidr", "网段": "cidr",
-	"switch": "switch", "交换机": "switch", "vlan": "vlan", "validated": "validated", "已验证": "validated",
+	"description": "description", "描述": "description", "备注": "description",
+	"handles_release": "handles_release", "负责解绑": "handles_release",
 }
 
 var vendorAliases = map[string]string{
@@ -160,8 +159,9 @@ func (a *AdminHandler) importAssets(w http.ResponseWriter, r *http.Request) {
 		DefaultProfileID    string `json:"default_profile_id"`
 		Mode                string `json:"mode"` // update changes switches whose management IP exists; anything else skips them
 	}
-	if err := decodeLimit(r, &input, importBodyLimit); err != nil || input.Kind != "switches" && input.Kind != "networks" {
-		fail(w, 422, "kind (switches or networks) and CSV text required")
+	// Networks are read from the release switches' configuration, so only switches import.
+	if err := decodeLimit(r, &input, importBodyLimit); err != nil || input.Kind != "switches" {
+		fail(w, 422, "kind switches and CSV text required")
 		return
 	}
 	records, err := readImportCSV(input.CSV)
@@ -176,11 +176,7 @@ func (a *AdminHandler) importAssets(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	report := importReport{Kind: input.Kind, DryRun: input.DryRun, NewGroups: []string{}, Rows: []importRow{}}
-	if input.Kind == "switches" {
-		err = importSwitches(r.Context(), tx, actor, records, input.DefaultCredentialID, input.DefaultProfileID, input.Mode == "update", &report)
-	} else {
-		err = importNetworks(r.Context(), tx, actor, records, &report)
-	}
+	err = importSwitches(r.Context(), tx, actor, records, input.DefaultCredentialID, input.DefaultProfileID, input.Mode == "update", &report)
 	if err != nil {
 		fail(w, 503, "asset store unavailable")
 		return
@@ -229,6 +225,18 @@ func importRejection(err error) string {
 var importChangeNames = map[string]string{
 	"name": "name", "vendor": "vendor", "model": "model", "group_id": "group", "site": "site", "protocol": "protocol",
 	"port": "port", "credential_id": "credential", "command_profile_id": "profile", "description": "description",
+	"handles_release": "handles_release",
+}
+
+// yesNo reads a spreadsheet's yes or no cell; known is false for anything else.
+func yesNo(value string) (yes, known bool) {
+	switch strings.ToLower(value) {
+	case "true", "yes", "y", "1", "是":
+		return true, true
+	case "false", "no", "n", "0", "否":
+		return false, true
+	}
+	return false, false
 }
 
 // importSwitches creates the switches whose management IP is new. A switch that exists is
@@ -292,6 +300,7 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			port = &n
 		}
 		credentialID, profileID := credentials[f["credential"]], profiles[f["profile"]]
+		handlesRelease, knownRole := yesNo(f["handles_release"])
 		switch {
 		case !validIPv4(ip):
 			reject("management_ip must be one canonical IPv4 address")
@@ -304,6 +313,9 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			continue
 		case protocol != "" && protocol != "telnet" && protocol != "ssh":
 			reject("protocol must be telnet or ssh")
+			continue
+		case f["handles_release"] != "" && !knownRole:
+			reject("handles_release must be yes or no")
 			continue
 		case f["credential"] != "" && !domain.IsCanonicalUUID(credentialID):
 			reject("credential not found (give its exact name, or choose a default)")
@@ -328,6 +340,9 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			}
 			if port != nil {
 				next["port"] = *port
+			}
+			if f["handles_release"] != "" {
+				next["handles_release"] = handlesRelease
 			}
 			if f["group"] != "" {
 				if next["group_id"], err = groupID(f["group"]); err != nil {
@@ -394,9 +409,9 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			return err
 		}
 		err = importInsert(ctx, tx, actor, "switch.import", row.Label,
-			`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port)
- VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11) RETURNING id::text`,
-			row.Label, ip, credentialID, profileID, defaultString(vendor, "other"), f["model"], f["site"], f["description"], group, defaultString(protocol, "telnet"), port)
+			`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port,handles_release)
+ VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11,$12) RETURNING id::text`,
+			row.Label, ip, credentialID, profileID, defaultString(vendor, "other"), f["model"], f["site"], f["description"], group, defaultString(protocol, "telnet"), port, handlesRelease)
 		if errors.Is(err, errImportRow) {
 			reject(importRejection(err))
 			continue
@@ -417,6 +432,9 @@ func importUpdate(ctx context.Context, tx *sql.Tx, actor domain.Principal, id st
 		return nil, err
 	}
 	_, changes, err := updateRow(ctx, tx, actor, switchFields, id, 0, next)
+	if err == nil {
+		err = releaseRoleChanged(ctx, tx, id, changes)
+	}
 	if err != nil {
 		if _, rollbackErr := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT import_row`); rollbackErr != nil {
 			return nil, rollbackErr
@@ -425,82 +443,4 @@ func importUpdate(ctx context.Context, tx *sql.Tx, actor domain.Principal, id st
 	}
 	_, err = tx.ExecContext(ctx, `RELEASE SAVEPOINT import_row`)
 	return changes, err
-}
-
-func importNetworks(ctx context.Context, tx *sql.Tx, actor domain.Principal, records []csvRecord, report *importReport) error {
-	byIP, err := namedIDs(ctx, tx, `SELECT host(management_ip),id::text FROM bp_switches`)
-	if err != nil {
-		return err
-	}
-	byName, err := namedIDs(ctx, tx, `SELECT name,id::text FROM bp_switches`)
-	if err != nil {
-		return err
-	}
-	existing, err := namedIDs(ctx, tx, `SELECT switch_id::text||' '||cidr::text,id::text FROM bp_networks`)
-	if err != nil {
-		return err
-	}
-	owners, err := namedIDs(ctx, tx, `SELECT cidr::text,switch_id::text FROM bp_networks`)
-	if err != nil {
-		return err
-	}
-	seen := map[string]int{}
-	for _, record := range records {
-		f := record.fields
-		row := importRow{Line: record.line, Label: f["cidr"]}
-		reject := func(message string) { row.Status, row.Message = "error", message; report.add(row) }
-		switchID, named := byIP[f["switch"]], false
-		if switchID == "" {
-			switchID, named = byName[f["switch"]]
-		}
-		validated := false
-		switch strings.ToLower(f["validated"]) {
-		case "", "false", "no", "0", "否":
-		case "true", "yes", "1", "是":
-			validated = true
-		default:
-			reject("validated must be true or false")
-			continue
-		}
-		prefix, prefixErr := netip.ParsePrefix(row.Label)
-		switch {
-		case prefixErr != nil || !prefix.Addr().Is4():
-			reject("cidr must be an IPv4 network such as 10.0.0.0/24")
-			continue
-		case prefix.Masked() != prefix:
-			reject("cidr has host bits set; did you mean " + prefix.Masked().String() + "?")
-			continue
-		case named && switchID == "":
-			reject("several switches share this name; use the management IP")
-			continue
-		case switchID == "":
-			reject("switch not found (give its management IP or exact name)")
-			continue
-		case seen[switchID+" "+row.Label] != 0:
-			reject(fmt.Sprintf("network repeats line %d", seen[switchID+" "+row.Label]))
-			continue
-		}
-		seen[switchID+" "+row.Label] = record.line
-		if existing[switchID+" "+row.Label] != "" {
-			row.Status, row.Message = "skip", "this switch already owns this network"
-			report.add(row)
-			continue
-		}
-		if owner, taken := owners[row.Label]; taken && owner != switchID {
-			row.Message = "another switch also owns this network; resolution stays ambiguous until corrected"
-		}
-		err = importInsert(ctx, tx, actor, "network.import", row.Label,
-			`INSERT INTO bp_networks(switch_id,cidr,is_validated,vlan,description) VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,'')) RETURNING id::text`,
-			switchID, row.Label, validated, f["vlan"], f["description"])
-		if errors.Is(err, errImportRow) {
-			reject("the database rejected this row")
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		row.Status = "create"
-		report.add(row)
-	}
-	return nil
 }

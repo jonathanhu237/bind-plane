@@ -165,6 +165,60 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
         third = await run("config_backup")
         assert third["changed"] and third["backup_id"] > first["backup_id"]
 
+        # A release switch's networks are its interface addresses, read from its configuration.
+        async with pool.acquire() as conn:
+            await conn.execute("UPDATE bp_switches SET handles_release=true WHERE id=$1", switch)
+        read = await run("network_read")
+        assert (read["status"], read["message"]) == (
+            "succeeded",
+            "Networks changed: 2 added, 0 removed",
+        )
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT cidr::text,interface,vlan,is_validated FROM bp_networks
+                WHERE switch_id=$1 ORDER BY cidr""",
+                switch,
+            )
+            assert [tuple(row) for row in rows] == [
+                ("10.20.30.0/24", "Vlanif10", "10", True),
+                ("10.20.40.0/24", "Vlanif20", "20", True),
+            ]
+            event = await conn.fetchval(
+                """SELECT changes::text FROM bp_asset_events
+                WHERE object_id=$1 AND action='switch.networks'""",
+                switch,
+            )
+            assert json.loads(event) == {"added": ["10.20.30.0/24", "10.20.40.0/24"], "removed": []}
+        # A backup refreshes them from the configuration it read.
+        running.write_text(
+            DEFAULT_CONFIG.replace(
+                "interface Vlanif20\n ip address 10.20.40.1 255.255.255.0\n#\n", ""
+            )
+        )
+        assert (await run("config_backup"))["changed"]
+        networks = "SELECT array_agg(cidr::text ORDER BY cidr) FROM bp_networks WHERE switch_id=$1"
+        async with pool.acquire() as conn:
+            assert await conn.fetchval(networks, switch) == ["10.20.30.0/24"]
+        # A read that finds no interface, or that was cut short, keeps them and raises an alert.
+        running.write_text("sysname FAKE-SW\n#\nreturn")
+        empty = await run("network_read")
+        assert (empty["status"], empty["message"]) == (
+            "failed",
+            "No interface addresses in the configuration; networks kept",
+        )
+        running.write_text(DEFAULT_CONFIG.rsplit("return", 1)[0])
+        cut = await run("network_read")
+        assert cut["message"] == "Configuration does not end with return or end"
+        open_alerts = """SELECT count(*) FROM bp_alerts
+            WHERE switch_id=$1 AND kind='network_read_failed' AND status='open'"""
+        async with pool.acquire() as conn:
+            assert await conn.fetchval(networks, switch) == ["10.20.30.0/24"]
+            assert await conn.fetchval(open_alerts, switch) == 1
+        running.write_text(DEFAULT_CONFIG)
+        assert (await run("network_read"))["message"] == "Networks changed: 1 added, 0 removed"
+        async with pool.acquire() as conn:
+            assert await conn.fetchval(open_alerts, switch) == 0
+
         async with pool.acquire() as conn:
             pinned = await conn.fetchrow(
                 """SELECT s.version AS sv,p.version AS pv FROM bp_switches s

@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -56,9 +56,10 @@ function filterParams(search: DeviceSearch): URLSearchParams {
   return params
 }
 
-function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open: boolean; zh: boolean; inventory?: Inventory; onClose: () => void; onCreated: () => void }) {
+function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open: boolean; zh: boolean; inventory?: Inventory; onClose: () => void; onCreated: (handlesRelease: boolean) => void }) {
   const empty = { name: '', management_ip: '', credential_id: '', command_profile_id: '', vendor: 'huawei', model: '', protocol: 'ssh', port: defaultPort('ssh'), group_id: '', site: '', description: '' }
   const [form, setForm] = useState(empty)
+  const [handlesRelease, setHandlesRelease] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const label = {
@@ -84,8 +85,8 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
     try {
       // On its protocol's default port a switch stores none, so it follows the protocol if that changes.
       const port = form.port.trim() ? Number(form.port) : null
-      await callAssets('switches', { ...form, command_profile_id: profileID, management_ip: form.management_ip.trim(), port: port === Number(defaultPort(form.protocol)) ? null : port })
-      setForm(empty); required.reset(); onCreated()
+      await callAssets('switches', { ...form, command_profile_id: profileID, management_ip: form.management_ip.trim(), port: port === Number(defaultPort(form.protocol)) ? null : port, handles_release: handlesRelease })
+      setForm(empty); setHandlesRelease(false); required.reset(); onCreated(handlesRelease)
     } catch (cause) { setError(errorText(cause, zh)) }
     finally { setBusy(false) }
   }
@@ -138,6 +139,13 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
             {text('site', pick(zh, '站点或校区（可选）', 'Site or campus (optional)'))}
           </div>
           {text('description', pick(zh, '描述（可选）', 'Description (optional)'))}
+          <Field orientation="horizontal">
+            <Checkbox id="new-handles-release" checked={handlesRelease} onCheckedChange={(checked) => setHandlesRelease(checked === true)} />
+            <div className="flex flex-col gap-1">
+              <FieldLabel htmlFor="new-handles-release" className="font-normal">{pick(zh, '负责解绑', 'Handles releases')}</FieldLabel>
+              <FieldDescription>{pick(zh, '网关交换机打开：添加后马上从它的配置读取网段，解绑时按网段找到它。', 'For gateway switches: its networks are read from its configuration right after it is added, and releases find it by them.')}</FieldDescription>
+            </div>
+          </Field>
         </FieldGroup>
         {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
         <DialogFooter><Button type="button" variant="outline" onClick={onClose}>{pick(zh, '取消', 'Cancel')}</Button><Button type="submit" disabled={busy}>{busy ? pick(zh, '正在保存…', 'Saving…') : pick(zh, '添加', 'Add')}</Button></DialogFooter>
@@ -262,7 +270,7 @@ function DevicesPage() {
       {facet('vendor', pick(zh, '厂商', 'Vendor'), pick(zh, '全部厂商', 'All vendors'), vendors.map((v) => [v, vendorName(v, zh)]))}
       {facet('reachability', pick(zh, '连接', 'Connection'), pick(zh, '全部', 'Any'), [['reachable', pick(zh, '在线', 'Reachable')], ['unreachable', pick(zh, '不可达', 'Unreachable')], ['login_failed', pick(zh, '登录失败', 'Sign-in fails')], ['unknown', pick(zh, '未检测', 'Not checked')]])}
       {facet('backup', pick(zh, '备份', 'Backup'), pick(zh, '全部', 'Any'), [['ok', pick(zh, '备份正常', 'Backed up')], ['failed', pick(zh, '最近一次失败', 'Last backup failed')], ['overdue', pick(zh, '逾期（超过 7 天）', 'Overdue (over 7 days)')], ['never', pick(zh, '从未成功', 'Never succeeded')]])}
-      {facet('networks', pick(zh, '网段', 'Networks'), pick(zh, '全部', 'Any'), [['none', pick(zh, '无可用网段', 'No usable network')]])}
+      {facet('networks', pick(zh, '解绑', 'Releases'), pick(zh, '全部', 'Any'), [['release', pick(zh, '负责解绑', 'Handles releases')], ['none', pick(zh, '负责解绑但没有网段', 'Handles releases, no network')], ['other', pick(zh, '不负责解绑', 'Handles no releases')]])}
       <FacetFilter label={pick(zh, '启用状态', 'Status')} defaultValue="enabled" value={search.state} onChange={(value) => filter({ state: value })}
         options={[['enabled', pick(zh, '仅启用', 'Enabled')], ['disabled', pick(zh, '仅停用', 'Disabled')], [ALL_STATES, pick(zh, '启用和停用', 'Enabled and disabled')]]} />
       {filtered ? <Button type="button" variant="ghost" size="sm" className="px-2.5" onClick={() => { setText(''); void navigate({ search: {}, replace: true }) }}>
@@ -300,6 +308,21 @@ function DevicesPage() {
           {credentials.map((credential) => <SelectItem key={credential.id} value={credential.id}>{credential.name}</SelectItem>)}
         </SelectGroup></SelectContent>
       </Select>
+      <Select value="" onValueChange={(value) => setPending(value === 'on' ? {
+        title: pick(zh, `把${chosen}设为负责解绑？`, `Make ${chosen} handle releases?`),
+        description: pick(zh, '系统会马上登录读取它们的配置，按接口地址生成网段，之后每天更新。只用于网关交换机，不修改交换机。', 'Their configurations are read right away and their interface addresses become networks, updated every day. Meant for gateway switches; nothing on the switches changes.'),
+        action: pick(zh, '设为负责解绑', 'Handle releases'), run: () => void bulk({ handles_release: true }),
+      } : {
+        title: pick(zh, `取消${chosen}的负责解绑？`, `Stop ${chosen} handling releases?`),
+        description: pick(zh, '它们的网段会被移除，网段内的地址解绑时不会再找到这些交换机。', 'Their networks are removed, so releases of addresses in them no longer find these switches.'),
+        action: pick(zh, '取消负责解绑', 'Stop handling releases'), run: () => void bulk({ handles_release: false }),
+      })}>
+        <SelectTrigger aria-label={pick(zh, '负责解绑', 'Release role')} className="h-9 w-auto min-w-28" disabled={busy}><SelectValue placeholder={pick(zh, '负责解绑…', 'Release role…')} /></SelectTrigger>
+        <SelectContent><SelectGroup>
+          <SelectItem value="on">{pick(zh, '设为负责解绑', 'Handle releases')}</SelectItem>
+          <SelectItem value="off">{pick(zh, '取消负责解绑', 'Stop handling releases')}</SelectItem>
+        </SelectGroup></SelectContent>
+      </Select>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setSite(''); setSettingSite(true) }}><MapPin aria-hidden="true" data-icon="inline-start" />{pick(zh, '设置校区', 'Set campus')}</Button>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void bulk({ is_enabled: true })}><Power aria-hidden="true" data-icon="inline-start" />{pick(zh, '启用', 'Enable')}</Button>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setPending({
@@ -318,7 +341,7 @@ function DevicesPage() {
             <TableHead className="w-10"><Checkbox aria-label={pick(zh, '选择本页全部', 'Select this page')} checked={allChosen ? true : count ? 'indeterminate' : false} disabled={!rows.length}
               onCheckedChange={(checked) => choose(rows.map((row) => row.id), checked === true)} /></TableHead>
             <TableHead>{pick(zh, '设备', 'Switch')}</TableHead><TableHead>{pick(zh, '管理地址', 'Management')}</TableHead><TableHead>{pick(zh, '厂商 / 分组', 'Vendor / group')}</TableHead>
-            <TableHead>{pick(zh, '连接', 'Connection')}</TableHead><TableHead>{pick(zh, '最近成功备份', 'Last backup')}</TableHead><TableHead>{pick(zh, '网段', 'Networks')}</TableHead><TableHead>{pick(zh, '合规', 'Compliance')}</TableHead>
+            <TableHead>{pick(zh, '连接', 'Connection')}</TableHead><TableHead>{pick(zh, '最近成功备份', 'Last backup')}</TableHead><TableHead>{pick(zh, '解绑网段', 'Networks')}</TableHead><TableHead>{pick(zh, '合规', 'Compliance')}</TableHead>
             <TableHead className="text-right">{pick(zh, '操作', 'Actions')}</TableHead>
           </TableRow></TableHeader>
           <TableBody>
@@ -335,7 +358,9 @@ function DevicesPage() {
                   <p className="mt-0.5 text-xs text-muted-foreground"><Time value={row.reachability_checked_at} zh={zh} /></p></TableCell>
                 <TableCell>{row.config_succeeded_at ? <Time value={row.config_succeeded_at} zh={zh} className="text-sm" /> : <ToneBadge kind="warn">{pick(zh, '从未成功', 'Never')}</ToneBadge>}
                   {backupError ? <p className="text-xs whitespace-nowrap text-destructive" title={backupError}>{pick(zh, '最近一次失败', 'Last attempt failed')}</p> : null}</TableCell>
-                <TableCell>{row.networks ? <span className="text-sm tabular-nums">{row.networks}</span> : <ToneBadge kind="warn">{pick(zh, '无', 'None')}</ToneBadge>}</TableCell>
+                <TableCell>{!row.handles_release ? <span className="text-xs text-muted-foreground" title={pick(zh, '不负责解绑', 'Handles no releases')}>—</span>
+                  : row.networks ? <span className="text-sm tabular-nums" title={row.networks_error ? serverText(row.networks_error, zh) : undefined}>{row.networks}{row.networks_error ? <span className="ml-1 text-destructive">!</span> : null}</span>
+                    : <ToneBadge kind="warn">{row.networks_checked_at ? pick(zh, '无', 'None') : pick(zh, '读取中', 'Reading')}</ToneBadge>}</TableCell>
                 <TableCell>{row.compliance_failed ? <ToneBadge kind="bad">{pick(zh, `${row.compliance_failed} 项未通过`, `${row.compliance_failed} failing`)}</ToneBadge> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
                 <TableCell className="text-right"><div className="flex justify-end gap-0.5" onClick={(event) => event.stopPropagation()}>
                   <Button type="button" variant="ghost" size="sm" className="size-8 p-0" disabled={busy || !row.is_enabled} title={pick(zh, '测试连接：登录一次再退出', 'Test connection: sign in and out once')} aria-label={`${pick(zh, '测试连接', 'Test connection')} ${row.name}`} onClick={() => void run('login_check', { scope: 'switches', switch_ids: [row.id] })}><PlugZap aria-hidden="true" /></Button>
@@ -349,10 +374,10 @@ function DevicesPage() {
         </Table>
       </div>}
     {list.data ? <Pager page={page} total={list.data.total} pageSize={list.data.page_size} zh={zh} onPage={(next) => void navigate({ search: (previous) => ({ ...previous, page: next > 1 ? next : undefined }) })} /> : null}
-    <DeviceDetailSheet switchId={detail} zh={zh} busy={busy} inventory={inventory.data} onClose={() => setDetail(null)} onRun={(kind, id) => void run(kind, { scope: 'switches', switch_ids: [id] })} onChanged={refresh} />
+    <DeviceDetailSheet switchId={detail} zh={zh} busy={busy} inventory={inventory.data} onClose={() => setDetail(null)} onRun={(kind, id) => void run(kind, { scope: 'switches', switch_ids: [id] })} />
     <AssetEditDialog target={editing} inventory={inventory.data} zh={zh} onClose={() => setEditing(null)} onSave={saveEdit} />
     <DisableAssetDialog target={disabling} inventory={inventory.data} zh={zh} onCancel={() => setDisabling(null)} onConfirm={(target) => void setEnabled(target, false)} />
-    <CreateSwitchDialog open={creating} zh={zh} inventory={inventory.data} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); notifySuccess(pick(zh, '交换机已添加。', 'Switch added.')); void refresh() }} />
+    <CreateSwitchDialog open={creating} zh={zh} inventory={inventory.data} onClose={() => setCreating(false)} onCreated={(handlesRelease) => { setCreating(false); notifySuccess(handlesRelease ? pick(zh, '交换机已添加，正在读取它的网段。', 'Switch added; its networks are being read.') : pick(zh, '交换机已添加。', 'Switch added.')); void refresh() }} />
     <ImportDialog open={importing} zh={zh} inventory={inventory.data} onClose={() => setImporting(false)} onImported={() => void refresh()} />
     <Dialog open={managingGroups} onOpenChange={setManagingGroups}>
       <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">

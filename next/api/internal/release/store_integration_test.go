@@ -35,7 +35,7 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 	if err = tx.QueryRowContext(ctx, `INSERT INTO bp_command_profiles(name) VALUES ('test') RETURNING id::text`).Scan(&profile); err != nil {
 		t.Fatal(err)
 	}
-	if err = tx.QueryRowContext(ctx, `INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id) VALUES ('test','192.0.2.1',$1,$2) RETURNING id::text`, credential, profile).Scan(&switchID); err != nil {
+	if err = tx.QueryRowContext(ctx, `INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,handles_release) VALUES ('test','192.0.2.1',$1,$2,true) RETURNING id::text`, credential, profile).Scan(&switchID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO bp_networks(switch_id,cidr,is_validated) VALUES ($1,'10.2.0.0/16',true)`, switchID); err != nil {

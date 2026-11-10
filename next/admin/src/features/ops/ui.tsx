@@ -16,7 +16,8 @@ export function useZh(): boolean {
 
 export const pick = (zh: boolean, chinese: string, english: string) => (zh ? chinese : english)
 /** Who acted, by name. Older records, or ones whose name was never recorded, have only the email. */
-export const actorText = (name?: string | null, email?: string | null) => name || email || '—'
+/** Who acted; records the worker wrote on its own name nobody, so they show `nobody` (the system). */
+export const actorText = (name?: string | null, email?: string | null, nobody = '—') => name || email || nobody
 
 export const isAdmin = (user: User) => Boolean(user.superAdmin || user.roles?.some((role) => role.name === 'Admin'))
 
@@ -106,7 +107,7 @@ export const itemStatusLabel = (status: string, zh: boolean) =>
 export const workerMessage = (message: string | null, zh: boolean) => serverText(message, zh)
 
 export const kindLabel = (kind: TaskKind, zh: boolean) =>
-  ({ config_backup: pick(zh, '配置备份', 'Config backup'), reachability: pick(zh, '连通性检测', 'Reachability check'), login_check: pick(zh, '连接测试', 'Connection test') })[kind] ?? kind
+  ({ config_backup: pick(zh, '配置备份', 'Config backup'), reachability: pick(zh, '连通性检测', 'Reachability check'), login_check: pick(zh, '连接测试', 'Connection test'), network_read: pick(zh, '读取网段', 'Network read') })[kind] ?? kind
 
 export function Pager({ page, total, pageSize, onPage, zh }: { page: number; total: number; pageSize: number; onPage: (page: number) => void; zh: boolean }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))

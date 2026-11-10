@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { NetworkAsset, SwitchAsset } from './asset-editors'
 import { contains, ipv4, resolve, type NetworkRow } from './networks'
 
-const owner = (id: string, enabled = true) => ({ id, name: id, management_ip: '192.0.2.1', is_enabled: enabled }) as SwitchAsset
-const row = (cidr: string, switchId: string, fields: Partial<NetworkAsset> = {}, enabled = true): NetworkRow => ({
-  network: { id: `${switchId}-${cidr}`, switch_id: switchId, cidr, is_enabled: true, is_validated: true, vlan: null, description: null, version: 1, ...fields },
-  owner: owner(switchId, enabled), bits: Number(cidr.split('/')[1]),
+const owner = (id: string, enabled = true, release = true) => ({ id, name: id, management_ip: '192.0.2.1', is_enabled: enabled, handles_release: release }) as SwitchAsset
+const row = (cidr: string, switchId: string, fields: Partial<NetworkAsset> = {}, enabled = true, release = true): NetworkRow => ({
+  network: { id: `${switchId}-${cidr}`, switch_id: switchId, cidr, is_enabled: true, is_validated: true, vlan: null, description: null, interface: 'Vlanif1', version: 1, ...fields },
+  owner: owner(switchId, enabled, release), bits: Number(cidr.split('/')[1]),
 })
 
 describe('network lookup', () => {
@@ -27,5 +27,10 @@ describe('network lookup', () => {
   it('stops on a tie between switches and when nothing usable is left', () => {
     expect(resolve([row('10.1.2.0/24', 'a'), row('10.1.2.0/24', 'b')])).toMatchObject({ kind: 'ambiguous' })
     expect(resolve([row('10.1.2.0/24', 'a', { is_enabled: false }), row('10.1.0.0/16', 'b', {}, false)])).toEqual({ kind: 'none' })
+  })
+
+  it('only routes through switches that handle releases', () => {
+    expect(resolve([row('10.1.2.0/24', 'access', {}, true, false), row('10.1.0.0/16', 'gateway')]))
+      .toMatchObject({ kind: 'switch', row: { network: { switch_id: 'gateway' } } })
   })
 })

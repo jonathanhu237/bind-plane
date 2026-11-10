@@ -72,7 +72,7 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	}
 
 	// An error anywhere blocks the commit; a dry run writes nothing; a re-import skips.
-	good := "\ufeff设备名称,IP地址,厂商,分组,校区,协议\nOPS-A,192.0.2.101,Huawei,Core,SZ,ssh\nOPS-B,192.0.2.102,华三,Core,SZ,telnet\n"
+	good := "\ufeff设备名称,IP地址,厂商,分组,校区,协议,负责解绑\nOPS-A,192.0.2.101,Huawei,Core,SZ,ssh,是\nOPS-B,192.0.2.102,华三,Core,SZ,telnet,\n"
 	if report := importCSV("switches", good+"bad,999.1.1.1,huawei,,,\n", false); report["errors"] != float64(1) || report["committed"] != false {
 		t.Fatalf("import with an error committed: %v", report)
 	}
@@ -120,9 +120,22 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	if body := fmt.Sprint(call(assets, "PATCH", "/api/releases/admin/profiles/"+h3cProfile, `{"version":1,"vendor":"cisco"}`, 422)); !strings.Contains(body, errProfileInUse) {
 		t.Fatalf("changing the vendor of a profile in use: %s", body)
 	}
-	networks := importCSV("networks", "cidr,switch,vlan,validated\n10.77.0.0/24,192.0.2.101,77,true\n10.77.1.5/24,OPS-B,,\n", false)
-	if networks["errors"] != float64(1) || !strings.Contains(fmt.Sprint(networks["rows"]), "10.77.1.0/24") {
-		t.Fatalf("network import: %v", networks)
+	// Networks are read from configuration, never typed in or imported.
+	call(assets, "POST", "/api/releases/admin/import", jsonBody(map[string]any{"kind": "networks", "csv": "cidr,switch\n10.77.0.0/24,OPS-A\n"}), 422)
+	call(assets, "POST", "/api/releases/admin/networks", jsonBody(map[string]any{"switch_id": switchA, "cidr": "10.77.0.0/24"}), 404)
+	// A release switch never read gets a network read at once; other switches get none, by hand either.
+	if err = ops.queueNetworkReads(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var readA, readB int
+	if err = db.QueryRow(`SELECT count(*) FILTER (WHERE switch_id=$1),count(*) FILTER (WHERE switch_id=$2) FROM bp_device_task_items WHERE kind='network_read' AND status='queued'`, switchA, switchB).Scan(&readA, &readB); err != nil || readA != 1 || readB != 0 {
+		t.Fatalf("network reads queued: A %d, B %d, %v", readA, readB, err)
+	}
+	if err = ops.queueNetworkReads(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if byHand := obj(call(ops, "POST", "/api/ops/tasks", jsonBody(map[string]any{"kind": "network_read", "scope": "switches", "switch_ids": []string{switchA, switchB}}), 202)); byHand["queued"] != float64(0) || byHand["skipped"] != float64(1) {
+		t.Fatalf("network read by hand %v", byHand)
 	}
 
 	// Manual runs never queue a second pending operation for a switch.
@@ -238,14 +251,16 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 		t.Helper()
 		return obj(call(ops, "GET", "/api/ops/switches?q=OPS-&"+filter, "", 200))["total"].(float64)
 	}
-	for filter, want := range map[string]float64{"backup=never": 1, "backup=overdue": 1, "networks=none": 2, "site=SZ": 2, "group=none": 0} {
+	for filter, want := range map[string]float64{"backup=never": 1, "backup=overdue": 1, "networks=none": 1, "networks=release": 1, "networks=other": 1, "site=SZ": 2, "group=none": 0} {
 		if got := listed(filter); got != want {
 			t.Fatalf("%s lists %v switches, want %v", filter, got, want)
 		}
 	}
-	call(assets, "POST", "/api/releases/admin/networks", jsonBody(map[string]any{"switch_id": switchA, "cidr": "10.78.0.0/24", "is_validated": true, "vlan": "78", "description": "Lab"}), 201)
-	if got := listed("networks=none"); got != 1 {
-		t.Fatalf("a validated network still lists switch A as having none (%v)", got)
+	if _, err = db.Exec(`INSERT INTO bp_networks(switch_id,cidr,is_validated,vlan,description,interface) VALUES ($1,'10.78.0.0/24',true,'78','Lab','Vlanif78')`, switchA); err != nil {
+		t.Fatal(err)
+	}
+	if got := listed("networks=none"); got != 0 {
+		t.Fatalf("a network read still lists release switch A as having none (%v)", got)
 	}
 
 	// NetSwitch Pro's template imports, updating the switches that exist. Empty cells keep their

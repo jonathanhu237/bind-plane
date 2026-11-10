@@ -131,7 +131,7 @@ func (o *OpsHandler) editSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	optionalBool(next, "is_enabled", input.IsEnabled)
 	id := r.PathValue("id")
-	o.applyEditThen(w, r, actor, scheduleFields, input.Version, next, func(ctx context.Context, tx *sql.Tx) error {
+	o.applyEditThen(w, r, actor, scheduleFields, input.Version, next, func(ctx context.Context, tx *sql.Tx, _ map[string]any) error {
 		var expression string
 		var enabled bool
 		if err := tx.QueryRowContext(ctx, `SELECT cron,is_enabled FROM bp_schedules WHERE id=$1`, id).Scan(&expression, &enabled); err != nil {
@@ -200,6 +200,9 @@ func (o *OpsHandler) RunScheduler(ctx context.Context) {
 		if err := o.runDueSchedules(ctx, time.Now()); err != nil && ctx.Err() == nil {
 			log.Printf("device scheduler: %v", err)
 		}
+		if err := o.queueNetworkReads(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("network reads: %v", err)
+		}
 		if time.Since(lastPrune) >= time.Hour {
 			if err := o.pruneHistory(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("device history cleanup: %v", err)
@@ -250,6 +253,40 @@ func (o *OpsHandler) runDueSchedules(ctx context.Context, now time.Time) error {
 		if _, err = tx.ExecContext(ctx, `UPDATE bp_schedules SET last_run_at=$2,next_run_at=$3 WHERE id=$1`, d.id, now, nextRun); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+// queueNetworkReads keeps the release switches' networks current: one never read, or last read a
+// day ago, gets a network read. No schedule can turn this off, since releases depend on it.
+func (o *OpsHandler) queueNetworkReads(ctx context.Context) error {
+	tx, err := o.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT s.id::text FROM bp_switches s WHERE s.is_enabled AND s.handles_release
+ AND (s.networks_checked_at IS NULL OR s.networks_checked_at < now()-interval '24 hours')
+ AND NOT EXISTS (SELECT 1 FROM bp_device_task_items i WHERE i.switch_id=s.id AND i.kind='network_read' AND i.status IN ('queued','running'))
+ ORDER BY s.networks_checked_at NULLS FIRST,s.id LIMIT 500 FOR UPDATE OF s SKIP LOCKED`)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil || len(ids) == 0 {
+		return err
+	}
+	if _, _, _, _, err = enqueueDeviceTask(ctx, tx, "network_read", nil, nil, nil, nil, "switches", "", ids); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

@@ -117,7 +117,7 @@ function TaskDialog({ taskId, zh, onClose }: { taskId: string | null; zh: boolea
     <DialogContent closeLabel={pick(zh, '关闭', 'Close')} className="flex max-h-[90dvh] flex-col sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle>{task ? `${kindLabel(task.kind, zh)} · ${task.schedule_name ?? taskScopeText(task.scope_label, zh)}` : pick(zh, '任务详情', 'Task run')}</DialogTitle>
-        <DialogDescription>{task ? pick(zh, `${formatTime(task.created_at, zh)} 由 ${task.actor_email ? actorText(task.actor_name, task.actor_email) : '计划任务'} 发起 · 成功 ${task.succeeded} · 失败 ${task.failed} · 跳过 ${task.skipped} · 配置变化 ${task.changed}`, `Started ${formatTime(task.created_at, zh)} by ${task.actor_email ? actorText(task.actor_name, task.actor_email) : 'a schedule'} · ${task.succeeded} succeeded · ${task.failed} failed · ${task.skipped} skipped · ${task.changed} changed`) : ' '}</DialogDescription>
+        <DialogDescription>{task ? pick(zh, `${formatTime(task.created_at, zh)} 由 ${task.actor_email ? actorText(task.actor_name, task.actor_email) : task.schedule_name ? '计划任务' : '系统'} 发起 · 成功 ${task.succeeded} · 失败 ${task.failed} · 跳过 ${task.skipped} · 配置变化 ${task.changed}`, `Started ${formatTime(task.created_at, zh)} by ${task.actor_email ? actorText(task.actor_name, task.actor_email) : task.schedule_name ? 'a schedule' : 'the system'} · ${task.succeeded} succeeded · ${task.failed} failed · ${task.skipped} skipped · ${task.changed} changed`) : ' '}</DialogDescription>
       </DialogHeader>
       <ErrorNote error={query.error} zh={zh} />
       {task ? <div className="min-h-0 overflow-auto rounded-md border [&_th]:whitespace-nowrap"><Table>

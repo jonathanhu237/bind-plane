@@ -14,13 +14,13 @@ describe('release job messages', () => {
   })
 
   it('explains refusals from the release API in the interface language', () => {
-    expect(releaseErrorText(new Error('no enabled validated switch owns this IP'), true)).toBe('没有哪台已启用的交换机拥有包含该地址、且已验证的网段。管理员可以在“资产配置 → 网段”里查这个地址。')
+    expect(releaseErrorText(new Error('no enabled validated switch owns this IP'), true)).toBe('没有负责解绑的交换机配置了包含该地址的网段。管理员可以在“资产配置 → 网段”里查这个地址。')
     expect(releaseErrorText(new Error('switch configuration changed; try again'), true)).toBe('交换机配置刚刚有变更，请重新解绑。')
     expect(releaseErrorText(new Error('conflict'), true)).toBe('这个 IP 正在解绑，请等它完成后再试。')
     expect(releaseErrorText(new Error('operator role required'), true)).toBe('需要操作员或管理员角色。')
     expect(releaseErrorText(new Error('an unexpected detail'), true)).toBe('an unexpected detail')
     expect(releaseErrorText('not an error', true)).toBe('操作失败，请重试。')
-    expect(stopText('stopped_ambiguous_switch', true)).toBe('有多台交换机的网段同样精确地包含该地址，需要管理员先修正网段数据。')
+    expect(stopText('stopped_ambiguous_switch', true)).toBe('有多台交换机配置了同样精确地包含该地址的网段，需要管理员先改正交换机上的配置。')
     expect(stopText('queued', true)).toBe('')
   })
 

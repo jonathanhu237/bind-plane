@@ -1,20 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { CircleAlert, Eye, FileDiff, HardDriveDownload, Plus, PlugZap } from 'lucide-react'
+import { Eye, FileDiff, HardDriveDownload, PlugZap, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import {
-  AssetEditDialog, AssetRequestError, AssetRow, DisableAssetDialog, UnvalidatedBadge, actionName, callAssets, editorLabels, fieldName, statusBody, vendorName,
-  type EditTarget, type Inventory,
-} from '@/features/release/asset-editors'
-import { errorText, isConfigExcerpt, serverText } from '@/features/release/messages'
+import { actionName, fieldName, vendorName, type Inventory } from '@/features/release/asset-editors'
+import { isConfigExcerpt, serverText } from '@/features/release/messages'
 import { cn } from '@/lib/utils'
-import { notifySuccess } from '@/shared/feedback'
 import { opsRequest, type DiffResponse, type HistoryEvent, type SwitchDetail, type TaskKind } from './api'
 import { Empty, ErrorNote, LoginBadge, ReachabilityBadge, SeverityBadge, ToneBadge, Time, actorText, formatTime, itemStatusLabel, kindLabel, pick, workerMessage } from './ui'
 
@@ -80,7 +72,17 @@ function changeLines(event: HistoryEvent, inventory: Inventory | undefined, zh: 
     if (list && typeof value === 'string') return list.find((item) => item.id === value)?.name ?? pick(zh, '（已删除）', '(deleted)')
     return String(value)
   }
-  return Object.entries(event.changes ?? {}).map(([key, value]) => {
+  return Object.entries(event.changes ?? {}).flatMap(([key, value]) => {
+    // A network read lists the networks it added and removed.
+    if ((key === 'added' || key === 'removed') && Array.isArray(value)) {
+      if (!value.length) return []
+      const label = key === 'added' ? pick(zh, '新增网段', 'Networks added') : pick(zh, '移除网段', 'Networks removed')
+      return `${label}${zh ? '：' : ': '}${value.join(zh ? '、' : ', ')}`
+    }
+    if (key === 'handles_release') {
+      const { to } = (value ?? {}) as { to?: unknown }
+      return to ? pick(zh, '设为负责解绑', 'Now handles releases') : pick(zh, '取消负责解绑', 'No longer handles releases')
+    }
     const label = key === 'is_enabled' || key === 'is_active' ? pick(zh, '状态', 'state') : fieldName(key, zh)
     if (value === 'replaced' || value === 'cleared') return `${label}${value === 'replaced' ? pick(zh, '已更换', ' replaced') : pick(zh, '已删除', ' removed')}`
     const { from, to } = (value ?? {}) as { from?: unknown; to?: unknown }
@@ -88,75 +90,16 @@ function changeLines(event: HistoryEvent, inventory: Inventory | undefined, zh: 
   })
 }
 
-function NetworkForm({ switchId, zh, onAdded }: { switchId: string; zh: boolean; onAdded: () => Promise<void> }) {
-  const empty = { cidr: '', vlan: '', description: '', is_validated: false }
-  const [form, setForm] = useState(empty)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!form.cidr.trim()) { setError(pick(zh, '请输入网段，例如 10.0.0.0/24。', 'Enter a network, such as 10.0.0.0/24.')); return }
-    setBusy(true); setError('')
-    try { await callAssets('networks', { switch_id: switchId, ...form, cidr: form.cidr.trim() }); setForm(empty); notifySuccess(pick(zh, '网段已添加。', 'Network added.')); await onAdded() }
-    catch (cause) { setError(errorText(cause, zh)) }
-    finally { setBusy(false) }
-  }
-  return <form className="flex flex-col gap-3 rounded-xl border p-3" noValidate onSubmit={(event) => void submit(event)}>
-    <FieldGroup className="gap-3">
-      <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
-        <Field data-invalid={Boolean(error) && !form.cidr.trim()}>
-          <FieldLabel htmlFor="network-new-cidr">IPv4 CIDR</FieldLabel>
-          <Input id="network-new-cidr" className="font-mono" placeholder="10.0.0.0/24" value={form.cidr} onChange={(event) => setForm({ ...form, cidr: event.target.value })} autoComplete="off" />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="network-new-vlan">{pick(zh, 'VLAN（可选）', 'VLAN (optional)')}</FieldLabel>
-          <Input id="network-new-vlan" value={form.vlan} onChange={(event) => setForm({ ...form, vlan: event.target.value })} autoComplete="off" />
-        </Field>
-      </div>
-      <Field>
-        <FieldLabel htmlFor="network-new-description">{pick(zh, '描述（可选）', 'Description (optional)')}</FieldLabel>
-        <Input id="network-new-description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} autoComplete="off" />
-      </Field>
-      <Field orientation="horizontal">
-        <Checkbox id="network-new-validated" checked={form.is_validated} onCheckedChange={(checked) => setForm({ ...form, is_validated: checked === true })} />
-        <FieldLabel htmlFor="network-new-validated" className="font-normal">{pick(zh, '已人工确认这个网段归这台交换机', 'Ownership confirmed by hand')}</FieldLabel>
-      </Field>
-    </FieldGroup>
-    {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
-    <Button type="submit" size="sm" className="self-start" disabled={busy}>{busy ? pick(zh, '正在保存…', 'Saving…') : pick(zh, '添加网段', 'Add network')}</Button>
-  </form>
-}
-
-export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRun, onChanged }: {
-  switchId: string | null; zh: boolean; busy: boolean; inventory?: Inventory; onClose: () => void; onRun: (kind: TaskKind, id: string) => void; onChanged: () => Promise<void>
+export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRun }: {
+  switchId: string | null; zh: boolean; busy: boolean; inventory?: Inventory; onClose: () => void; onRun: (kind: TaskKind, id: string) => void
 }) {
   const query = useQuery({ queryKey: ['ops-switch', switchId], queryFn: () => opsRequest<SwitchDetail>(`switches/${switchId}`), enabled: switchId !== null, refetchInterval: 10_000 })
   const [viewing, setViewing] = useState<number | null>(null)
   const [diffing, setDiffing] = useState<{ target: number; base: number } | null>(null)
-  const [adding, setAdding] = useState(false)
-  const [editing, setEditing] = useState<EditTarget | null>(null)
-  const [disabling, setDisabling] = useState<EditTarget | null>(null)
-  const [working, setWorking] = useState(false)
-  const [error, setError] = useState('')
-  const labels = editorLabels(zh)
   const d = query.data
   const itemTone = (status: string) => status === 'succeeded' ? 'good' : status === 'failed' ? 'bad' : 'muted'
-  const usable = d?.networks.filter((network) => network.is_enabled && network.is_validated).length ?? 0
 
-  async function changed() { await Promise.all([query.refetch(), onChanged()]) }
-  async function saveEdit(path: string, body: Record<string, unknown>) {
-    try { await callAssets(path, body, 'PATCH') }
-    catch (cause) { if (cause instanceof AssetRequestError && cause.status === 409) await changed(); throw cause }
-    setEditing(null); notifySuccess(labels.saved); await changed()
-  }
-  async function setEnabled(target: EditTarget, on: boolean) {
-    setWorking(true); setError('')
-    try { await callAssets(`${target.kind}/${target.item.id}`, statusBody(target, on), 'PATCH'); notifySuccess(labels.statusChanged(target, on)) }
-    catch (cause) { setError(errorText(cause, zh)) }
-    finally { await changed(); setWorking(false) }
-  }
-
-  return <Sheet open={switchId !== null} onOpenChange={(open) => { if (!open) { setAdding(false); setError(''); onClose() } }}>
+  return <Sheet open={switchId !== null} onOpenChange={(open) => { if (!open) onClose() }}>
     <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
       <SheetHeader>
         <SheetTitle>{d?.name ?? pick(zh, '设备详情', 'Device details')}</SheetTitle>
@@ -185,21 +128,23 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
         </section> : null}
         <section className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">{pick(zh, '负责的网段', 'Owned networks')}</h3>
-            {adding ? null : <Button type="button" size="sm" variant="ghost" onClick={() => setAdding(true)}><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '添加网段', 'Add network')}</Button>}
+            <h3 className="text-sm font-semibold">{pick(zh, '网段', 'Networks')}</h3>
+            {d.handles_release ? <Button type="button" size="sm" variant="ghost" disabled={busy || !d.is_enabled} title={pick(zh, '登录读取配置，按接口地址更新网段，不修改交换机', 'Signs in, reads the configuration and updates the networks from its interface addresses; changes nothing on the switch')}
+              onClick={() => onRun('network_read', d.id)}><RefreshCw aria-hidden="true" data-icon="inline-start" />{pick(zh, '刷新网段', 'Refresh networks')}</Button> : null}
           </div>
-          <p className="text-xs text-muted-foreground">{usable
-            ? pick(zh, '这些网段里的 IP 解绑时会找到这台交换机。只有已启用、已验证的网段参与查找。', 'Releases of addresses in these networks find this switch. Only enabled, validated networks count.')
-            : pick(zh, '还没有可用的网段：这台交换机下的 IP 解绑时会提示“未匹配到交换机”。添加网段并确认归属后才能解绑。', 'No usable network yet: releases of its addresses stop with “No switch matched” until a network is added and confirmed.')}</p>
-          {adding ? <NetworkForm switchId={d.id} zh={zh} onAdded={async () => { setAdding(false); await changed() }} /> : null}
-          {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
-          {d.networks.length ? <ul className="divide-y rounded-xl border px-3">{d.networks.map((network) => {
-            const target: EditTarget = { kind: 'networks', item: network }
-            return <AssetRow key={network.id} title={network.cidr} mono on={network.is_enabled} busy={working} labels={labels} onEdit={() => setEditing(target)}
-              onToggle={() => network.is_enabled ? setDisabling(target) : void setEnabled(target, true)}
-              flag={network.is_validated ? null : <UnvalidatedBadge labels={labels} />}
-              detail={[network.vlan ? `VLAN ${network.vlan}` : '', network.description].filter(Boolean).join(' · ') || undefined} />
-          })}</ul> : null}
+          <p className="text-xs text-muted-foreground">{!d.handles_release
+            ? pick(zh, '这台交换机不负责解绑，解绑时不会找它。网关交换机请在“编辑”里打开“负责解绑”。', 'This switch does not handle releases, so no release goes to it. Turn on “Handles releases” under Edit for a gateway switch.')
+            : d.networks_succeeded_at
+              ? <>{pick(zh, '从配置读取于 ', 'Read from its configuration ')}<Time value={d.networks_succeeded_at} zh={zh} />{pick(zh, '，每天自动更新。这些网段里的 IP 解绑时会找到这台交换机。', ', updated every day. Releases of addresses in these networks find this switch.')}</>
+              : pick(zh, '还没有读到网段。打开“负责解绑”后会马上读取一次，之后每天自动更新。', 'No networks read yet. They are read right after “Handles releases” is turned on, then every day.')}</p>
+          {d.handles_release && d.networks_error ? <p className="text-xs text-destructive">{pick(zh, '最近一次读取失败：', 'Last read failed: ')}{serverText(d.networks_error, zh)}</p> : null}
+          {d.networks.length ? <ul className="divide-y rounded-xl border">{d.networks.map((network) => <li key={network.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2 text-sm">
+            <span className="font-mono">{network.cidr}</span>
+            <span className="min-w-0 flex-1 break-words text-xs text-muted-foreground">{[
+              network.interface ?? pick(zh, '手工登记，首次读取配置后替换', 'Typed in; replaced by the first read'),
+              network.vlan && !network.interface ? `VLAN ${network.vlan}` : '', network.description,
+            ].filter(Boolean).join(' · ')}</span>
+          </li>)}</ul> : null}
         </section>
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">{pick(zh, '配置版本', 'Configuration versions')}</h3>
@@ -226,7 +171,7 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
             return <li key={event.id} className="flex flex-col gap-1 px-3 py-2 text-sm">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span className="font-medium">{actionName(event.action, zh)}{event.action.startsWith('network.') ? <span className="ml-1 font-mono font-normal">{event.object_name}</span> : null}</span>
-                <span className="text-xs text-muted-foreground">{actorText(event.actor_name, event.actor_email)} · <Time value={event.created_at} zh={zh} /></span>
+                <span className="text-xs text-muted-foreground">{actorText(event.actor_name, event.actor_email, pick(zh, '系统', 'System'))} · <Time value={event.created_at} zh={zh} /></span>
               </div>
               {lines.length ? <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">{lines.map((line) => <li key={line} className="break-words">{line}</li>)}</ul> : null}
             </li>
@@ -244,8 +189,6 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
       </div> : null}
       <ConfigDialog backupId={viewing} zh={zh} onClose={() => setViewing(null)} />
       <DiffDialog pair={diffing} zh={zh} onClose={() => setDiffing(null)} />
-      <AssetEditDialog target={editing} inventory={inventory} zh={zh} onClose={() => setEditing(null)} onSave={saveEdit} />
-      <DisableAssetDialog target={disabling} inventory={inventory} zh={zh} onCancel={() => setDisabling(null)} onConfirm={(target) => { setDisabling(null); void setEnabled(target, false) }} />
     </SheetContent>
   </Sheet>
 }

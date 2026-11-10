@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/netip"
 	"reflect"
 	"sort"
 	"strings"
@@ -50,15 +49,10 @@ var (
 		{column: "credential_id", read: "credential_id::text"}, {column: "command_profile_id", read: "command_profile_id::text"},
 		{column: "is_enabled", read: "is_enabled"}, {column: "vendor", read: "vendor"}, {column: "model", read: "model"},
 		{column: "site", read: "site"}, {column: "description", read: "description"}, {column: "group_id", read: "group_id::text"},
-		{column: "protocol", read: "protocol"}, {column: "port", read: "port"},
+		{column: "protocol", read: "protocol"}, {column: "port", read: "port"}, {column: "handles_release", read: "handles_release"},
 	}}
 	groupFields = assetKind{"bp_switch_groups", "group.update", "name", []assetField{
 		{column: "name", read: "name"}, {column: "description", read: "description"},
-	}}
-	networkFields = assetKind{"bp_networks", "network.update", "cidr::text", []assetField{
-		{column: "switch_id", read: "switch_id::text"}, {column: "cidr", read: "cidr::text"},
-		{column: "is_enabled", read: "is_enabled"}, {column: "is_validated", read: "is_validated"},
-		{column: "vlan", read: "vlan"}, {column: "description", read: "description"},
 	}}
 )
 
@@ -68,9 +62,9 @@ func (a *AdminHandler) updateAudited(ctx context.Context, actor domain.Principal
 	return a.updateAuditedThen(ctx, actor, kind, id, version, next, nil)
 }
 
-// updateAuditedThen runs `then` inside the edit's transaction, after a change is written,
-// for values derived from the edited row (such as a schedule's next run).
-func (a *AdminHandler) updateAuditedThen(ctx context.Context, actor domain.Principal, kind assetKind, id string, version int, next map[string]any, then func(context.Context, *sql.Tx) error) (int, error) {
+// updateAuditedThen runs `then` inside the edit's transaction, after a change is written, with
+// the changes it recorded, for values derived from the edited row (such as a schedule's next run).
+func (a *AdminHandler) updateAuditedThen(ctx context.Context, actor domain.Principal, kind assetKind, id string, version int, next map[string]any, then func(context.Context, *sql.Tx, map[string]any) error) (int, error) {
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -78,7 +72,7 @@ func (a *AdminHandler) updateAuditedThen(ctx context.Context, actor domain.Princ
 	defer tx.Rollback()
 	stored, changes, err := updateRow(ctx, tx, actor, kind, id, version, next)
 	if err == nil && len(changes) > 0 && then != nil {
-		err = then(ctx, tx)
+		err = then(ctx, tx, changes)
 	}
 	if err != nil {
 		return 0, err
@@ -170,7 +164,7 @@ func (a *AdminHandler) applyEdit(w http.ResponseWriter, r *http.Request, actor d
 	a.applyEditThen(w, r, actor, kind, version, next, nil)
 }
 
-func (a *AdminHandler) applyEditThen(w http.ResponseWriter, r *http.Request, actor domain.Principal, kind assetKind, version int, next map[string]any, then func(context.Context, *sql.Tx) error) {
+func (a *AdminHandler) applyEditThen(w http.ResponseWriter, r *http.Request, actor domain.Principal, kind assetKind, version int, next map[string]any, then func(context.Context, *sql.Tx, map[string]any) error) {
 	id := r.PathValue("id")
 	if !domain.IsCanonicalUUID(id) {
 		fail(w, 404, ErrNotFound.Error())
@@ -226,11 +220,6 @@ func optionalBool(next map[string]any, column string, value *bool) {
 	if value != nil {
 		next[column] = *value
 	}
-}
-
-func canonicalIPv4Prefix(value string) bool {
-	prefix, err := netip.ParsePrefix(value)
-	return err == nil && prefix.Addr().Is4() && prefix.Masked() == prefix && prefix.String() == value
 }
 
 func (a *AdminHandler) editCredential(w http.ResponseWriter, r *http.Request) {
@@ -340,6 +329,7 @@ func (a *AdminHandler) editSwitch(w http.ResponseWriter, r *http.Request) {
 		GroupID          *string `json:"group_id"` // empty removes the group
 		Protocol         *string `json:"protocol"`
 		Port             *int    `json:"port"` // 0 restores the protocol's default port
+		HandlesRelease   *bool   `json:"handles_release"`
 	}
 	next := map[string]any{}
 	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) ||
@@ -374,11 +364,44 @@ func (a *AdminHandler) editSwitch(w http.ResponseWriter, r *http.Request) {
 		next[column] = *value
 	}
 	optionalBool(next, "is_enabled", input.IsEnabled)
-	a.applyEdit(w, r, actor, switchFields, input.Version, next)
+	optionalBool(next, "handles_release", input.HandlesRelease)
+	id := r.PathValue("id")
+	a.applyEditThen(w, r, actor, switchFields, input.Version, next, func(ctx context.Context, tx *sql.Tx, changes map[string]any) error {
+		return releaseRoleChanged(ctx, tx, id, changes)
+	})
 }
 
-// bulkSwitches sets one value (group, site, credential or enabled) on many switches in one
-// transaction. Each switch it changes gets its own audit record, as if it had been edited alone.
+// networkReadColumns change how a switch is reached, so they can change what a read finds.
+var networkReadColumns = []string{"management_ip", "credential_id", "command_profile_id", "protocol", "port", "is_enabled"}
+
+// releaseRoleChanged follows an edit of a switch. One that took up handling releases, or a release
+// switch now reached differently, has its networks read at once: the scheduler queues every
+// release switch never read. One that gave up handling releases stops owning networks.
+func releaseRoleChanged(ctx context.Context, tx *sql.Tx, id string, changes map[string]any) error {
+	change, roleChanged := changes["handles_release"].(map[string]any)
+	if !roleChanged {
+		for _, column := range networkReadColumns {
+			if _, ok := changes[column]; ok {
+				_, err := tx.ExecContext(ctx, `UPDATE bp_switches SET networks_checked_at=NULL WHERE id=$1 AND handles_release`, id)
+				return err
+			}
+		}
+		return nil
+	}
+	if change["to"] == false {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM bp_networks WHERE switch_id=$1`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE bp_alerts SET status='resolved',resolved_at=now() WHERE dedupe_key='network_read_failed:'||$1 AND status<>'resolved'`, id); err != nil {
+			return err
+		}
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE bp_switches SET networks_checked_at=NULL,networks_succeeded_at=NULL,networks_error=NULL WHERE id=$1`, id)
+	return err
+}
+
+// bulkSwitches sets one value (group, site, credential, enabled or release role) on many switches
+// in one transaction. Each switch it changes gets its own audit record, as if edited alone.
 // A disabled credential is refused, since no switch can release or be backed up with it.
 func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 	actor, ok := a.authorize(w, r, true)
@@ -386,11 +409,12 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		IDs          []string `json:"ids"`
-		GroupID      *string  `json:"group_id"` // empty removes the group
-		Site         *string  `json:"site"`     // empty clears the site
-		CredentialID *string  `json:"credential_id"`
-		IsEnabled    *bool    `json:"is_enabled"`
+		IDs            []string `json:"ids"`
+		GroupID        *string  `json:"group_id"` // empty removes the group
+		Site           *string  `json:"site"`     // empty clears the site
+		CredentialID   *string  `json:"credential_id"`
+		IsEnabled      *bool    `json:"is_enabled"`
+		HandlesRelease *bool    `json:"handles_release"`
 	}
 	err := decodeLimit(r, &input, 1<<20)
 	next := map[string]any{}
@@ -398,6 +422,7 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 	optionalText(next, "site", input.Site)
 	optionalText(next, "credential_id", input.CredentialID)
 	optionalBool(next, "is_enabled", input.IsEnabled)
+	optionalBool(next, "handles_release", input.HandlesRelease)
 	ids := map[string]bool{}
 	for _, id := range input.IDs {
 		ids[id] = true
@@ -411,7 +436,7 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 		sorted = append(sorted, id)
 	}
 	if !valid {
-		fail(w, 422, "switches and exactly one change (group, site, credential or enabled) required")
+		fail(w, 422, "switches and exactly one change (group, site, credential, enabled or release role) required")
 		return
 	}
 	sort.Strings(sorted) // one lock order, so two bulk changes never deadlock
@@ -438,6 +463,9 @@ func (a *AdminHandler) bulkSwitches(w http.ResponseWriter, r *http.Request) {
 	var pgErr *pgconn.PgError
 	for _, id := range sorted {
 		_, changes, err := updateRow(r.Context(), tx, actor, switchFields, id, 0, next)
+		if err == nil {
+			err = releaseRoleChanged(r.Context(), tx, id, changes)
+		}
 		switch {
 		case errors.Is(err, ErrNotFound):
 			missing++
@@ -531,42 +559,6 @@ func groupMembers(ctx context.Context, tx *sql.Tx, groupID string) ([]string, er
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
-}
-
-func (a *AdminHandler) editNetwork(w http.ResponseWriter, r *http.Request) {
-	actor, ok := a.authorize(w, r, true)
-	if !ok {
-		return
-	}
-	var input struct {
-		Version     int     `json:"version"`
-		SwitchID    *string `json:"switch_id"`
-		CIDR        *string `json:"cidr"`
-		IsEnabled   *bool   `json:"is_enabled"`
-		IsValidated *bool   `json:"is_validated"`
-		VLAN        *string `json:"vlan"`
-		Description *string `json:"description"`
-	}
-	if err := decode(r, &input); err != nil || input.SwitchID != nil && !domain.IsCanonicalUUID(*input.SwitchID) {
-		fail(w, 422, "invalid network")
-		return
-	}
-	if input.CIDR != nil && !canonicalIPv4Prefix(*input.CIDR) {
-		fail(w, 422, "canonical IPv4 CIDR required")
-		return
-	}
-	next := map[string]any{}
-	if input.SwitchID != nil {
-		next["switch_id"] = *input.SwitchID
-	}
-	if input.CIDR != nil {
-		next["cidr"] = *input.CIDR
-	}
-	optionalBool(next, "is_enabled", input.IsEnabled)
-	optionalBool(next, "is_validated", input.IsValidated)
-	optionalText(next, "vlan", input.VLAN)
-	optionalText(next, "description", input.Description)
-	a.applyEdit(w, r, actor, networkFields, input.Version, next)
 }
 
 func (a *AdminHandler) editGroup(w http.ResponseWriter, r *http.Request) {

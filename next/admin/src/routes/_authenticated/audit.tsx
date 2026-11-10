@@ -56,7 +56,7 @@ function AuditPage() {
       <TableHeader><TableRow><TableHead>{pick(zh, '时间', 'Time')}</TableHead><TableHead>{pick(zh, '操作者', 'Actor')}</TableHead><TableHead>{pick(zh, '操作', 'Action')}</TableHead><TableHead>{pick(zh, '对象', 'Object')}</TableHead><TableHead>{pick(zh, '变更', 'Changes')}</TableHead></TableRow></TableHeader>
       <TableBody>{rows.map((event) => <TableRow key={event.id}>
         <TableCell className="whitespace-nowrap tabular-nums">{formatTime(event.created_at, zh)}</TableCell>
-        <TableCell className="whitespace-nowrap" title={event.actor_email}>{actorText(event.actor_name, event.actor_email)}</TableCell>
+        <TableCell className="whitespace-nowrap" title={event.actor_email}>{actorText(event.actor_name, event.actor_email, pick(zh, '系统', 'System'))}</TableCell>
         <TableCell className="whitespace-nowrap">{actionName(event.action, zh)}</TableCell>
         <TableCell className="min-w-40 max-w-64 break-words">{event.object_name}</TableCell>
         <TableCell className="min-w-56 max-w-72 break-words text-muted-foreground">{describe(event)}</TableCell>

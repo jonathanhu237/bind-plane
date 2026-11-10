@@ -33,7 +33,7 @@ func activeNetworks(ctx context.Context, q querier) ([]Network, error) {
 	rows, err := q.QueryContext(ctx, `SELECT n.id::text,s.id::text,n.cidr::text,n.is_enabled,n.is_validated,s.is_enabled
  FROM bp_networks n JOIN bp_switches s ON s.id=n.switch_id
  JOIN bp_credentials c ON c.id=s.credential_id JOIN bp_command_profiles p ON p.id=s.command_profile_id
- WHERE c.is_active AND p.is_active`)
+ WHERE c.is_active AND p.is_active AND s.handles_release`)
 	if err != nil {
 		return nil, err
 	}
