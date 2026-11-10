@@ -155,6 +155,7 @@ The devices page is the switch inventory that releases, backups, schedules, comp
 - Switches are disabled, never deleted: release jobs, configuration versions and the audit log keep pointing at them.
 - The connection test signs in once and out again and sends no command; a port that does not answer is a failed connection, not an alert. Schedules run only backups, never sign-in tests.
 - Alerts are the problems only Bind Plane knows about: failed backups, compliance failures and failed network reads.
+- Configurations can be viewed, compared and downloaded (one version, or the newest version of many switches as a zip); each of these is recorded in the switch's history before the configuration leaves.
 - A backup is overdue when the last successful one is more than seven days old. A release switch has no usable network until its networks have been read.
 - Imports match existing switches by management IP; in update mode only filled-in cells change anything. An export imports back.
 - A group that a schedule or compliance rule targets cannot be deleted, since the rule would widen to every switch.

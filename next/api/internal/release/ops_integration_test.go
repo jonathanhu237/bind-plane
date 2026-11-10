@@ -1,6 +1,8 @@
 package release
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -205,6 +207,46 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	}
 	if audit := obj(call(ops, "GET", "/api/ops/audit?action=config", "", 200)); len(audit["events"].([]any)) != 2 {
 		t.Fatalf("audit filter %v", audit)
+	}
+
+	// Configurations download one version as a file, or the newest version of every switch the
+	// device list filter matches as one zip. Each download lands in the switch's history first.
+	fetch := func(path string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest("GET", path, nil)
+		r.AddCookie(&http.Cookie{Name: "session", Value: "token"})
+		w := httptest.NewRecorder()
+		ops.ServeHTTP(w, r)
+		return w
+	}
+	file := fetch(fmt.Sprintf("/api/ops/backups/%d/download", first))
+	if disposition := file.Header().Get("Content-Disposition"); file.Code != 200 || !strings.HasPrefix(file.Header().Get("Content-Type"), "text/plain") ||
+		!strings.Contains(disposition, "filename=OPS-A_192.0.2.101_") || !strings.HasSuffix(disposition, ".cfg") || !strings.Contains(file.Body.String(), "community read public") {
+		t.Fatalf("download %d %v: %s", file.Code, file.Header(), file.Body.String())
+	}
+	call(ops, "GET", "/api/ops/backups/999999/download", "", 404)
+	bundle := fetch("/api/ops/backups/export?q=OPS-")
+	if bundle.Code != 200 || bundle.Header().Get("Content-Type") != "application/zip" || !strings.Contains(bundle.Header().Get("Content-Disposition"), ".zip") {
+		t.Fatalf("export %d %v", bundle.Code, bundle.Header())
+	}
+	archive, err := zip.NewReader(bytes.NewReader(bundle.Body.Bytes()), int64(bundle.Body.Len()))
+	if err != nil || len(archive.File) != 1 || !strings.HasPrefix(archive.File[0].Name, "OPS-A_192.0.2.101_") {
+		t.Fatalf("export holds %v: %v", archive, err) // only OPS-A has versions, and only its newest goes
+	}
+	entry, err := archive.File[0].Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var newest bytes.Buffer
+	if _, err = newest.ReadFrom(entry); err != nil || !strings.Contains(newest.String(), "%^private") {
+		t.Fatalf("exported %q: %v", newest.String(), err)
+	}
+	if got := fmt.Sprint(call(ops, "GET", "/api/ops/backups/export?ids="+switchB, "", 404)); !strings.Contains(got, "no configuration backups to export") {
+		t.Fatalf("export of a switch without versions: %s", got)
+	}
+	call(ops, "GET", "/api/ops/backups/export?ids=not-a-switch", "", 422)
+	if err = db.QueryRow(`SELECT count(*) FROM bp_asset_events WHERE object_id=$1 AND action IN ('config.download','config.export')`, switchA).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("downloads recorded %d times on the switch: %v", count, err)
 	}
 
 	// Schedules fire once when due and move to the next future match. They only back up: whether

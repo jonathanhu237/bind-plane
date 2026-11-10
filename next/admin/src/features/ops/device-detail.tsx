@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Eye, FileDiff, HardDriveDownload, PlugZap, RefreshCw } from 'lucide-react'
+import { Download, Eye, FileDiff, HardDriveDownload, PlugZap, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -151,6 +151,7 @@ export function DeviceDetailSheet({ switchId, zh, busy, inventory, onClose, onRu
           {d.backups.length ? <ul className="divide-y rounded-xl border">{d.backups.map((backup, index) => <li key={backup.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
             <span className="min-w-0 flex-1"><span className="tabular-nums">{formatTime(backup.captured_at, zh)}</span> <span className="text-xs text-muted-foreground tabular-nums">· {pick(zh, `${backup.line_count} 行`, `${backup.line_count} lines`)}</span></span>
             <Button type="button" variant="ghost" size="sm" onClick={() => setViewing(backup.id)}><Eye aria-hidden="true" data-icon="inline-start" />{pick(zh, '查看', 'View')}</Button>
+            <Button asChild variant="ghost" size="sm"><a href={`/api/ops/backups/${backup.id}/download`} download title={pick(zh, '下载这个版本，并记入审计日志', 'Downloads this version; recorded in the audit log')}><Download aria-hidden="true" data-icon="inline-start" />{pick(zh, '下载', 'Download')}</a></Button>
             {d.backups[index + 1] ? <Button type="button" variant="ghost" size="sm" onClick={() => setDiffing({ target: backup.id, base: d.backups[index + 1].id })}><FileDiff aria-hidden="true" data-icon="inline-start" />{pick(zh, '与上一版对比', 'Diff with previous')}</Button> : null}
           </li>)}</ul> : <Empty>{pick(zh, '还没有配置备份。只有配置发生变化时才会保存新版本。', 'No backups yet. A new version is stored only when the configuration changes.')}</Empty>}
         </section>

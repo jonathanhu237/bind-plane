@@ -100,8 +100,10 @@ export const itemStatusLabel = (status: string, zh: boolean) =>
 /** A worker message in the interface language; unknown detail is shown as sent. */
 export const workerMessage = (message: string | null, zh: boolean) => serverText(message, zh)
 
-export const kindLabel = (kind: TaskKind, zh: boolean) =>
-  ({ config_backup: pick(zh, '配置备份', 'Config backup'), login_check: pick(zh, '连接测试', 'Connection test'), network_read: pick(zh, '读取网段', 'Network read') })[kind] ?? kind
+/** A device task's name. Port checks were left to Zabbix, but the audit log still names old runs of them. */
+export const kindLabel = (kind: TaskKind | 'reachability', zh: boolean) =>
+  ({ config_backup: pick(zh, '配置备份', 'Config backup'), login_check: pick(zh, '连接测试', 'Connection test'), network_read: pick(zh, '读取网段', 'Network read'),
+    reachability: pick(zh, '端口检测（已移除）', 'Port check (removed)') })[kind] ?? kind
 
 export function Pager({ page, total, pageSize, onPage, zh }: { page: number; total: number; pageSize: number; onPage: (page: number) => void; zh: boolean }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))

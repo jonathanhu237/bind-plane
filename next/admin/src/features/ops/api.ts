@@ -20,6 +20,34 @@ export async function opsRequest<T>(path: string, body?: unknown, method = body 
   return data as T
 }
 
+/** The file name a Content-Disposition header gives, preferring its UTF-8 form. */
+export function attachmentName(header: string | null): string | null {
+  if (!header) return null
+  const encoded = /filename\*=utf-8''([^;]+)/i.exec(header)
+  if (encoded) {
+    try { return decodeURIComponent(encoded[1].trim()) } catch { /* fall back to the plain name */ }
+  }
+  const plain = /filename="((?:[^"\\]|\\.)*)"/i.exec(header) ?? /filename=([^;]+)/i.exec(header)
+  return plain ? plain[1].replace(/\\(.)/g, '$1').trim() : null
+}
+
+/** Saves a file the device operations API sends as an attachment; a refusal throws like opsRequest. */
+export async function opsDownload(path: string): Promise<void> {
+  const response = await fetch(`/api/ops/${path}`, { credentials: 'same-origin', cache: 'no-store' })
+  if (!response.ok) {
+    const data: unknown = await response.json().catch(() => ({}))
+    throw new OpsRequestError((data as { detail?: string }).detail || `HTTP ${response.status}`, response.status)
+  }
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = attachmentName(response.headers.get('Content-Disposition')) ?? 'download'
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
 export type TaskKind = 'config_backup' | 'login_check' | 'network_read'
 
 export type OpsSwitch = {

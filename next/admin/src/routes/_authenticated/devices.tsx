@@ -1,6 +1,6 @@
 import { createFileRoute, useLoaderData } from '@tanstack/react-router'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleAlert, Download, FolderTree, HardDriveDownload, MapPin, Pencil, Plus, PlugZap, Power, PowerOff, Upload, X } from 'lucide-react'
+import { ChevronDown, CircleAlert, Download, FileArchive, FileSpreadsheet, FolderTree, HardDriveDownload, MapPin, Pencil, Plus, PlugZap, Power, PowerOff, Upload, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -10,12 +10,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { opsRequest, type SwitchPage, type TaskKind } from '@/features/ops/api'
+import { opsDownload, opsRequest, type SwitchPage, type TaskKind } from '@/features/ops/api'
 import { DeviceDetailSheet } from '@/features/ops/device-detail'
 import { GroupManager } from '@/features/ops/group-manager'
 import { FacetFilter } from '@/features/ops/facet-filter'
@@ -179,6 +180,7 @@ function DevicesPage() {
   const [pending, setPending] = useState<Pending | null>(null)
   const params = filterParams(search)
   const exportPath = `/api/ops/switches/export?${params}`
+  const configsPath = `backups/export?${params}`
   params.set('page', String(page))
   const listKey = params.toString()
   // A selection belongs to the page it was made on; new filters or another page start empty.
@@ -203,6 +205,13 @@ function DevicesPage() {
       notifySuccess(pick(zh, `${kindLabel(kind, zh)}已排队：${result.queued} 台${result.skipped ? `，${result.skipped} 台已在队列中被跳过` : ''}。`, `${kindLabel(kind, zh)} queued for ${result.queued} switch${result.queued === 1 ? '' : 'es'}${result.skipped ? `; ${result.skipped} already pending were skipped` : ''}.`))
       setTimeout(() => void refresh(), 4000)
     } catch (cause) { failed(cause) }
+    finally { setBusy(false) }
+  }
+  /** Saves configurations as one ZIP; each switch records the download in its history. */
+  async function download(path: string) {
+    setBusy(true)
+    try { await opsDownload(path) }
+    catch (cause) { failed(cause) }
     finally { setBusy(false) }
   }
   /** One change to every selected switch. `hint` follows the result; `keep` leaves the switches selected for a next step. */
@@ -258,7 +267,13 @@ function DevicesPage() {
         action: pick(zh, '开始', 'Start'), run: () => void run('config_backup', search.group && search.group !== 'none' ? { scope: 'group', group_id: search.group } : { scope: 'all' }),
       })}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '全部备份', 'Back up all')}</Button>
       <Separator orientation="vertical" className="mx-1 hidden h-6 sm:block" />
-      <Button asChild variant="outline"><a href={exportPath} download><Download aria-hidden="true" data-icon="inline-start" />{pick(zh, '导出', 'Export')}</a></Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><Button type="button" variant="outline" disabled={busy}><Download aria-hidden="true" data-icon="inline-start" />{pick(zh, '导出', 'Export')}<ChevronDown aria-hidden="true" data-icon="inline-end" /></Button></DropdownMenuTrigger>
+        <DropdownMenuContent align="end"><DropdownMenuGroup>
+          <DropdownMenuItem asChild><a href={exportPath} download><FileSpreadsheet aria-hidden="true" />{pick(zh, '设备清单（CSV）', 'Switch list (CSV)')}</a></DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void download(configsPath)}><FileArchive aria-hidden="true" />{pick(zh, '最新配置（ZIP）', 'Latest configurations (ZIP)')}</DropdownMenuItem>
+        </DropdownMenuGroup></DropdownMenuContent>
+      </DropdownMenu>
       <Button type="button" variant="outline" onClick={() => setManagingGroups(true)}><FolderTree aria-hidden="true" data-icon="inline-start" />{pick(zh, '管理分组', 'Groups')}</Button>
       <Button type="button" variant="outline" onClick={() => setImporting(true)}><Upload aria-hidden="true" data-icon="inline-start" />{pick(zh, '批量导入', 'Import CSV')}</Button>
       <Button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '添加交换机', 'Add switch')}</Button>
@@ -280,6 +295,7 @@ function DevicesPage() {
       <span className="text-sm font-medium tabular-nums">{pick(zh, `已选 ${count} 台`, `${count} selected`)}</span>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run('login_check', { scope: 'switches', switch_ids: [...selected] })}><PlugZap aria-hidden="true" data-icon="inline-start" />{pick(zh, '测试连接', 'Test connection')}</Button>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run('config_backup', { scope: 'switches', switch_ids: [...selected] })}><HardDriveDownload aria-hidden="true" data-icon="inline-start" />{pick(zh, '立即备份', 'Back up now')}</Button>
+      <Button type="button" variant="outline" size="sm" disabled={busy} title={pick(zh, '每台设备的最新配置，打包成 ZIP', 'Each switch’s newest configuration, in one ZIP')} onClick={() => void download(`backups/export?ids=${[...selected].join(',')}`)}><FileArchive aria-hidden="true" data-icon="inline-start" />{pick(zh, '下载配置', 'Download configurations')}</Button>
       <Select value="" onValueChange={(value) => {
         const name = value === NO_GROUP ? '' : groups.find((group) => group.id === value)?.name ?? ''
         setPending({

@@ -39,6 +39,8 @@ func NewOpsHandler(db *sql.DB, identity Identity, cookie, origin string, loc *ti
 		"GET /api/ops/switches/{id}":            o.switchDetail,
 		"GET /api/ops/backups/{id}":             o.backup,
 		"GET /api/ops/backups/{id}/diff":        o.backupDiff,
+		"GET /api/ops/backups/{id}/download":    o.downloadBackup,
+		"GET /api/ops/backups/export":           o.exportBackups,
 		"GET /api/ops/tasks":                    o.tasks,
 		"POST /api/ops/tasks":                   o.runTask,
 		"GET /api/ops/tasks/{id}":               o.task,

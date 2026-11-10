@@ -549,6 +549,7 @@ const actionNames: Record<string, [string, string]> = {
   'schedule.create': ['Schedule created', '新建计划任务'], 'schedule.update': ['Schedule changed', '修改计划任务'], 'schedule.run': ['Schedule run manually', '手动执行计划'],
   'rule.create': ['Compliance rule created', '新建合规规则'], 'rule.update': ['Compliance rule changed', '修改合规规则'],
   'task.run': ['Task started', '发起任务'], 'config.view': ['Configuration viewed', '查看配置'], 'config.diff': ['Configurations compared', '对比配置'],
+  'config.download': ['Configuration downloaded', '下载配置'], 'config.export': ['Configuration exported', '导出配置'],
   'alert.acknowledge': ['Alert acknowledged', '确认告警'],
 }
 

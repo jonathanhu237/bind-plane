@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeCron, taskState } from './api'
+import { attachmentName, describeCron, taskState } from './api'
 
 describe('device operation helpers', () => {
   it('reads common cron shapes in plain language and leaves the rest as written', () => {
@@ -20,5 +20,18 @@ describe('device operation helpers', () => {
     expect(taskState({ ...base, succeeded: 0, failed: 3 })).toBe('failed')
     expect(taskState({ ...base, succeeded: 0, skipped: 3 })).toBe('empty')
     expect(taskState({ ...base, total: 0, succeeded: 0 })).toBe('empty')
+  })
+})
+
+describe('attachmentName', () => {
+  it('reads the names Go gives downloads', () => {
+    expect(attachmentName('attachment; filename=CORE-SW-01_10.0.0.1_20261111-1530.cfg')).toBe('CORE-SW-01_10.0.0.1_20261111-1530.cfg')
+    expect(attachmentName('attachment; filename="core sw_10.0.0.1_20261111-1530.cfg"')).toBe('core sw_10.0.0.1_20261111-1530.cfg')
+    expect(attachmentName("attachment; filename*=utf-8''%E6%A0%B8%E5%BF%83_10.0.0.1_20261111-1530.cfg")).toBe('核心_10.0.0.1_20261111-1530.cfg')
+  })
+
+  it('has no name without the header', () => {
+    expect(attachmentName(null)).toBeNull()
+    expect(attachmentName('inline')).toBeNull()
   })
 })

@@ -111,6 +111,8 @@ const fixed: Record<string, Words> = {
   'Configuration read timed out': ['Reading the configuration timed out', '读取配置超时'],
   'Release job timed out': ['The release job timed out', '解绑任务超时'],
   'Pattern not found': ['Pattern not found in the configuration', '配置中未找到匹配内容'],
+  'no configuration backups to export': ['None of these switches has a configuration backup yet.', '这些设备还没有配置备份。'],
+  'ids must be at most 1000 switch IDs': ['Choose at most 1000 switches, or export by filter instead.', '一次最多选 1000 台设备，更多的请按筛选条件导出。'],
   // Release jobs in the API, the worker and its result classifier.
   'Release queued': ['Release queued', '已提交解绑，等待执行'],
   'Retry queued as a new release': ['Released again; queued as a new release', '重新解绑：已作为新的解绑排队'],
