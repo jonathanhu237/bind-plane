@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
 )
 
@@ -149,6 +150,7 @@ func (a *AdminHandler) profile(w http.ResponseWriter, r *http.Request) {
 	}
 	var input struct {
 		Name                string          `json:"name"`
+		Vendor              string          `json:"vendor"`
 		LoginPromptPatterns json.RawMessage `json:"login_prompt_patterns"`
 		CommandTemplates    json.RawMessage `json:"command_templates"`
 		PromptPatterns      json.RawMessage `json:"prompt_patterns"`
@@ -157,7 +159,9 @@ func (a *AdminHandler) profile(w http.ResponseWriter, r *http.Request) {
 		ErrorPatterns       json.RawMessage `json:"error_patterns"`
 		ParserRules         json.RawMessage `json:"parser_rules"`
 	}
-	if err := decode(r, &input); err != nil || strings.TrimSpace(input.Name) == "" {
+	err := decode(r, &input)
+	input.Vendor = defaultString(input.Vendor, "other")
+	if err != nil || strings.TrimSpace(input.Name) == "" || !switchVendors[input.Vendor] {
 		fail(w, 422, "invalid profile")
 		return
 	}
@@ -175,8 +179,8 @@ func (a *AdminHandler) profile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	id, err := a.createAudited(r.Context(), actor, "profile.create", input.Name,
-		`INSERT INTO bp_command_profiles(name,login_prompt_patterns,command_templates,prompt_patterns,pagination_rules,success_patterns,error_patterns,parser_rules)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id::text`, input.Name, string(input.LoginPromptPatterns), string(input.CommandTemplates), string(input.PromptPatterns), string(input.PaginationRules), string(input.SuccessPatterns), string(input.ErrorPatterns), string(input.ParserRules))
+		`INSERT INTO bp_command_profiles(name,vendor,login_prompt_patterns,command_templates,prompt_patterns,pagination_rules,success_patterns,error_patterns,parser_rules)
+ VALUES($1,$9,$2,$3,$4,$5,$6,$7,$8) RETURNING id::text`, input.Name, string(input.LoginPromptPatterns), string(input.CommandTemplates), string(input.PromptPatterns), string(input.PaginationRules), string(input.SuccessPatterns), string(input.ErrorPatterns), string(input.ParserRules), input.Vendor)
 	if err != nil {
 		fail(w, 409, "profile could not be saved")
 		return
@@ -202,15 +206,21 @@ func (a *AdminHandler) switchAsset(w http.ResponseWriter, r *http.Request) {
 		Port             *int   `json:"port"`
 	}
 	err := decode(r, &input)
-	input.Name, input.Vendor, input.Protocol = strings.TrimSpace(input.Name), defaultString(input.Vendor, "other"), defaultString(input.Protocol, "telnet")
-	if err != nil || input.Name == "" || !validIPv4(input.ManagementIP) || !validID(input.CredentialID) || !validID(input.CommandProfileID) || !validSwitchMeta(input.Vendor, input.Protocol, input.Port, input.GroupID) {
+	input.Name, input.Vendor, input.Protocol = strings.TrimSpace(input.Name), strings.TrimSpace(input.Vendor), defaultString(input.Protocol, "telnet")
+	if err != nil || input.Name == "" || !validIPv4(input.ManagementIP) || !validID(input.CredentialID) || !validID(input.CommandProfileID) ||
+		input.Vendor != "" && !switchVendors[input.Vendor] || !validSwitchMeta(input.Protocol, input.Port, input.GroupID) {
 		fail(w, 422, "invalid switch asset")
 		return
 	}
+	// Without a vendor of its own, a switch takes its profile's.
 	id, err := a.createAudited(r.Context(), actor, "switch.create", input.Name,
 		`INSERT INTO bp_switches(name,management_ip,credential_id,command_profile_id,vendor,model,site,description,group_id,protocol,port)
- VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11) RETURNING id::text`,
+ VALUES($1,$2,$3,$4::uuid,COALESCE(NULLIF($5,''),(SELECT vendor FROM bp_command_profiles WHERE id=$4::uuid),'other'),NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11) RETURNING id::text`,
 		input.Name, input.ManagementIP, input.CredentialID, input.CommandProfileID, input.Vendor, strings.TrimSpace(input.Model), strings.TrimSpace(input.Site), strings.TrimSpace(input.Description), input.GroupID, input.Protocol, input.Port)
+	if isConstraint(err, profileVendorConstraint) {
+		fail(w, 422, errProfileVendor)
+		return
+	}
 	if err != nil {
 		fail(w, 409, "switch could not be saved")
 		return
@@ -225,8 +235,20 @@ func validID(value string) bool { return len(value) == 36 && strings.Count(value
 
 var switchVendors = map[string]bool{"huawei": true, "h3c": true, "ruijie": true, "cisco": true, "other": true}
 
-func validSwitchMeta(vendor, protocol string, port *int, groupID string) bool {
-	return switchVendors[vendor] && (protocol == "telnet" || protocol == "ssh") &&
+// A switch may only use a command profile of its own vendor; the database holds the two together.
+const (
+	profileVendorConstraint = "bp_switches_profile_vendor_fkey"
+	errProfileVendor        = "command profile is for another vendor"
+	errProfileInUse         = "switches of another vendor use this command profile"
+)
+
+func isConstraint(err error, name string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.ConstraintName == name
+}
+
+func validSwitchMeta(protocol string, port *int, groupID string) bool {
+	return (protocol == "telnet" || protocol == "ssh") &&
 		(port == nil || *port >= 1 && *port <= 65535) && (groupID == "" || domain.IsCanonicalUUID(groupID))
 }
 
@@ -298,7 +320,7 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 	// Secrets are never listed, only whether an optional privilege secret is stored.
 	queries := map[string]string{
 		"credentials": `SELECT id::text,name,username,description,is_active,encrypted_secret IS NOT NULL,version FROM bp_credentials ORDER BY name`,
-		"profiles":    `SELECT id::text,name,is_active,version,login_prompt_patterns::text,command_templates::text,prompt_patterns::text,pagination_rules::text,success_patterns::text,error_patterns::text,parser_rules::text FROM bp_command_profiles ORDER BY name`,
+		"profiles":    `SELECT id::text,name,vendor,is_active,version,login_prompt_patterns::text,command_templates::text,prompt_patterns::text,pagination_rules::text,success_patterns::text,error_patterns::text,parser_rules::text FROM bp_command_profiles ORDER BY name`,
 		"switches":    `SELECT id::text,name,host(management_ip),credential_id::text,command_profile_id::text,is_enabled,version,vendor,model,site,description,group_id::text,protocol,port FROM bp_switches ORDER BY name`,
 		"networks":    `SELECT id::text,switch_id::text,cidr::text,is_enabled,is_validated,vlan,description,version FROM bp_networks ORDER BY cidr`,
 		"groups":      `SELECT id::text,name,description,version FROM bp_switch_groups ORDER BY name`,
@@ -317,7 +339,7 @@ func (a *AdminHandler) list(w http.ResponseWriter, r *http.Request) {
 		items := []map[string]any{}
 		names := map[string][]string{
 			"credentials": {"id", "name", "username", "description", "is_active", "has_secret", "version"},
-			"profiles":    {"id", "name", "is_active", "version", "login_prompt_patterns", "command_templates", "prompt_patterns", "pagination_rules", "success_patterns", "error_patterns", "parser_rules"},
+			"profiles":    {"id", "name", "vendor", "is_active", "version", "login_prompt_patterns", "command_templates", "prompt_patterns", "pagination_rules", "success_patterns", "error_patterns", "parser_rules"},
 			"switches":    {"id", "name", "management_ip", "credential_id", "command_profile_id", "is_enabled", "version", "vendor", "model", "site", "description", "group_id", "protocol", "port"},
 			"networks":    {"id", "switch_id", "cidr", "is_enabled", "is_validated", "vlan", "description", "version"},
 			"groups":      {"id", "name", "description", "version"},

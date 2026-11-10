@@ -16,7 +16,7 @@ import { GroupManager } from '@/features/ops/group-manager'
 import { Empty, PageHeader } from '@/features/ops/ui'
 import {
   AssetEditDialog, AssetRequestError, AssetRow, DisableAssetDialog, UnvalidatedBadge, callAssets, editorLabels, isOn,
-  profileRuleKeys, ruleHint, ruleLabel, statusBody, switchesUsing, type AssetKind, type EditTarget, type Inventory,
+  profileRuleKeys, ruleHint, ruleLabel, statusBody, switchesUsing, vendorName, vendors, type AssetKind, type EditTarget, type Inventory,
 } from '@/features/release/asset-editors'
 import { errorText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
@@ -25,7 +25,7 @@ import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 export const Route = createFileRoute('/_authenticated/assets')({ component: Assets })
 
 const emptyProfile = {
-  name: '', command_templates: '{"single_arp_query":"","arp_release":"","config_backup":"display current-configuration"}',
+  name: '', vendor: '', command_templates: '{"single_arp_query":"","arp_release":"","config_backup":"display current-configuration"}',
   parser_rules: '{"arp_entry_regex":"","missing_patterns":[],"static_type_values":[],"dynamic_type_values":[]}',
   login_prompt_patterns: '{}', prompt_patterns: '{}', pagination_rules: '{}', success_patterns: '[]', error_patterns: '[]',
 }
@@ -50,7 +50,10 @@ function Assets() {
     { id: 'credential-username', label: zh ? '设备用户名' : 'Device username', value: credential.username },
     { id: 'credential-password', label: zh ? '设备密码' : 'Device password', value: credential.password },
   ])
-  const profileRequired = useRequiredFields(zh, [{ id: 'profile-name', label: name, value: profile.name }])
+  const profileRequired = useRequiredFields(zh, [
+    { id: 'profile-name', label: name, value: profile.name },
+    { id: 'profile-vendor', label: labels.vendor, value: profile.vendor, choose: true },
+  ])
   const networkRequired = useRequiredFields(zh, [
     { id: 'network-switch', label: zh ? '所属交换机' : 'Switch', value: network.switch_id, choose: true },
     { id: 'network-cidr', label: 'IPv4 CIDR', value: network.cidr },
@@ -129,13 +132,22 @@ function Assets() {
         <CardContent className="flex flex-col gap-6">
           <form noValidate className="flex flex-col gap-6" onSubmit={onSubmit(profileRequired, () => {
             try {
-              void submit('profiles', Object.fromEntries(Object.entries(profile).map(([k, v]) => [k, k === 'name' ? v : JSON.parse(v) as unknown])), () => { setProfile(emptyProfile); profileRequired.reset() })
+              void submit('profiles', Object.fromEntries(Object.entries(profile).map(([k, v]) => [k, k === 'name' || k === 'vendor' ? v : JSON.parse(v) as unknown])), () => { setProfile(emptyProfile); profileRequired.reset() })
             } catch {
               setErrors((current) => ({ ...current, profiles: zh ? '模板中有不是合法 JSON 的内容。' : 'Part of the profile is not valid JSON.' }))
             }
           })}>
             <FieldGroup>
               {text(profileRequired, 'profile-name', name, profile.name, (v) => setProfile({ ...profile, name: v }))}
+              <Field data-invalid={profileRequired.invalid('profile-vendor')}>
+                <FieldLabel htmlFor="profile-vendor">{labels.vendor}</FieldLabel>
+                <Select value={profile.vendor} onValueChange={(value) => setProfile({ ...profile, vendor: value })}>
+                  <SelectTrigger id="profile-vendor" {...profileRequired.control('profile-vendor')}><SelectValue placeholder={labels.choose} /></SelectTrigger>
+                  <SelectContent><SelectGroup>{vendors.map((vendor) => <SelectItem key={vendor} value={vendor}>{vendorName(vendor, zh)}</SelectItem>)}</SelectGroup></SelectContent>
+                </Select>
+                <FieldDescription>{zh ? '模板只能给同一厂商的交换机使用；一个厂商可以有多个模板。' : 'Only switches of this vendor can use the profile; a vendor can have several.'}</FieldDescription>
+                {profileRequired.message('profile-vendor')}
+              </Field>
               {profileRuleKeys.map((key) => <Field key={key}>
                 <FieldLabel htmlFor={`profile-${key}`}>{ruleLabel(key, zh)}</FieldLabel>
                 <Textarea id={`profile-${key}`} className="font-mono" spellCheck={false} aria-describedby={`profile-${key}-hint`} rows={key === 'parser_rules' || key === 'command_templates' ? 4 : 2}
@@ -150,7 +162,7 @@ function Assets() {
           {rows('profiles', (data?.profiles ?? []).map((item) => {
             const target: EditTarget = { kind: 'profiles', item }
             return <AssetRow key={item.id} title={item.name} on={item.is_active} busy={busy} labels={labels} onEdit={() => setEditing(target)} onToggle={() => toggle(target)}
-              detail={labels.usedBy(switchesUsing(target, data))} />
+              detail={`${vendorName(item.vendor, zh)} · ${labels.usedBy(switchesUsing(target, data))}`} />
           }))}
         </CardContent>
       </Card>

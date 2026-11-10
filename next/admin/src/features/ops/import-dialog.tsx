@@ -7,7 +7,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { callAssets, type Inventory } from '@/features/release/asset-editors'
+import { callAssets, vendorName, type Inventory } from '@/features/release/asset-editors'
 import { errorText, serverText } from '@/features/release/messages'
 import { FileButton } from '@/shared/file-button'
 import { decodeCSV } from './csv'
@@ -59,16 +59,17 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
     void file.arrayBuffer().then((bytes) => { setCsv(decodeCSV(bytes)); setFileName(file.name); setReport(null) })
   }
   const statusLabel = { create: pick(zh, '新建', 'Create'), update: pick(zh, '更新', 'Update'), skip: pick(zh, '跳过', 'Skip'), error: pick(zh, '错误', 'Error') }
-  const defaultSelect = (id: string, label: string, value: string, onChange: (value: string) => void, items: { id: string; name: string }[]) =>
+  const defaultSelect = (id: string, label: string, value: string, onChange: (value: string) => void, items: { id: string; name: string }[], hint?: string) =>
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Select value={value || NONE} onValueChange={(next) => onChange(next === NONE ? '' : next)}>
-        <SelectTrigger id={id}><SelectValue /></SelectTrigger>
+        <SelectTrigger id={id} aria-describedby={hint ? `${id}-hint` : undefined}><SelectValue /></SelectTrigger>
         <SelectContent><SelectGroup>
           <SelectItem value={NONE}>{pick(zh, '不指定', 'None')}</SelectItem>
           {items.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
         </SelectGroup></SelectContent>
       </Select>
+      {hint ? <FieldDescription id={`${id}-hint`}>{hint}</FieldDescription> : null}
     </Field>
 
   return <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
@@ -107,7 +108,9 @@ export function ImportDialog({ open, zh, inventory, onClose, onImported }: {
                 : pick(zh, '已存在的交换机保持不变。', 'Switches that exist stay as they are.')}</FieldDescription>
             </Field>
             {defaultSelect('import-credential', pick(zh, '默认凭据（CSV 未填写时使用）', 'Default credential (when the CSV has none)'), credential, setCredential, inventory?.credentials ?? [])}
-            {defaultSelect('import-profile', pick(zh, '默认命令模板（CSV 未填写时使用）', 'Default profile (when the CSV has none)'), profile, setProfile, inventory?.profiles ?? [])}
+            {defaultSelect('import-profile', pick(zh, '默认命令模板（可选）', 'Default profile (optional)'), profile, setProfile,
+              (inventory?.profiles ?? []).map((item) => ({ id: item.id, name: `${item.name} · ${vendorName(item.vendor, zh)}` })),
+              pick(zh, 'CSV 没写命令模板时，同厂商的行用这个模板；只有一个模板的厂商会自动用它。', 'Rows without a profile use this one when they are of its vendor; a vendor with one profile gets it automatically.'))}
           </> : null}
         </div>
         <Field>

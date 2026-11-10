@@ -22,7 +22,7 @@ import { FacetFilter } from '@/features/ops/facet-filter'
 import { ImportDialog } from '@/features/ops/import-dialog'
 import { AdminOnly, Empty, ErrorNote, LoginBadge, PageHeader, Pager, ReachabilityBadge, ToneBadge, Time, isAdmin, kindLabel, pick, useZh } from '@/features/ops/ui'
 import {
-  AssetEditDialog, AssetRequestError, DisableAssetDialog, NO_GROUP, callAssets, defaultPort, portFollowing, statusBody, vendorName, vendors, type EditTarget, type Inventory,
+  AssetEditDialog, AssetRequestError, DisableAssetDialog, NO_GROUP, callAssets, defaultPort, portFollowing, profileFollowing, statusBody, vendorName, vendorProfiles, vendors, type EditTarget, type Inventory,
 } from '@/features/release/asset-editors'
 import { errorText, serverText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
@@ -64,13 +64,18 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
   const label = {
     name: pick(zh, '名称', 'Name'), ip: pick(zh, '管理 IPv4', 'Management IPv4'), credential: pick(zh, '凭据', 'Credential'), profile: pick(zh, '命令模板', 'Command profile'),
   }
+  // The profile list holds the vendor's profiles; a vendor with one active profile has it chosen already.
+  const profiles = vendorProfiles(inventory?.profiles, form.vendor).filter((profile) => profile.is_active)
+  const profileID = form.command_profile_id || (profiles.length === 1 ? profiles[0].id : '')
   const required = useRequiredFields(zh, [
     { id: 'new-name', label: label.name, value: form.name },
     { id: 'new-management_ip', label: label.ip, value: form.management_ip },
     { id: 'new-credential', label: label.credential, value: form.credential_id, choose: true },
-    { id: 'new-profile', label: label.profile, value: form.command_profile_id, choose: true },
+    { id: 'new-profile', label: label.profile, value: profileID, choose: true },
   ])
-  const set = (key: keyof typeof empty, value: string) => setForm((current) => ({ ...current, [key]: value, ...portFollowing(current, key, value) }))
+  const set = (key: keyof typeof empty, value: string) => setForm((current) => ({
+    ...current, [key]: value, ...portFollowing(current, key, value), ...profileFollowing(current, key, value, inventory?.profiles),
+  }))
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!required.check()) return
@@ -79,7 +84,7 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
     try {
       // On its protocol's default port a switch stores none, so it follows the protocol if that changes.
       const port = form.port.trim() ? Number(form.port) : null
-      await callAssets('switches', { ...form, management_ip: form.management_ip.trim(), port: port === Number(defaultPort(form.protocol)) ? null : port })
+      await callAssets('switches', { ...form, command_profile_id: profileID, management_ip: form.management_ip.trim(), port: port === Number(defaultPort(form.protocol)) ? null : port })
       setForm(empty); required.reset(); onCreated()
     } catch (cause) { setError(errorText(cause, zh)) }
     finally { setBusy(false) }
@@ -90,10 +95,10 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
       <Input id={`new-${key}`} value={form[key]} onChange={(event) => set(key, event.target.value)} autoComplete="off" {...props} {...required.control(`new-${key}`)} />
       {required.message(`new-${key}`)}
     </Field>
-  const choose = (id: string, key: keyof typeof empty, fieldLabel: string, items: { value: string; label: string }[], placeholder?: string) =>
+  const choose = (id: string, key: keyof typeof empty, fieldLabel: string, items: { value: string; label: string }[], placeholder?: string, current = form[key]) =>
     <Field data-invalid={required.invalid(id)}>
       <FieldLabel htmlFor={id}>{fieldLabel}</FieldLabel>
-      <Select value={form[key]} onValueChange={(value) => set(key, value)}>
+      <Select value={current} onValueChange={(value) => set(key, value)}>
         <SelectTrigger id={id} {...required.control(id)}><SelectValue placeholder={placeholder} /></SelectTrigger>
         <SelectContent><SelectGroup>{items.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectGroup></SelectContent>
       </Select>
@@ -110,10 +115,11 @@ function CreateSwitchDialog({ open, zh, inventory, onClose, onCreated }: { open:
           {text('name', label.name)}
           {text('management_ip', label.ip, { inputMode: 'decimal', className: 'font-mono' })}
           <div className="grid gap-4 sm:grid-cols-2">
-            {choose('new-credential', 'credential_id', label.credential, inventory?.credentials.filter((c) => c.is_active).map((c) => ({ value: c.id, label: c.name })) ?? [], pick(zh, '请选择', 'Choose…'))}
-            {choose('new-profile', 'command_profile_id', label.profile, inventory?.profiles.filter((p) => p.is_active).map((p) => ({ value: p.id, label: p.name })) ?? [], pick(zh, '请选择', 'Choose…'))}
             {choose('new-vendor', 'vendor', pick(zh, '厂商', 'Vendor'), vendors.map((v) => ({ value: v, label: vendorName(v, zh) })))}
             {text('model', pick(zh, '型号（可选）', 'Model (optional)'))}
+            {choose('new-profile', 'command_profile_id', label.profile, profiles.map((p) => ({ value: p.id, label: p.name })),
+              profiles.length ? pick(zh, '请选择', 'Choose…') : pick(zh, '这个厂商还没有命令模板', 'No command profile for this vendor yet'), profileID)}
+            {choose('new-credential', 'credential_id', label.credential, inventory?.credentials.filter((c) => c.is_active).map((c) => ({ value: c.id, label: c.name })) ?? [], pick(zh, '请选择', 'Choose…'))}
             {choose('new-protocol', 'protocol', pick(zh, '登录协议', 'Login protocol'), [{ value: 'ssh', label: 'SSH' }, { value: 'telnet', label: 'Telnet' }])}
             <Field>
               <FieldLabel htmlFor="new-port">{pick(zh, '端口', 'Port')}</FieldLabel>

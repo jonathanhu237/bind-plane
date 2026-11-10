@@ -29,6 +29,7 @@ if CA:
 opener = urllib.request.build_opener(*handlers)
 PROFILE = {
     "name": "E2E Huawei Telnet",
+    "vendor": "huawei",
     "command_templates": {
         "config_backup": "display current-configuration",
         "single_arp_query": "display arp all | include $ip",

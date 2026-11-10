@@ -36,7 +36,7 @@ var (
 		{column: "encrypted_secret", read: "encrypted_secret IS NOT NULL", secret: true},
 	}}
 	profileFields = assetKind{"bp_command_profiles", "profile.update", "name", []assetField{
-		{column: "name", read: "name"}, {column: "is_active", read: "is_active"},
+		{column: "name", read: "name"}, {column: "vendor", read: "vendor"}, {column: "is_active", read: "is_active"},
 		{column: "login_prompt_patterns", read: "login_prompt_patterns::text", json: true},
 		{column: "command_templates", read: "command_templates::text", json: true},
 		{column: "prompt_patterns", read: "prompt_patterns::text", json: true},
@@ -187,6 +187,10 @@ func (a *AdminHandler) applyEditThen(w http.ResponseWriter, r *http.Request, act
 		fail(w, 404, err.Error())
 	case errors.Is(err, errStaleAsset):
 		fail(w, 409, err.Error())
+	case isConstraint(err, profileVendorConstraint) && kind.table == profileFields.table:
+		fail(w, 422, errProfileInUse)
+	case isConstraint(err, profileVendorConstraint):
+		fail(w, 422, errProfileVendor)
 	case errors.As(err, &pgErr) && strings.HasPrefix(pgErr.Code, "23"):
 		// Duplicate name/address or a reference to a missing credential, profile or switch.
 		fail(w, 409, "change conflicts with existing assets")
@@ -276,6 +280,7 @@ func (a *AdminHandler) editProfile(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Version             int             `json:"version"`
 		Name                *string         `json:"name"`
+		Vendor              *string         `json:"vendor"`
 		IsActive            *bool           `json:"is_active"`
 		LoginPromptPatterns json.RawMessage `json:"login_prompt_patterns"`
 		CommandTemplates    json.RawMessage `json:"command_templates"`
@@ -286,9 +291,12 @@ func (a *AdminHandler) editProfile(w http.ResponseWriter, r *http.Request) {
 		ParserRules         json.RawMessage `json:"parser_rules"`
 	}
 	next := map[string]any{}
-	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) {
+	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) || input.Vendor != nil && !switchVendors[*input.Vendor] {
 		fail(w, 422, "invalid profile")
 		return
+	}
+	if input.Vendor != nil {
+		next["vendor"] = *input.Vendor
 	}
 	optionalBool(next, "is_active", input.IsActive)
 	for _, rule := range []struct {

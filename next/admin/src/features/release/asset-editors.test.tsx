@@ -2,13 +2,13 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  AssetEditDialog, AssetRequestError, DisableAssetDialog, describeChanges, editRequest, portFollowing,
+  AssetEditDialog, AssetRequestError, DisableAssetDialog, describeChanges, editRequest, portFollowing, profileFollowing,
   type Credential, type Inventory, type Profile, type SwitchAsset,
 } from './asset-editors'
 
 const credential: Credential = { id: 'c1', name: 'core', username: 'netops', description: null, is_active: true, has_secret: true, version: 2 }
 const profile: Profile = {
-  id: 'p1', name: 'vendor-a', is_active: true, version: 1, command_templates: { single_arp_query: 'show arp $ip' }, parser_rules: {},
+  id: 'p1', name: 'vendor-a', vendor: 'huawei', is_active: true, version: 1, command_templates: { single_arp_query: 'show arp $ip' }, parser_rules: {},
   login_prompt_patterns: {}, prompt_patterns: {}, pagination_rules: {}, success_patterns: [], error_patterns: [],
 }
 const edge: SwitchAsset = {
@@ -53,6 +53,17 @@ describe('asset edit requests', () => {
     expect(port(edge, { port: '' })).toBe(0)
     expect(port(edge, { port: '2323' })).toBe(2323)
     expect(port({ ...edge, port: 22 }, { protocol: 'ssh', port: '22' })).toBe(22)
+  })
+
+  it('keeps a switch on a command profile of its own vendor', () => {
+    const h3c: Profile = { ...profile, id: 'p2', name: 'comware', vendor: 'h3c' }
+    const old: Profile = { ...profile, id: 'p3', name: 'comware-old', vendor: 'h3c', is_active: false }
+    const profiles = [profile, h3c, old]
+    expect(profileFollowing({ vendor: 'huawei', command_profile_id: 'p1' }, 'vendor', 'h3c', profiles)).toEqual({ command_profile_id: 'p2' })
+    expect(profileFollowing({ vendor: 'h3c', command_profile_id: 'p3' }, 'vendor', 'h3c', profiles)).toEqual({})
+    expect(profileFollowing({ vendor: 'huawei', command_profile_id: 'p1' }, 'vendor', 'cisco', profiles)).toEqual({ command_profile_id: '' })
+    expect(profileFollowing({ vendor: 'huawei', command_profile_id: 'p1' }, 'vendor', 'h3c', [profile, h3c, { ...h3c, id: 'p4' }])).toEqual({ command_profile_id: '' })
+    expect(profileFollowing({ vendor: 'huawei', command_profile_id: 'p1' }, 'model', 'S5720', profiles)).toEqual({})
   })
 
   it('moves a default port along when the protocol changes', () => {

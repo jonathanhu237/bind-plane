@@ -105,6 +105,8 @@ Longest-prefix matching is acceptable for overlapping networks. Ambiguous same-p
 
 Command templates and parsing rules belong in command profiles, not hard-coded business logic.
 
+A command profile speaks one vendor's commands, and a vendor can have several profiles (say, one per OS line or login protocol). A switch only uses a profile of its own vendor; the database holds the two together. Choosing a switch's vendor narrows its profiles, and a vendor with one active profile gets it without asking.
+
 Command profiles should support:
 
 - Login and prompt matching rules

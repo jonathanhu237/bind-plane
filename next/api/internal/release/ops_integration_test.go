@@ -60,7 +60,8 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	jsonBody := func(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 	credential := obj(call(assets, "POST", "/api/releases/admin/credentials", `{"Name":"ops-cred","Username":"netops","Password":"secret"}`, 201))["id"].(string)
-	profile := obj(call(assets, "POST", "/api/releases/admin/profiles", `{"name":"ops-profile","command_templates":{"config_backup":"display current-configuration"},"parser_rules":{},"login_prompt_patterns":{},"prompt_patterns":{},"pagination_rules":{},"success_patterns":[],"error_patterns":[]}`, 201))["id"].(string)
+	profile := obj(call(assets, "POST", "/api/releases/admin/profiles", `{"name":"ops-profile","vendor":"huawei","command_templates":{"config_backup":"display current-configuration"},"parser_rules":{},"login_prompt_patterns":{},"prompt_patterns":{},"pagination_rules":{},"success_patterns":[],"error_patterns":[]}`, 201))["id"].(string)
+	h3cProfile := obj(call(assets, "POST", "/api/releases/admin/profiles", `{"name":"ops-h3c","vendor":"h3c","command_templates":{},"parser_rules":{},"login_prompt_patterns":{},"prompt_patterns":{},"pagination_rules":{},"success_patterns":[],"error_patterns":[]}`, 201))["id"].(string)
 	importCSV := func(kind, csv string, dryRun bool) map[string]any {
 		return obj(call(assets, "POST", "/api/releases/admin/import", jsonBody(map[string]any{"kind": kind, "csv": csv, "dry_run": dryRun, "default_credential_id": credential, "default_profile_id": profile}), 200))
 	}
@@ -86,6 +87,30 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	var switchA, switchB, groupID, vendorB, protocolA string
 	if err = db.QueryRow(`SELECT a.id::text,b.id::text,a.group_id::text,b.vendor,a.protocol FROM bp_switches a, bp_switches b WHERE a.name='OPS-A' AND b.name='OPS-B'`).Scan(&switchA, &switchB, &groupID, &vendorB, &protocolA); err != nil || vendorB != "h3c" || protocolA != "ssh" {
 		t.Fatalf("imported fields %q %q: %v", vendorB, protocolA, err)
+	}
+
+	// A command profile speaks one vendor's commands. An imported row without a profile takes the
+	// default of its vendor or the vendor's only profile, so the H3C switch has the H3C one.
+	var profileB string
+	if err = db.QueryRow(`SELECT command_profile_id::text FROM bp_switches WHERE id=$1`, switchB).Scan(&profileB); err != nil || profileB != h3cProfile {
+		t.Fatalf("the H3C switch uses profile %q, want %q: %v", profileB, h3cProfile, err)
+	}
+	if rows := fmt.Sprint(importCSV("switches", "name,management_ip,vendor,profile\nOPS-R,192.0.2.120,ruijie,\nOPS-X,192.0.2.121,h3c,ops-profile\n", true)["rows"]); !strings.Contains(rows, "no single command profile for this vendor") || !strings.Contains(rows, errProfileVendor) {
+		t.Fatalf("rows without a profile of their vendor: %s", rows)
+	}
+	// The API holds switches to their profile's vendor, and a switch without a vendor takes it.
+	call(assets, "POST", "/api/releases/admin/switches", jsonBody(map[string]any{"name": "VENDOR-MIX", "management_ip": "192.0.2.130", "credential_id": credential, "command_profile_id": profile, "vendor": "h3c"}), 422)
+	taken := obj(call(assets, "POST", "/api/releases/admin/switches", jsonBody(map[string]any{"name": "VENDOR-TAKEN", "management_ip": "192.0.2.131", "credential_id": credential, "command_profile_id": h3cProfile}), 201))["id"].(string)
+	var takenVendor string
+	var versionB int
+	if err = db.QueryRow(`SELECT t.vendor,b.version FROM bp_switches t, bp_switches b WHERE t.id=$1 AND b.id=$2`, taken, switchB).Scan(&takenVendor, &versionB); err != nil || takenVendor != "h3c" {
+		t.Fatalf("a switch without a vendor has %q: %v", takenVendor, err)
+	}
+	if body := fmt.Sprint(call(assets, "PATCH", "/api/releases/admin/switches/"+switchB, jsonBody(map[string]any{"version": versionB, "command_profile_id": profile}), 422)); !strings.Contains(body, errProfileVendor) {
+		t.Fatalf("moving the H3C switch to a Huawei profile: %s", body)
+	}
+	if body := fmt.Sprint(call(assets, "PATCH", "/api/releases/admin/profiles/"+h3cProfile, `{"version":1,"vendor":"cisco"}`, 422)); !strings.Contains(body, errProfileInUse) {
+		t.Fatalf("changing the vendor of a profile in use: %s", body)
 	}
 	networks := importCSV("networks", "cidr,switch,vlan,validated\n10.77.0.0/24,192.0.2.101,77,true\n10.77.1.5/24,OPS-B,,\n", false)
 	if networks["errors"] != float64(1) || !strings.Contains(fmt.Sprint(networks["rows"]), "10.77.1.0/24") {

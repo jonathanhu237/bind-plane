@@ -83,9 +83,9 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
                 api_sealed("fake-pass"),
             )
             profile = await conn.fetchval(
-                """INSERT INTO bp_command_profiles(name,command_templates,error_patterns,
+                """INSERT INTO bp_command_profiles(name,vendor,command_templates,error_patterns,
                 parser_rules)
-                VALUES ($1,$2,'["Error:"]',$3) RETURNING id""",
+                VALUES ($1,'huawei',$2,'["Error:"]',$3) RETURNING id""",
                 f"fake-{ip}",
                 json.dumps(PROFILE_TEMPLATES),
                 json.dumps(PARSER_RULES),

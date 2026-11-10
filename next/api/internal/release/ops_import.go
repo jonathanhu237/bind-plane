@@ -209,13 +209,21 @@ func importInsert(ctx context.Context, tx *sql.Tx, actor domain.Principal, actio
 		if _, rollbackErr := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT import_row`); rollbackErr != nil {
 			return rollbackErr
 		}
-		return fmt.Errorf("%w: %v", errImportRow, err)
+		return fmt.Errorf("%w: %w", errImportRow, err)
 	}
 	_, err = tx.ExecContext(ctx, `RELEASE SAVEPOINT import_row`)
 	return err
 }
 
 var errImportRow = errors.New("row rejected by the database")
+
+// importRejection says why the database refused a row, where people can act on it.
+func importRejection(err error) string {
+	if isConstraint(err, profileVendorConstraint) {
+		return errProfileVendor
+	}
+	return "the database rejected this row"
+}
 
 // importChangeNames are the template's names for the switch columns an update can change.
 var importChangeNames = map[string]string{
@@ -231,6 +239,15 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 		return err
 	}
 	profiles, err := namedIDs(ctx, tx, `SELECT name,id::text FROM bp_command_profiles`)
+	if err != nil {
+		return err
+	}
+	profileVendor, err := namedIDs(ctx, tx, `SELECT id::text,vendor FROM bp_command_profiles`)
+	if err != nil {
+		return err
+	}
+	// A vendor with exactly one active profile maps to it; with several, to "".
+	vendorProfile, err := namedIDs(ctx, tx, `SELECT vendor,id::text FROM bp_command_profiles WHERE is_active`)
 	if err != nil {
 		return err
 	}
@@ -319,7 +336,7 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 			}
 			changes, err := importUpdate(ctx, tx, actor, id, next)
 			if errors.Is(err, errImportRow) {
-				reject("the database rejected this row")
+				reject(importRejection(err))
 				continue
 			}
 			if err != nil {
@@ -342,8 +359,18 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 		if f["credential"] == "" {
 			credentialID = defaultCredential
 		}
+		// A row without a profile takes the default when it is of the row's vendor, or else the
+		// vendor's only active profile; a row without a vendor takes its profile's.
 		if f["profile"] == "" {
-			profileID = defaultProfile
+			switch {
+			case defaultProfile != "" && (vendor == "" || profileVendor[defaultProfile] == vendor):
+				profileID = defaultProfile
+			case vendor != "":
+				profileID = vendorProfile[vendor]
+			}
+		}
+		if vendor == "" {
+			vendor = profileVendor[profileID]
 		}
 		switch {
 		case f["name"] == "":
@@ -352,8 +379,14 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
 		case !domain.IsCanonicalUUID(credentialID):
 			reject("credential not found (give its exact name, or choose a default)")
 			continue
+		case !domain.IsCanonicalUUID(profileID) && f["profile"] == "" && vendor != "":
+			reject("no single command profile for this vendor (name one, or choose a default of this vendor)")
+			continue
 		case !domain.IsCanonicalUUID(profileID):
 			reject("command profile not found (give its exact name, or choose a default)")
+			continue
+		case profileVendor[profileID] != "" && profileVendor[profileID] != vendor:
+			reject(errProfileVendor)
 			continue
 		}
 		group, err := groupID(f["group"])
@@ -365,7 +398,7 @@ func importSwitches(ctx context.Context, tx *sql.Tx, actor domain.Principal, rec
  VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid,$10,$11) RETURNING id::text`,
 			row.Label, ip, credentialID, profileID, defaultString(vendor, "other"), f["model"], f["site"], f["description"], group, defaultString(protocol, "telnet"), port)
 		if errors.Is(err, errImportRow) {
-			reject("the database rejected this row")
+			reject(importRejection(err))
 			continue
 		}
 		if err != nil {
@@ -388,7 +421,7 @@ func importUpdate(ctx context.Context, tx *sql.Tx, actor domain.Principal, id st
 		if _, rollbackErr := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT import_row`); rollbackErr != nil {
 			return nil, rollbackErr
 		}
-		return nil, fmt.Errorf("%w: %v", errImportRow, err)
+		return nil, fmt.Errorf("%w: %w", errImportRow, err)
 	}
 	_, err = tx.ExecContext(ctx, `RELEASE SAVEPOINT import_row`)
 	return changes, err

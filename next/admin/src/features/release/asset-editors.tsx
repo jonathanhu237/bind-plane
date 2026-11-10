@@ -59,7 +59,7 @@ export const ruleHint = (key: string, zh: boolean) => ruleText[key as RuleKey]?.
 export const NO_GROUP = 'none'
 
 export type Credential = { id: string; name: string; username: string; description: string | null; is_active: boolean; has_secret: boolean; version: number }
-export type Profile = { id: string; name: string; is_active: boolean; version: number } & Record<RuleKey, unknown>
+export type Profile = { id: string; name: string; vendor: Vendor; is_active: boolean; version: number } & Record<RuleKey, unknown>
 export type Vendor = 'huawei' | 'h3c' | 'ruijie' | 'cisco' | 'other'
 export type SwitchAsset = {
   id: string; name: string; management_ip: string; credential_id: string; command_profile_id: string; is_enabled: boolean; version: number
@@ -120,6 +120,18 @@ export function portFollowing(current: Record<string, unknown>, key: string, nex
   return !port || port === defaultPort(String(current.protocol)) ? { port: defaultPort(next) } : {}
 }
 
+/** The command profiles a switch of this vendor can use: a profile speaks one vendor's commands. */
+export const vendorProfiles = (profiles: Profile[] | undefined, vendor: string) => (profiles ?? []).filter((profile) => profile.vendor === vendor)
+
+/** A new vendor keeps a profile that is the vendor's, or else takes the vendor's only active profile. */
+export function profileFollowing(current: Record<string, unknown>, key: string, next: unknown, profiles?: Profile[]): { command_profile_id?: string } {
+  if (key !== 'vendor' || typeof next !== 'string') return {}
+  const own = vendorProfiles(profiles, next)
+  if (own.some((profile) => profile.id === current.command_profile_id)) return {}
+  const active = own.filter((profile) => profile.is_active)
+  return { command_profile_id: active.length === 1 ? active[0].id : '' }
+}
+
 export const vendorName = (vendor: string, zh: boolean) =>
   ({ huawei: zh ? '华为' : 'Huawei', h3c: 'H3C', ruijie: zh ? '锐捷' : 'Ruijie', cisco: 'Cisco', other: zh ? '其他' : 'Other' })[vendor] ?? vendor
 
@@ -136,7 +148,7 @@ function initialForm(target: EditTarget): Form {
     case 'credentials':
       return { name: target.item.name, username: target.item.username, description: target.item.description ?? '', password: '', secret: '', clear_secret: false }
     case 'profiles':
-      return { name: target.item.name, ...Object.fromEntries(profileRuleKeys.map((key) => [key, JSON.stringify(target.item[key] ?? (arrayRules.has(key) ? [] : {}), null, 2)])) }
+      return { name: target.item.name, vendor: target.item.vendor ?? 'other', ...Object.fromEntries(profileRuleKeys.map((key) => [key, JSON.stringify(target.item[key] ?? (arrayRules.has(key) ? [] : {}), null, 2)])) }
     case 'switches':
       return {
         name: target.item.name, management_ip: target.item.management_ip, credential_id: target.item.credential_id, command_profile_id: target.item.command_profile_id,
@@ -169,7 +181,7 @@ export function editRequest(target: EditTarget, form: Form): EditRequest {
         },
       }
     case 'profiles': {
-      const body: Record<string, unknown> = { version, name: text('name') }
+      const body: Record<string, unknown> = { version, name: text('name'), vendor: text('vendor') }
       for (const key of profileRuleKeys) {
         let parsed: unknown
         try {
@@ -211,7 +223,7 @@ export function editorLabels(zh: boolean) {
   const switchCount = (count: number) => zh ? `${count} 台交换机` : `${count} switch${count === 1 ? '' : 'es'}`
   return zh ? {
     edit: '编辑', enable: '启用', disable: '停用', disabled: '已停用', unvalidated: '未验证', cancel: '取消', close: '关闭',
-    save: '保存修改', saving: '正在保存…', saved: '已保存。', choose: '请选择',
+    save: '保存修改', saving: '正在保存…', saved: '已保存。', choose: '请选择', noVendorProfile: '这个厂商还没有命令模板',
     name: '名称', username: '设备用户名', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
     keep: '留空则保留现有值', clearSecret: '删除已保存的特权密码', managementIP: '管理 IPv4', credential: '凭据', profile: '命令模板',
     switch: '所属交换机', cidr: 'IPv4 CIDR', vlan: 'VLAN（可选）', validated: '已人工验证网段归属', inactive: '（已停用）',
@@ -253,7 +265,7 @@ export function editorLabels(zh: boolean) {
     } satisfies Record<AssetKind, string>,
   } : {
     edit: 'Edit', enable: 'Enable', disable: 'Disable', disabled: 'Disabled', unvalidated: 'Unvalidated', cancel: 'Cancel', close: 'Close',
-    save: 'Save changes', saving: 'Saving…', saved: 'Saved.', choose: 'Choose…',
+    save: 'Save changes', saving: 'Saving…', saved: 'Saved.', choose: 'Choose…', noVendorProfile: 'No command profile for this vendor yet',
     name: 'Name', username: 'Device username', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
     keep: 'Leave empty to keep the stored value', clearSecret: 'Remove the stored privilege secret', managementIP: 'Management IPv4', credential: 'Credential', profile: 'Command profile',
     switch: 'Switch', cidr: 'IPv4 CIDR', vlan: 'VLAN (optional)', validated: 'Network ownership manually validated', inactive: ' (disabled)',
@@ -341,18 +353,20 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
     groups: [need('edit-name', 'name', labels.name)],
     networks: [need('edit-switch', 'switch_id', labels.switch, true), need('edit-cidr', 'cidr', labels.cidr)],
   }[target.kind])
-  const set = (key: string, next: string | boolean) => setForm((current) => ({ ...current, [key]: next, ...portFollowing(current, key, next) }))
+  const set = (key: string, next: string | boolean) => setForm((current) => ({
+    ...current, [key]: next, ...portFollowing(current, key, next), ...(target.kind === 'switches' ? profileFollowing(current, key, next, inventory?.profiles) : {}),
+  }))
   const text = (id: string, key: string, label: string, options: { mono?: boolean; inputMode?: 'decimal' } = {}) =>
     <Field data-invalid={required.invalid(id)}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Input id={id} value={value(key)} onChange={(event) => set(key, event.target.value)} {...required.control(id)} inputMode={options.inputMode} autoComplete="off" className={cn(options.mono && 'font-mono')} />
       {required.message(id)}
     </Field>
-  const select = (id: string, key: string, label: string, items: { id: string; name: string; on: boolean }[]) =>
+  const select = (id: string, key: string, label: string, items: { id: string; name: string; on: boolean }[], placeholder = labels.choose) =>
     <Field data-invalid={required.invalid(id)}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Select value={value(key)} onValueChange={(next) => set(key, next)}>
-        <SelectTrigger id={id} {...required.control(id)}><SelectValue placeholder={labels.choose} /></SelectTrigger>
+        <SelectTrigger id={id} {...required.control(id)}><SelectValue placeholder={placeholder} /></SelectTrigger>
         <SelectContent><SelectGroup>{items.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}{item.on ? '' : labels.inactive}</SelectItem>)}</SelectGroup></SelectContent>
       </Select>
       {required.message(id)}
@@ -408,6 +422,7 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
       </> : null}
       {target.kind === 'profiles' ? <>
         {text('edit-name', 'name', labels.name)}
+        {choice('edit-vendor', 'vendor', labels.vendor, vendors.map((vendor) => ({ value: vendor, label: vendorName(vendor, zh) })))}
         {profileRuleKeys.map((key) => <Field key={key} data-invalid={invalidRule === key}>
           <FieldLabel htmlFor={`edit-${key}`}>{ruleLabel(key, zh)}</FieldLabel>
           <Textarea id={`edit-${key}`} className="font-mono" aria-invalid={invalidRule === key || undefined} aria-describedby={`edit-${key}-hint`} spellCheck={false}
@@ -418,11 +433,14 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
       {target.kind === 'switches' ? <>
         {text('edit-name', 'name', labels.name)}
         {text('edit-management-ip', 'management_ip', labels.managementIP, { mono: true, inputMode: 'decimal' })}
-        {select('edit-credential', 'credential_id', labels.credential, (inventory?.credentials ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
-        {select('edit-profile', 'command_profile_id', labels.profile, (inventory?.profiles ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
         <div className="grid gap-4 sm:grid-cols-2">
           {choice('edit-vendor', 'vendor', labels.vendor, vendors.map((vendor) => ({ value: vendor, label: vendorName(vendor, zh) })))}
           {text('edit-model', 'model', labels.model)}
+        </div>
+        {select('edit-profile', 'command_profile_id', labels.profile, vendorProfiles(inventory?.profiles, String(form.vendor)).map((item) => ({ id: item.id, name: item.name, on: item.is_active })),
+          vendorProfiles(inventory?.profiles, String(form.vendor)).length ? labels.choose : labels.noVendorProfile)}
+        {select('edit-credential', 'credential_id', labels.credential, (inventory?.credentials ?? []).map((item) => ({ id: item.id, name: item.name, on: item.is_active })))}
+        <div className="grid gap-4 sm:grid-cols-2">
           {choice('edit-protocol', 'protocol', labels.protocol, [{ value: 'ssh', label: 'SSH' }, { value: 'telnet', label: 'Telnet' }])}
           <Field data-invalid={invalidRule === 'port'}>
             <FieldLabel htmlFor="edit-port">{labels.port}</FieldLabel>
