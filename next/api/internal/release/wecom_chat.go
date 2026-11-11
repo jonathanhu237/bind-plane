@@ -9,19 +9,19 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
 )
 
-// Members talk to the bot in Chinese: an address asks for its release card, "查询" with an address
-// only looks it up, and anything else gets the help text.
-var (
-	wecomMention = regexp.MustCompile(`@\S+`)
-	wecomAddress = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)
-)
+// Members give the bot commands: a verb first, then one address and, to release at once, a
+// reason. Nothing else does anything, so chat that mentions an address never brings up a card.
+// wecomVerbs are the commands, in Chinese and English.
+var wecomVerbs = map[string]string{
+	"查询": "lookup", "query": "lookup", "解绑": "release", "release": "release",
+	"帮助": "help", "help": "help", "?": "help", "？": "help",
+}
 
 // wecomReasons are the release reasons in the console's order, one button each (WeCom allows six).
 var wecomReasons = []struct{ code, label string }{
@@ -63,9 +63,13 @@ var wecomFailures = map[string]string{
 	"Switch configuration changed after the release was queued; release again": "提交解绑后交换机配置有变更，请重新解绑",
 }
 
-const wecomHelp = "发送要解绑的 IPv4 地址，例如 `解绑 10.20.30.40`，再选择原因，就会开始解绑。\n" +
-	"想先看看它现在的 MAC 和绑定类型，发送 `查询 10.20.30.40`：只查询，不改动交换机。\n" +
-	"一次只解绑一个地址；解绑前会先查询交换机，不是静态绑定就不会发送任何命令。"
+const wecomHelp = "**可用的命令**（群里先 @ 我）\n" +
+	"`查询 10.20.30.40`：查这个地址的 MAC 和绑定类型，只读\n" +
+	"`解绑 10.20.30.40`：回一张卡片，选择原因后开始解绑\n" +
+	"`解绑 10.20.30.40 临时测试`：带上原因，直接开始解绑\n" +
+	"`帮助`：显示这段说明\n\n" +
+	"原因只能是：临时测试、用户反馈、IP/MAC 变更、修正错误绑定、安全处置、其他。\n" +
+	"一次只处理一个地址；解绑前会先查询交换机，不是静态绑定就不会发送任何命令。"
 
 func wecomTaskID() string {
 	b := make([]byte, 12)
@@ -152,6 +156,84 @@ func releaseRoles(p domain.Principal) (admin, operator bool) {
 	return admin, operator
 }
 
+// wecomCommand is a message read as a command; problem says why it is not one.
+type wecomCommand struct{ verb, ip, reason, problem string }
+
+// parseWecomCommand reads a message strictly: the verb first, then one IPv4 address and, for a
+// release, an optional reason from the list. In a group the message starts with a mention of the
+// bot, whose name may hold spaces, so the command is the first verb after it.
+func parseWecomCommand(text string) wecomCommand {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return wecomCommand{verb: "help"}
+	}
+	// Chinese is often typed without a space after the verb: 解绑10.20.30.40.
+	split := func(field string) []string {
+		for _, verb := range []string{"查询", "解绑"} {
+			if after, ok := strings.CutPrefix(field, verb); ok && after != "" {
+				return []string{verb, after}
+			}
+		}
+		return []string{field}
+	}
+	start := 0
+	if strings.HasPrefix(fields[0], "@") {
+		start = len(fields)
+		for i, field := range fields {
+			if _, ok := wecomVerbs[strings.ToLower(split(field)[0])]; ok {
+				start = i
+				break
+			}
+		}
+		// The bot's name cannot be told from what follows it, so a mention with no address is
+		// answered with the help alone.
+		if start == len(fields) && !strings.ContainsAny(text, "0123456789") {
+			return wecomCommand{verb: "help"}
+		}
+		if start == len(fields) {
+			return wecomCommand{problem: "没看懂这条消息。"}
+		}
+	}
+	fields = append(split(fields[start]), fields[start+1:]...)
+	verb, ok := wecomVerbs[strings.ToLower(fields[0])]
+	if !ok {
+		return wecomCommand{problem: "没看懂这条消息。"}
+	}
+	if verb == "help" {
+		return wecomCommand{verb: verb}
+	}
+	args := fields[1:]
+	if len(args) == 0 {
+		return wecomCommand{problem: "缺少要" + map[string]string{"lookup": "查询", "release": "解绑"}[verb] + "的 IPv4 地址。"}
+	}
+	if _, err := ResolveNetwork(args[0], nil); err == ErrInvalidIP {
+		return wecomCommand{problem: fmt.Sprintf("「%s」不是一个 IPv4 地址，一次只能写一个地址。", args[0])}
+	}
+	command := wecomCommand{verb: verb, ip: args[0]}
+	rest := strings.Join(args[1:], "")
+	switch {
+	case rest == "":
+	case verb == "lookup":
+		return wecomCommand{problem: "查询只需要一个地址，后面不用再写别的。"}
+	default:
+		if command.reason = wecomReasonCode(rest); command.reason == "" {
+			return wecomCommand{problem: fmt.Sprintf("「%s」不是可用的原因。", strings.Join(args[1:], " "))}
+		}
+	}
+	return command
+}
+
+// wecomReasonCode is the reason a member typed, by its name (spaces and case ignored) or code.
+func wecomReasonCode(typed string) string {
+	plain := func(text string) string { return strings.ToLower(strings.Join(strings.Fields(text), "")) }
+	for _, reason := range wecomReasons {
+		if plain(typed) == plain(reason.label) || plain(typed) == reason.code {
+			return reason.code
+		}
+	}
+	return ""
+}
+
 func (b *WeComBot) onMessage(ctx context.Context, frame wecomFrame) {
 	var cb wecomCallback
 	if json.Unmarshal(frame.Body, &cb) != nil {
@@ -162,28 +244,65 @@ func (b *WeComBot) onMessage(ctx context.Context, frame wecomFrame) {
 		b.replyText(ctx, reqID, "目前只认文字消息。\n\n"+wecomHelp)
 		return
 	}
+	command := parseWecomCommand(cb.Text.Content)
+	if command.problem != "" {
+		b.replyText(ctx, reqID, command.problem+"\n\n"+wecomHelp)
+		return
+	}
+	if command.verb == "help" {
+		b.replyText(ctx, reqID, wecomHelp)
+		return
+	}
 	actor, _, refusal := b.member(ctx, cb.From.UserID)
 	if refusal != "" {
 		b.replyText(ctx, reqID, refusal)
 		return
 	}
-	text := strings.TrimSpace(wecomMention.ReplaceAllString(cb.Text.Content, " "))
-	addresses := map[string]bool{}
-	var ip string
-	for _, found := range wecomAddress.FindAllString(text, -1) {
-		if _, err := ResolveNetwork(found, nil); err != ErrInvalidIP {
-			addresses[found], ip = true, found
-		}
-	}
 	switch {
-	case len(addresses) > 1:
-		b.replyText(ctx, reqID, "一次只能解绑一个地址，请分开发送。")
-	case ip == "":
-		b.replyText(ctx, reqID, wecomHelp)
-	case strings.Contains(text, "查询") || strings.HasPrefix(strings.ToLower(text), "query"):
-		b.startLookup(ctx, reqID, cb, ip, actor)
+	case command.verb == "lookup":
+		b.startLookup(ctx, reqID, cb, command.ip, actor)
+	case command.reason == "":
+		b.offerRelease(ctx, reqID, cb, command.ip)
 	default:
-		b.offerRelease(ctx, reqID, cb, ip)
+		b.releaseNow(ctx, reqID, cb, command.ip, command.reason, actor)
+	}
+}
+
+// releaseNow starts a release a command gave a reason for, as choosing Release does in the console.
+func (b *WeComBot) releaseNow(ctx context.Context, reqID string, cb wecomCallback, ip, reason string, actor Actor) {
+	job, err := b.store.Start(ctx, StartInput{TargetIP: ip, Reason: reason, Actor: actor})
+	if problem := b.notStarted(ctx, ip, job, err); problem != "" {
+		b.replyText(ctx, reqID, fmt.Sprintf("**解绑 %s 未开始**\n%s", ip, problem))
+		return
+	}
+	chatType, chatID := cb.chat()
+	b.rememberChat(ctx, job.JobID, cb.From.UserID, chatType, chatID)
+	b.replyText(ctx, reqID, fmt.Sprintf("**已提交解绑 %s**\n交换机 %s（%s） · 原因：%s\n完成后会在这里通知结果。", ip, job.SwitchName, job.SwitchManagementIP, wecomReasonLabel(reason)))
+}
+
+// notStarted says why a release did not start, or "" when it did.
+func (b *WeComBot) notStarted(ctx context.Context, ip string, job Job, err error) string {
+	switch {
+	case errors.Is(err, ErrConflict):
+		return "这个地址已有解绑在进行，完成后再试。"
+	case errors.Is(err, ErrNotFound):
+		return "只有原来的发起人或管理员可以重新解绑。"
+	case errors.Is(err, ErrAssetChanged):
+		return "交换机配置刚刚有变化，请重新发送命令。"
+	case errors.Is(err, ErrNoSwitch), errors.Is(err, ErrAmbiguous), err == nil && job.JobID == "":
+		_, _, _, stop := b.resolved(ctx, ip)
+		return stop
+	case err != nil:
+		log.Printf("wecom: start release: %v", err)
+		return "暂时无法提交，请稍后再试。"
+	}
+	return ""
+}
+
+// rememberChat records where a started job's result goes.
+func (b *WeComBot) rememberChat(ctx context.Context, jobID, who, chatType, chatID string) {
+	if _, err := b.db.ExecContext(ctx, `INSERT INTO bp_wecom_jobs(job_id,wecom_userid,chat_type,chat_id) VALUES ($1,$2,$3,$4)`, jobID, who, chatType, chatID); err != nil {
+		log.Printf("wecom: remember chat for job %s: %v", jobID, err)
 	}
 }
 
@@ -235,9 +354,7 @@ func (b *WeComBot) startLookup(ctx context.Context, reqID string, cb wecomCallba
 		return
 	}
 	chatType, chatID := cb.chat()
-	if _, err = b.db.ExecContext(ctx, `INSERT INTO bp_wecom_jobs(job_id,wecom_userid,chat_type,chat_id) VALUES ($1,$2,$3,$4)`, job.JobID, cb.From.UserID, chatType, chatID); err != nil {
-		log.Printf("wecom: remember chat for lookup %s: %v", job.JobID, err)
-	}
+	b.rememberChat(ctx, job.JobID, cb.From.UserID, chatType, chatID)
 	b.replyText(ctx, reqID, fmt.Sprintf("正在向交换机 %s（%s）查询 %s，稍等几秒。", job.SwitchName, job.SwitchManagementIP, ip))
 }
 
@@ -294,15 +411,15 @@ func (b *WeComBot) onClick(ctx context.Context, reqID string, cb wecomCallback) 
 		Scan(&kind, &ip, &original, &owner, &chatType, &chatID, &used, &created)
 	switch {
 	case err != nil:
-		b.updateCard(ctx, reqID, taskID, "", "这张卡片已失效", "", "请重新发送要解绑的地址。")
+		b.updateCard(ctx, reqID, taskID, "", "这张卡片已失效", "", "请重新发送「解绑 地址」。")
 		return
 	case who != owner:
-		b.updateCard(ctx, reqID, taskID, "", "解绑 "+ip, "只有发起人可以选择", "需要解绑请自己发送这个地址。", who)
+		b.updateCard(ctx, reqID, taskID, "", "解绑 "+ip, "只有发起人可以选择", fmt.Sprintf("需要解绑请自己发送「解绑 %s」。", ip), who)
 		return
 	case used:
 		return // a second click on a card already answered changes nothing
 	case time.Since(created) > b.CardTTL:
-		b.updateCard(ctx, reqID, taskID, "", "解绑 "+ip+" · 已过期", "", "请重新发送要解绑的地址。")
+		b.updateCard(ctx, reqID, taskID, "", "解绑 "+ip+" · 已过期", "", fmt.Sprintf("请重新发送「解绑 %s」。", ip))
 		return
 	}
 	actor, admin, refusal := b.member(ctx, who)
@@ -339,32 +456,11 @@ func (b *WeComBot) onClick(ctx context.Context, reqID string, cb wecomCallback) 
 		job, err = b.store.Start(ctx, StartInput{TargetIP: ip, Reason: reason, Actor: actor})
 	}
 	title := "解绑 " + ip
-	switch {
-	case errors.Is(err, ErrConflict):
-		b.updateCard(ctx, reqID, taskID, "", title, "未开始", "这个地址已有解绑在进行，完成后再试。")
-		return
-	case errors.Is(err, ErrNotFound):
-		b.updateCard(ctx, reqID, taskID, "", title, "未开始", "只有原来的发起人或管理员可以重新解绑。")
-		return
-	case errors.Is(err, ErrAssetChanged):
-		b.updateCard(ctx, reqID, taskID, "", title, "未开始", "交换机配置刚刚有变化，请重新发送地址。")
-		return
-	case errors.Is(err, ErrNoSwitch), errors.Is(err, ErrAmbiguous):
-		_, _, _, stop := b.resolved(ctx, ip)
-		b.updateCard(ctx, reqID, taskID, "", title, "未开始", stop)
-		return
-	case err != nil:
-		log.Printf("wecom: start release: %v", err)
-		b.updateCard(ctx, reqID, taskID, "", title, "未开始", "暂时无法提交，请稍后再试。")
-		return
-	case job.JobID == "":
-		_, _, _, stop := b.resolved(ctx, ip)
-		b.updateCard(ctx, reqID, taskID, "", title, "未开始", stop)
+	if problem := b.notStarted(ctx, ip, job, err); problem != "" {
+		b.updateCard(ctx, reqID, taskID, "", title, "未开始", problem)
 		return
 	}
-	if _, err = b.db.ExecContext(ctx, `INSERT INTO bp_wecom_jobs(job_id,wecom_userid,chat_type,chat_id) VALUES ($1,$2,$3,$4)`, job.JobID, who, chatType, chatID); err != nil {
-		log.Printf("wecom: remember chat for job %s: %v", job.JobID, err)
-	}
+	b.rememberChat(ctx, job.JobID, who, chatType, chatID)
 	b.updateCard(ctx, reqID, taskID, job.JobID, title+" · 已提交", fmt.Sprintf("交换机 %s（%s）", job.SwitchName, job.SwitchManagementIP),
 		fmt.Sprintf("原因：%s · 发起人：%s。完成后会在这里通知结果。", wecomReasonLabel(job.Reason), actor.Name))
 }

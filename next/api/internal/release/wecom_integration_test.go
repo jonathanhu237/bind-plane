@@ -217,14 +217,21 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 		t.Fatalf("connected %v", s)
 	}
 
-	// A member nobody bound is told so; anything without an address gets the help.
+	// A member nobody bound is told so. Only a command does anything: other text, an address on
+	// its own or a reason not on the list is answered with the commands and starts nothing.
 	server.push(wecomText("m1", "single", "", "stranger", "解绑 10.177.1.20"))
 	if reply := server.next(wecomReply); !strings.Contains(fmt.Sprint(reply), "还没有绑定") || reply["headers"].(map[string]any)["req_id"] != "m1" {
 		t.Fatalf("stranger got %v", reply)
 	}
-	server.push(wecomText("m2", "single", "", "zhang.san", "你好"))
-	if reply := server.next(wecomReply); !strings.Contains(fmt.Sprint(reply), "查询 10.20.30.40") {
-		t.Fatalf("help %v", reply)
+	for i, text := range []string{"你好", "10.177.1.20", "@Bind Plane 帮我解绑 10.177.1.20", "解绑 10.177.1.20 随便"} {
+		server.push(wecomText(fmt.Sprintf("m2-%d", i), "single", "", "zhang.san", text))
+		if reply := fmt.Sprint(server.next(wecomReply)); !strings.Contains(reply, "查询 10.20.30.40") || strings.Contains(reply, "template_card") {
+			t.Fatalf("%q answered with %v", text, reply)
+		}
+	}
+	var started int
+	if err = db.QueryRow(`SELECT (SELECT count(*) FROM bp_release_jobs WHERE source='wecom') + (SELECT count(*) FROM bp_wecom_cards)`).Scan(&started); err != nil || started != 0 {
+		t.Fatalf("%d jobs or cards started by text that was no command: %v", started, err)
 	}
 	// "查询" asks the switch: a lookup job, and what it found sent back to the chat. A static
 	// binding comes with the reasons, and choosing one releases it.
@@ -287,6 +294,20 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 	server.push(wecomText("m5", "group", "grp1", "zhang.san", "解绑 10.177.1.20"))
 	if reply := server.next(wecomReply); !strings.Contains(fmt.Sprint(reply), "已有一次解绑") {
 		t.Fatalf("busy address %v", reply)
+	}
+
+	// A reason in the command releases at once, with no card.
+	server.push(wecomText("m6", "single", "", "zhang.san", "解绑 10.177.1.22 IP/MAC变更"))
+	if reply := fmt.Sprint(server.next(wecomReply)); !strings.Contains(reply, "已提交解绑 10.177.1.22") || !strings.Contains(reply, "WECOM-SW") || strings.Contains(reply, "template_card") {
+		t.Fatalf("release with a reason %v", reply)
+	}
+	var direct string
+	if err = db.QueryRow(`SELECT j.reason FROM bp_release_jobs j JOIN bp_wecom_jobs w ON w.job_id=j.id WHERE j.target_ip='10.177.1.22' AND j.kind='release' AND j.source='wecom' AND j.actor_id=$1 AND w.chat_id='zhang.san'`, operatorID).Scan(&direct); err != nil || direct != "ip_mac_change" {
+		t.Fatalf("released with reason %q: %v", direct, err)
+	}
+	server.push(wecomText("m7", "single", "", "zhang.san", "解绑 10.177.1.22 临时测试"))
+	if reply := fmt.Sprint(server.next(wecomReply)); !strings.Contains(reply, "未开始") || !strings.Contains(reply, "已有解绑在进行") {
+		t.Fatalf("second release of a busy address %v", reply)
 	}
 
 	// When it ends, the chat hears how; WeCom's acknowledgement stops it being sent again.

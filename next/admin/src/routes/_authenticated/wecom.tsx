@@ -1,7 +1,7 @@
 import { createFileRoute, useLoaderData } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { CircleAlert, Link2, Unlink2 } from 'lucide-react'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -122,8 +122,8 @@ function WecomPage() {
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-8">
     <PageHeader title={pick(zh, '企业微信', 'WeCom')} />
     <p className="-mt-5 max-w-3xl text-sm text-muted-foreground">{pick(zh,
-      '绑定过账号的成员在企业微信里给机器人发 IP 地址、选择原因，就能解绑，结果会发回同一个对话。Bind Plane 主动连接企业微信（长连接），服务器不需要公网地址。',
-      'Bound members send the bot an IP address in WeCom and choose a reason to release it; the result comes back to the same chat. Bind Plane connects out to WeCom over a long connection, so the server needs no public address.')}</p>
+      '绑定过账号的成员在企业微信里给机器人发命令，就能查询或解绑地址，结果会发回同一个对话。Bind Plane 主动连接企业微信（长连接），服务器不需要公网地址。',
+      'Bound members send the bot commands in WeCom to look addresses up or release them; the result comes back to the same chat. Bind Plane connects out to WeCom over a long connection, so the server needs no public address.')}</p>
     <ErrorNote error={query.error} zh={zh} />
     {data && s ? <>
       <Section title={pick(zh, '连接', 'Connection')} actions={<StateBadge state={s.state} zh={zh} />}>
@@ -159,12 +159,22 @@ function WecomPage() {
         </div>
       </Section>
       <Section title={pick(zh, '在企业微信里怎么用', 'Using it in WeCom')}>
-        <ul className="max-w-3xl list-disc pl-5 text-sm text-muted-foreground">
-          <li>{pick(zh, '单聊机器人，或在群里 @ 它，发送「解绑 10.20.30.40」：它回一张卡片，写着这个地址归哪台交换机；点一个原因就开始解绑。', 'Message the bot, or @ it in a group, with “解绑 10.20.30.40”: it answers with the switch the address goes to; choosing a reason starts the release.')}</li>
-          <li>{pick(zh, '发送「查询 10.20.30.40」只看它归哪台交换机和最近一次解绑，不会解绑。', '“查询 10.20.30.40” only shows the switch and the latest release.')}</li>
-          <li>{pick(zh, '解绑完成后，结果发回同一个对话；失败、超时或结果未知时附「重新解绑」按钮。只有发起人能点自己的卡片。', 'The result comes back to the same chat, with Release again when it failed, timed out or is unknown. Only the member who asked can use their card.')}</li>
-          <li>{pick(zh, '规则和解绑控制台一样：一个地址同时只能有一个解绑在进行；解绑前先查询，不是静态绑定就不发送任何命令。', 'The release console’s rules apply: one release per address at a time, and nothing is sent unless the binding is static.')}</li>
-        </ul>
+        <div className="flex max-w-3xl flex-col gap-3 text-sm text-muted-foreground">
+          <p>{pick(zh, '单聊机器人，或在群里 @ 它，命令写在最前面：', 'Message the bot, or @ it in a group, starting with the command:')}</p>
+          <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+            {[
+              ['查询 10.20.30.40', pick(zh, '向交换机查这个地址的 MAC 和绑定类型，不改动任何东西；是静态绑定时可以接着点「解绑这个地址」。', 'Asks the switch for the address’s MAC and entry type and changes nothing; a static binding can then be released from the result.')],
+              ['解绑 10.20.30.40', pick(zh, '回一张卡片，写着这个地址归哪台交换机；点一个原因就开始解绑。', 'Answers with a card naming the switch; choosing a reason starts the release.')],
+              ['解绑 10.20.30.40 临时测试', pick(zh, '带上原因，一条消息直接开始解绑。原因只能是：临时测试、用户反馈、IP/MAC 变更、修正错误绑定、安全处置、其他。', 'With a reason, the release starts at once. The reason is one of 临时测试, 用户反馈, IP/MAC 变更, 修正错误绑定, 安全处置, 其他.')],
+              ['帮助', pick(zh, '列出这些命令。', 'Lists these commands.')],
+            ].map(([command, meaning]) => <Fragment key={command}><dt><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">{command}</code></dt><dd>{meaning}</dd></Fragment>)}
+          </dl>
+          <ul className="list-disc pl-5">
+            <li>{pick(zh, '英文命令 query、release、help 也可以。其他写法（只发一个地址、随口一句话、不在列表里的原因）只会收到这份说明，不会触发任何操作。', 'The English query, release and help work too. Anything else (an address on its own, other text, a reason not on the list) only gets these instructions and starts nothing.')}</li>
+            <li>{pick(zh, '解绑完成后，结果发回同一个对话；失败、超时或结果未知时附「重新解绑」按钮。只有发起人能点自己的卡片。', 'The result comes back to the same chat, with Release again when it failed, timed out or is unknown. Only the member who asked can use their card.')}</li>
+            <li>{pick(zh, '规则和解绑控制台一样：一个地址同时只能有一个解绑在进行；解绑前先查询，不是静态绑定就不发送任何命令。', 'The release console’s rules apply: one release per address at a time, and nothing is sent unless the binding is static.')}</li>
+          </ul>
+        </div>
       </Section>
     </> : null}
   </main>
