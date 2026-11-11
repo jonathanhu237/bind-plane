@@ -239,12 +239,18 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 	if _, err = db.Exec(`UPDATE bp_release_jobs SET status='succeeded',phase='finished',finished_at=now(),before_state='{"entry_type":"static","mac":"00e0-fc12-3456"}' WHERE id=$1`, lookupID); err != nil {
 		t.Fatal(err)
 	}
+	// The result only reports; its one button brings up the reasons, and a reason releases.
 	found := server.next(wecomSend)
 	foundCard := frameBody(found)["template_card"].(map[string]any)
-	if frameBody(found)["chatid"] != "grp1" || !strings.Contains(fmt.Sprint(foundCard), "00e0-fc12-3456") || !strings.Contains(fmt.Sprint(foundCard), "静态绑定") || len(foundCard["button_list"].([]any)) != 6 {
+	if frameBody(found)["chatid"] != "grp1" || !strings.Contains(fmt.Sprint(foundCard), "00e0-fc12-3456") || !strings.Contains(fmt.Sprint(foundCard), "静态绑定") ||
+		!strings.Contains(fmt.Sprint(foundCard["main_title"]), "查询结果") || len(foundCard["button_list"].([]any)) != 1 {
 		t.Fatalf("lookup result %v", found)
 	}
 	server.ack(found, 0)
+	server.push(wecomClick("e00", "zhang.san", foundCard["task_id"].(string), wecomOffer))
+	if offered := frameBody(server.next(wecomUpdateCard))["template_card"].(map[string]any); len(offered["button_list"].([]any)) != 6 || offered["task_id"] != foundCard["task_id"] {
+		t.Fatalf("reasons offered %v", offered)
+	}
 	server.push(wecomClick("e0", "zhang.san", foundCard["task_id"].(string), "user_report"))
 	if update := frameBody(server.next(wecomUpdateCard)); !strings.Contains(fmt.Sprint(update), "已提交") {
 		t.Fatalf("release from a lookup %v", update)

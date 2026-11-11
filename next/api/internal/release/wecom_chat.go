@@ -266,18 +266,7 @@ func (b *WeComBot) offerRelease(ctx context.Context, reqID string, cb wecomCallb
 	if last := b.lastRelease(ctx, ip); last != "" {
 		facts = append(facts, map[string]string{"keyname": "上次解绑", "value": last})
 	}
-	buttons := make([]map[string]any, 0, len(wecomReasons))
-	for _, reason := range wecomReasons {
-		buttons = append(buttons, map[string]any{"text": reason.label, "key": reason.code})
-	}
-	b.replyCard(ctx, reqID, map[string]any{
-		"card_type":               "button_interaction",
-		"main_title":              map[string]string{"title": "解绑 " + ip, "desc": fmt.Sprintf("交换机 %s（%s）", name, managementIP)},
-		"sub_title_text":          "选择原因即开始解绑。解绑前会先查询，不是静态绑定就不会发送任何命令。",
-		"horizontal_content_list": facts,
-		"button_list":             buttons,
-		"task_id":                 taskID,
-	})
+	b.replyCard(ctx, reqID, reasonCard(taskID, ip, fmt.Sprintf("%s（%s）", name, managementIP), "选择原因即开始解绑。解绑前会先查询，不是静态绑定就不会发送任何命令。", facts))
 }
 
 func (b *WeComBot) onEvent(ctx context.Context, frame wecomFrame, cb wecomCallback) {
@@ -322,6 +311,19 @@ func (b *WeComBot) onClick(ctx context.Context, reqID string, cb wecomCallback) 
 		return
 	}
 	reason := key
+	if kind == "release" && reason == wecomOffer {
+		// A lookup's result asked for the reasons: the same card now offers them, still unused.
+		name, managementIP, _, stop := b.resolved(ctx, ip)
+		if stop != "" {
+			b.updateCard(ctx, reqID, taskID, "", "解绑 "+ip, "未开始", stop)
+			return
+		}
+		card := reasonCard(taskID, ip, fmt.Sprintf("%s（%s）", name, managementIP), "选择原因即开始解绑。解绑前会先查询，不是静态绑定就不会发送任何命令。", nil)
+		if err := b.send(ctx, wecomUpdateCard, reqID, map[string]any{"response_type": "update_template_card", "template_card": card}); err != nil && ctx.Err() == nil {
+			log.Printf("wecom: offer reasons: %v", err)
+		}
+		return
+	}
 	if kind == "release" && !ValidReason(reason) {
 		return
 	}
@@ -367,8 +369,31 @@ func (b *WeComBot) onClick(ctx context.Context, reqID string, cb wecomCallback) 
 		fmt.Sprintf("原因：%s · 发起人：%s。完成后会在这里通知结果。", wecomReasonLabel(job.Reason), actor.Name))
 }
 
-// lookupResult words what a lookup found. A static binding comes as a card with the reasons, so
-// it can be released from there; anything else is a message.
+// wecomOffer is the key of the button on a lookup's result that brings up the reasons.
+const wecomOffer = "offer"
+
+// reasonCard is the card that releases ip: its switch, and one button per reason.
+func reasonCard(taskID, ip, switchText, note string, facts []map[string]string) map[string]any {
+	buttons := make([]map[string]any, 0, len(wecomReasons))
+	for _, reason := range wecomReasons {
+		buttons = append(buttons, map[string]any{"text": reason.label, "key": reason.code})
+	}
+	card := map[string]any{
+		"card_type":      "button_interaction",
+		"main_title":     map[string]string{"title": "解绑 " + ip, "desc": "交换机 " + switchText},
+		"sub_title_text": note,
+		"button_list":    buttons,
+		"task_id":        taskID,
+	}
+	if len(facts) > 0 {
+		card["horizontal_content_list"] = facts
+	}
+	return card
+}
+
+// lookupResult words what a lookup found. It only reports: a static binding comes as a card whose
+// one button brings up the reasons, so releasing it stays a choice of its own; anything else is a
+// message.
 func (b *WeComBot) lookupResult(ctx context.Context, owner, chatType, chat, status, ip, switchText, entry, mac, failure string) map[string]any {
 	if status == "succeeded" && entry == "static" {
 		taskID := wecomTaskID()
@@ -376,16 +401,12 @@ func (b *WeComBot) lookupResult(ctx context.Context, owner, chatType, chat, stat
 			taskID, ip, owner, chatType, chat); err != nil {
 			return nil
 		}
-		buttons := make([]map[string]any, 0, len(wecomReasons))
-		for _, reason := range wecomReasons {
-			buttons = append(buttons, map[string]any{"text": reason.label, "key": reason.code})
-		}
 		return map[string]any{"msgtype": "template_card", "template_card": map[string]any{
 			"card_type":               "button_interaction",
-			"main_title":              map[string]string{"title": ip + " · 静态绑定", "desc": "交换机 " + switchText},
-			"horizontal_content_list": []map[string]string{{"keyname": "MAC", "value": mac}},
-			"sub_title_text":          "要解绑就选择原因，选了即开始；不解绑就不用管这张卡片。",
-			"button_list":             buttons,
+			"main_title":              map[string]string{"title": "查询结果 · " + ip, "desc": "交换机 " + switchText},
+			"horizontal_content_list": []map[string]string{{"keyname": "MAC", "value": mac}, {"keyname": "类型", "value": "静态绑定"}},
+			"sub_title_text":          "只是查询，没有改动交换机。要解绑这个地址，点下面的按钮再选择原因。",
+			"button_list":             []map[string]any{{"text": "解绑这个地址", "key": wecomOffer}},
 			"task_id":                 taskID,
 		}}
 	}
