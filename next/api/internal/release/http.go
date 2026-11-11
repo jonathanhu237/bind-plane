@@ -23,14 +23,14 @@ type StartInput struct {
 	Actor    Actor  `json:"-"`
 }
 
-// Actor is who starts a job, and Via where: "console" (the default) or "wecom". The job keeps
-// their name and email as they were at the time.
+// Actor is who starts a job, and Via where: "console" (the default), "wecom" or "feishu". The job
+// keeps their name and email as they were at the time.
 type Actor struct{ ID, Name, Email, Via string }
 
 // source is where a job was started, as stored.
 func (a Actor) source() string {
-	if a.Via == "wecom" {
-		return "wecom"
+	if a.Via == platformWeCom || a.Via == platformFeishu {
+		return a.Via
 	}
 	return "console"
 }

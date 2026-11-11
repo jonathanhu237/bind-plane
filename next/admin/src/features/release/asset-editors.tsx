@@ -504,6 +504,7 @@ const fieldNames: Record<string, [string, string]> = {
   name: ['name', '名称'], username: ['username', '用户名'], description: ['description', '描述'],
   encrypted_password: ['password', '密码'], encrypted_secret: ['privilege secret', '特权密码'],
   bot_id: ['bot ID', '机器人 ID'], encrypted_bot_secret: ['bot secret', '机器人 Secret'], ws_url: ['connection address', '长连接地址'], wecom_userid: ['WeCom account', '企微账号'],
+  app_id: ['app or bot ID', 'App ID / 机器人 ID'], address: ['connection address', '连接地址'], external_id: ['account', '账号'],
   management_ip: ['management IP', '管理 IP'], credential_id: ['credential', '凭据'], command_profile_id: ['command profile', '命令模板'],
   switch_id: ['switch', '所属交换机'], cidr: ['CIDR', '网段'], vlan: ['VLAN', 'VLAN'], is_validated: ['validation', '验证状态'],
   vendor: ['vendor', '厂商'], model: ['model', '型号'], site: ['site', '站点'], protocol: ['protocol', '协议'], port: ['port', '端口'],
@@ -553,6 +554,7 @@ const actionNames: Record<string, [string, string]> = {
   'config.download': ['Configuration downloaded', '下载配置'], 'config.export': ['Configuration exported', '导出配置'], 'config.search': ['Configurations searched', '搜索配置'],
   'alert.acknowledge': ['Alert acknowledged', '确认告警'],
   'wecom.update': ['WeCom settings changed', '修改企业微信设置'], 'wecom.account': ['WeCom binding changed', '修改企业微信绑定'],
+  'feishu.update': ['Feishu settings changed', '修改飞书设置'], 'feishu.account': ['Feishu binding changed', '修改飞书绑定'],
   'audit.export': ['Audit log exported', '导出审计日志'],
 }
 

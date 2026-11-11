@@ -6,9 +6,12 @@ export function SwitchName({ job }: { job: Pick<Job, 'switch_id' | 'switch_name'
   return <>{job.switch_name}{job.switch_management_ip ? <span className="ml-2 font-mono text-muted-foreground">{job.switch_management_ip}</span> : null}</>
 }
 
-/** Who started a release, and "WeCom" when they did it from the WeCom bot. */
+const chatNames = { wecom: ['WeCom', '企业微信'], feishu: ['Feishu', '飞书'] } as const
+
+/** Who started a release, and the chat platform when they did it from a bot. */
 export function ActorName({ job, zh }: { job: Pick<Job, 'actor_name' | 'actor_email' | 'source'>; zh: boolean }) {
-  const via = job.source === 'wecom' ? <span className="ml-2 inline-block align-middle"><ToneBadge kind="muted">{zh ? '企业微信' : 'WeCom'}</ToneBadge></span> : null
+  const chat = job.source && job.source !== 'console' ? chatNames[job.source] : undefined
+  const via = chat ? <span className="ml-2 inline-block align-middle"><ToneBadge kind="muted">{chat[zh ? 1 : 0]}</ToneBadge></span> : null
   if (!job.actor_name) return <><span className="break-all">{actorText(undefined, job.actor_email)}</span>{via}</>
   return <>{job.actor_name}{job.actor_email ? <span className="ml-2 break-all text-muted-foreground">{job.actor_email}</span> : null}{via}</>
 }

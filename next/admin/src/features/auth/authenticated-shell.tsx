@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, Database, FileCode, FileSearch, History, House, KeyRound, ListChecks, LogOut, Mail, MessagesSquare, Monitor, Network, ScrollText, Server, Settings, ShieldCheck, SquareTerminal, Unlink, UserCog, UserRound, Users, Wrench } from 'lucide-react'
+import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, Database, FileCode, FileSearch, History, House, KeyRound, ListChecks, LogOut, Mail, MessagesSquare, Monitor, Network, ScrollText, Send, Server, Settings, ShieldCheck, SquareTerminal, Unlink, UserCog, UserRound, Users, Wrench } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -136,6 +136,7 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
     { to: '/command-profiles', icon: FileCode, label: zhShell ? '命令模板' : 'Command profiles' },
     { to: '/networks', icon: Network, label: zhShell ? '网段' : 'Networks' },
     { to: '/wecom', icon: MessagesSquare, label: zhShell ? '企业微信' : 'WeCom' },
+    { to: '/feishu', icon: Send, label: zhShell ? '飞书' : 'Feishu' },
   ] as const
   const assetPage = assetPages.find((page) => location.pathname.startsWith(page.to))
   const assetMenuExpanded = assetMenuOpen || Boolean(assetPage)

@@ -25,6 +25,7 @@ import { Route as AuthenticatedConfigSearchRouteImport } from './routes/_authent
 import { Route as AuthenticatedCredentialsRouteImport } from './routes/_authenticated/credentials'
 import { Route as AuthenticatedDevicesRouteImport } from './routes/_authenticated/devices'
 import { Route as AuthenticatedEmailTasksRouteImport } from './routes/_authenticated/email-tasks'
+import { Route as AuthenticatedFeishuRouteImport } from './routes/_authenticated/feishu'
 import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
 import { Route as AuthenticatedNetworksRouteImport } from './routes/_authenticated/networks'
 import { Route as AuthenticatedOnlineUsersRouteImport } from './routes/_authenticated/online-users'
@@ -120,6 +121,11 @@ const AuthenticatedEmailTasksRoute = AuthenticatedEmailTasksRouteImport.update({
   path: '/email-tasks',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedFeishuRoute = AuthenticatedFeishuRouteImport.update({
+  id: '/feishu',
+  path: '/feishu',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedInvitationsRoute =
   AuthenticatedInvitationsRouteImport.update({
     id: '/invitations',
@@ -201,6 +207,7 @@ export interface FileRoutesByFullPath {
   '/credentials': typeof AuthenticatedCredentialsRoute
   '/devices': typeof AuthenticatedDevicesRoute
   '/email-tasks': typeof AuthenticatedEmailTasksRoute
+  '/feishu': typeof AuthenticatedFeishuRoute
   '/invitations': typeof AuthenticatedInvitationsRoute
   '/networks': typeof AuthenticatedNetworksRoute
   '/online-users': typeof AuthenticatedOnlineUsersRoute
@@ -229,6 +236,7 @@ export interface FileRoutesByTo {
   '/credentials': typeof AuthenticatedCredentialsRoute
   '/devices': typeof AuthenticatedDevicesRoute
   '/email-tasks': typeof AuthenticatedEmailTasksRoute
+  '/feishu': typeof AuthenticatedFeishuRoute
   '/invitations': typeof AuthenticatedInvitationsRoute
   '/networks': typeof AuthenticatedNetworksRoute
   '/online-users': typeof AuthenticatedOnlineUsersRoute
@@ -260,6 +268,7 @@ export interface FileRoutesById {
   '/_authenticated/credentials': typeof AuthenticatedCredentialsRoute
   '/_authenticated/devices': typeof AuthenticatedDevicesRoute
   '/_authenticated/email-tasks': typeof AuthenticatedEmailTasksRoute
+  '/_authenticated/feishu': typeof AuthenticatedFeishuRoute
   '/_authenticated/invitations': typeof AuthenticatedInvitationsRoute
   '/_authenticated/networks': typeof AuthenticatedNetworksRoute
   '/_authenticated/online-users': typeof AuthenticatedOnlineUsersRoute
@@ -292,6 +301,7 @@ export interface FileRouteTypes {
     | '/credentials'
     | '/devices'
     | '/email-tasks'
+    | '/feishu'
     | '/invitations'
     | '/networks'
     | '/online-users'
@@ -320,6 +330,7 @@ export interface FileRouteTypes {
     | '/credentials'
     | '/devices'
     | '/email-tasks'
+    | '/feishu'
     | '/invitations'
     | '/networks'
     | '/online-users'
@@ -350,6 +361,7 @@ export interface FileRouteTypes {
     | '/_authenticated/credentials'
     | '/_authenticated/devices'
     | '/_authenticated/email-tasks'
+    | '/_authenticated/feishu'
     | '/_authenticated/invitations'
     | '/_authenticated/networks'
     | '/_authenticated/online-users'
@@ -488,6 +500,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedEmailTasksRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/feishu': {
+      id: '/_authenticated/feishu'
+      path: '/feishu'
+      fullPath: '/feishu'
+      preLoaderRoute: typeof AuthenticatedFeishuRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/invitations': {
       id: '/_authenticated/invitations'
       path: '/invitations'
@@ -585,6 +604,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCredentialsRoute: typeof AuthenticatedCredentialsRoute
   AuthenticatedDevicesRoute: typeof AuthenticatedDevicesRoute
   AuthenticatedEmailTasksRoute: typeof AuthenticatedEmailTasksRoute
+  AuthenticatedFeishuRoute: typeof AuthenticatedFeishuRoute
   AuthenticatedInvitationsRoute: typeof AuthenticatedInvitationsRoute
   AuthenticatedNetworksRoute: typeof AuthenticatedNetworksRoute
   AuthenticatedOnlineUsersRoute: typeof AuthenticatedOnlineUsersRoute
@@ -610,6 +630,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCredentialsRoute: AuthenticatedCredentialsRoute,
   AuthenticatedDevicesRoute: AuthenticatedDevicesRoute,
   AuthenticatedEmailTasksRoute: AuthenticatedEmailTasksRoute,
+  AuthenticatedFeishuRoute: AuthenticatedFeishuRoute,
   AuthenticatedInvitationsRoute: AuthenticatedInvitationsRoute,
   AuthenticatedNetworksRoute: AuthenticatedNetworksRoute,
   AuthenticatedOnlineUsersRoute: AuthenticatedOnlineUsersRoute,

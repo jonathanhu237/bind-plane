@@ -102,13 +102,16 @@ export type Overview = {
   trend: TrendDay[]
 }
 
-export type WecomState = 'disabled' | 'connecting' | 'connected' | 'failed'
-export type WecomPage = {
+/** The chat platforms members release from. */
+export type ChatPlatform = 'wecom' | 'feishu'
+export type ChatBotState = 'disabled' | 'connecting' | 'connected' | 'failed'
+/** A chat bot's page: app_id is WeCom's bot ID or Feishu's App ID, address its long-connection address or open platform. */
+export type ChatBotPage = {
   settings: {
-    id: string; is_enabled: boolean; bot_id: string; has_secret: boolean; ws_url: string; version: number
-    state: WecomState; state_at: string | null; connected_at: string | null; last_error: string | null
+    id: string; is_enabled: boolean; app_id: string; has_secret: boolean; address: string; version: number
+    state: ChatBotState; state_at: string | null; connected_at: string | null; last_error: string | null
   }
-  accounts: { user_id: string; name: string; email: string; disabled: boolean; wecom_userid: string; created_at: string }[]
+  accounts: { user_id: string; name: string; email: string; disabled: boolean; external_id: string; created_at: string }[]
   users: { id: string; name: string; email: string }[]
 }
 

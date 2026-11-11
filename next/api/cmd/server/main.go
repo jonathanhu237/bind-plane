@@ -253,6 +253,10 @@ func run() int {
 	if err != nil {
 		log.Fatalf("WeCom bot configuration: %v", err)
 	}
+	feishuBot, err := release.NewFeishuBot(db, release.NewSQLStore(db), postgresStore, scheduleZone, cfg.PublicURL)
+	if err != nil {
+		log.Fatalf("Feishu bot configuration: %v", err)
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/ops/", opsHandler)
 	mux.Handle("/api/releases/admin/", assetsHandler)
@@ -270,7 +274,7 @@ func run() int {
 	dispatcherContext, cancelDispatcher := context.WithCancel(context.Background())
 	cleanupContext, cancelCleanup := context.WithCancel(context.Background())
 	var backgroundWorkers sync.WaitGroup
-	backgroundWorkers.Add(6)
+	backgroundWorkers.Add(7)
 	go func() {
 		defer backgroundWorkers.Done()
 		opsHandler.RunScheduler(cleanupContext)
@@ -278,6 +282,10 @@ func run() int {
 	go func() {
 		defer backgroundWorkers.Done()
 		wecomBot.Run(cleanupContext)
+	}()
+	go func() {
+		defer backgroundWorkers.Done()
+		feishuBot.Run(cleanupContext)
 	}()
 	go func() {
 		defer backgroundWorkers.Done()

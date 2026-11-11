@@ -163,7 +163,7 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 		_ = json.Unmarshal(w.Body.Bytes(), &out)
 		return out
 	}
-	settings := func() map[string]any { return call("GET", "/api/ops/wecom", "", 200)["settings"].(map[string]any) }
+	settings := func() map[string]any { return call("GET", "/api/ops/chat/wecom", "", 200)["settings"].(map[string]any) }
 	version := func() int { return int(settings()["version"].(float64)) }
 	waitState := func(state string) map[string]any {
 		t.Helper()
@@ -180,17 +180,17 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 	// is never shown again, and members are bound to users by their WeCom account.
 	server := newFakeWeCom(t)
 	defer server.server.Close()
-	if got := fmt.Sprint(call("PATCH", "/api/ops/wecom/settings", fmt.Sprintf(`{"version":%d,"is_enabled":true}`, version()), 422)); !strings.Contains(got, errWecomNotReady) {
+	if got := fmt.Sprint(call("PATCH", "/api/ops/chat/wecom/settings", fmt.Sprintf(`{"version":%d,"is_enabled":true}`, version()), 422)); !strings.Contains(got, errBotNotReady) {
 		t.Fatalf("turned on without credentials: %s", got)
 	}
-	call("PATCH", "/api/ops/wecom/settings", fmt.Sprintf(`{"version":%d,"ws_url":"http://example.test"}`, version()), 422)
-	call("PATCH", "/api/ops/wecom/settings", fmt.Sprintf(`{"version":%d,"bot_id":"bot-1","secret":"s3cret-value","ws_url":%q}`, version(), server.url()), 200)
+	call("PATCH", "/api/ops/chat/wecom/settings", fmt.Sprintf(`{"version":%d,"address":"http://example.test"}`, version()), 422)
+	call("PATCH", "/api/ops/chat/wecom/settings", fmt.Sprintf(`{"version":%d,"app_id":"bot-1","secret":"s3cret-value","address":%q}`, version(), server.url()), 200)
 	if s := settings(); s["has_secret"] != true || strings.Contains(fmt.Sprint(s), "s3cret") {
 		t.Fatalf("settings %v", s)
 	}
-	call("PUT", "/api/ops/wecom/accounts/"+operatorID, `{"wecom_userid":"bad id"}`, 422)
-	call("PUT", "/api/ops/wecom/accounts/"+operatorID, `{"wecom_userid":"zhang.san"}`, 200)
-	call("PUT", "/api/ops/wecom/accounts/"+adminID, `{"wecom_userid":"zhang.san"}`, 409)
+	call("PUT", "/api/ops/chat/wecom/accounts/"+operatorID, `{"external_id":"bad id"}`, 422)
+	call("PUT", "/api/ops/chat/wecom/accounts/"+operatorID, `{"external_id":"zhang.san"}`, 200)
+	call("PUT", "/api/ops/chat/wecom/accounts/"+adminID, `{"external_id":"zhang.san"}`, 409)
 	var audited int
 	if err = db.QueryRow(`SELECT count(*) FROM bp_asset_events WHERE action IN ('wecom.update','wecom.account') AND actor_id=$1`, adminID).Scan(&audited); err != nil || audited != 2 {
 		t.Fatalf("WeCom changes audited %d times: %v", audited, err)
@@ -205,7 +205,7 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go bot.Run(ctx)
-	call("PATCH", "/api/ops/wecom/settings", fmt.Sprintf(`{"version":%d,"is_enabled":true}`, version()), 200)
+	call("PATCH", "/api/ops/chat/wecom/settings", fmt.Sprintf(`{"version":%d,"is_enabled":true}`, version()), 200)
 
 	// It signs in with the bot's ID and secret.
 	subscribe := server.next(wecomSubscribe)
@@ -230,7 +230,7 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 		}
 	}
 	var started int
-	if err = db.QueryRow(`SELECT (SELECT count(*) FROM bp_release_jobs WHERE source='wecom') + (SELECT count(*) FROM bp_wecom_cards)`).Scan(&started); err != nil || started != 0 {
+	if err = db.QueryRow(`SELECT (SELECT count(*) FROM bp_release_jobs WHERE source='wecom') + (SELECT count(*) FROM bp_chat_cards WHERE platform='wecom')`).Scan(&started); err != nil || started != 0 {
 		t.Fatalf("%d jobs or cards started by text that was no command: %v", started, err)
 	}
 	// "查询" asks the switch: a lookup job, and what it found sent back to the chat. A static
@@ -254,7 +254,7 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 		t.Fatalf("lookup result %v", found)
 	}
 	server.ack(found, 0)
-	server.push(wecomClick("e00", "zhang.san", foundCard["task_id"].(string), wecomOffer))
+	server.push(wecomClick("e00", "zhang.san", foundCard["task_id"].(string), chatOffer))
 	if offered := frameBody(server.next(wecomUpdateCard))["template_card"].(map[string]any); len(offered["button_list"].([]any)) != 6 || offered["task_id"] != foundCard["task_id"] {
 		t.Fatalf("reasons offered %v", offered)
 	}
@@ -302,7 +302,7 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 		t.Fatalf("release with a reason %v", reply)
 	}
 	var direct string
-	if err = db.QueryRow(`SELECT j.reason FROM bp_release_jobs j JOIN bp_wecom_jobs w ON w.job_id=j.id WHERE j.target_ip='10.177.1.22' AND j.kind='release' AND j.source='wecom' AND j.actor_id=$1 AND w.chat_id='zhang.san'`, operatorID).Scan(&direct); err != nil || direct != "ip_mac_change" {
+	if err = db.QueryRow(`SELECT j.reason FROM bp_release_jobs j JOIN bp_chat_jobs w ON w.job_id=j.id WHERE j.target_ip='10.177.1.22' AND j.kind='release' AND j.source='wecom' AND j.actor_id=$1 AND w.chat_id='zhang.san'`, operatorID).Scan(&direct); err != nil || direct != "ip_mac_change" {
 		t.Fatalf("released with reason %q: %v", direct, err)
 	}
 	server.push(wecomText("m7", "single", "", "zhang.san", "解绑 10.177.1.22 临时测试"))
@@ -323,7 +323,7 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 		t.Helper()
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			var done bool
-			if db.QueryRow(`SELECT notified_at IS NOT NULL FROM bp_wecom_jobs WHERE job_id=$1`, id).Scan(&done) == nil && done {
+			if db.QueryRow(`SELECT notified_at IS NOT NULL FROM bp_chat_jobs WHERE job_id=$1`, id).Scan(&done) == nil && done {
 				return
 			}
 		}
@@ -337,7 +337,7 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
  FROM bp_switches s JOIN bp_command_profiles p ON p.id=s.command_profile_id WHERE s.id=$2 RETURNING id::text`, operatorID, switchID).Scan(&jobID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`INSERT INTO bp_wecom_jobs(job_id,wecom_userid,chat_type,chat_id) VALUES ($1,'zhang.san','single','zhang.san')`, jobID); err != nil {
+	if _, err = db.Exec(`INSERT INTO bp_chat_jobs(job_id,platform,owner_id,chat_type,chat_id) VALUES ($1,'wecom','zhang.san','single','zhang.san')`, jobID); err != nil {
 		t.Fatal(err)
 	}
 	result = server.next(wecomSend)
@@ -357,9 +357,9 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 	}
 
 	// Turning it off disconnects; WeCom refusing the secret is a failure with its reason.
-	call("PATCH", "/api/ops/wecom/settings", fmt.Sprintf(`{"version":%d,"is_enabled":false}`, version()), 200)
+	call("PATCH", "/api/ops/chat/wecom/settings", fmt.Sprintf(`{"version":%d,"is_enabled":false}`, version()), 200)
 	waitState("disabled")
-	call("PATCH", "/api/ops/wecom/settings", fmt.Sprintf(`{"version":%d,"is_enabled":true,"secret":"wrong"}`, version()), 200)
+	call("PATCH", "/api/ops/chat/wecom/settings", fmt.Sprintf(`{"version":%d,"is_enabled":true,"secret":"wrong"}`, version()), 200)
 	server.ack(server.next(wecomSubscribe), 40001)
 	if s := waitState("failed"); !strings.Contains(fmt.Sprint(s["last_error"]), "refused the bot ID or secret") {
 		t.Fatalf("refused %v", s)

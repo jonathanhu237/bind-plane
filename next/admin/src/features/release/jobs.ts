@@ -6,8 +6,8 @@ export type Job = {
   before_state?: { entry_type?: string; mac?: string }; after_state?: { entry_type?: string }
   result?: { message?: string; preparation_status?: string }; error_message?: string
   raw_before_output?: string; raw_release_output?: string; raw_after_output?: string
-  /** Where the release was started: the release console, or the WeCom bot. */
-  source?: 'console' | 'wecom'
+  /** Where the release was started: the release console, or the WeCom or Feishu bot. */
+  source?: 'console' | 'wecom' | 'feishu'
   actor_name?: string; actor_email?: string; retry_of_id?: string; preparation_job_id?: string; release_job_id?: string; next_release_id?: string; created_at?: string; started_at?: string; finished_at?: string
   events?: { phase: string; status: string; message?: string; created_at: string }[]
 }

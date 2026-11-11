@@ -33,12 +33,9 @@ const (
 	wecomReplacedEvt = "disconnected_event"
 )
 
-var (
-	errWecomSettingsChanged = errors.New("settings changed")
-	// Another connection with the same bot made WeCom drop this one; reconnecting would only take
-	// it back, so the bot waits for a change or a long pause.
-	errWecomReplaced = errors.New("another connection took over this bot; the sandbox and production each need their own bot")
-)
+// Another connection with the same bot made WeCom drop this one; reconnecting would only take it
+// back, so the bot waits for a change or a long pause.
+var errWecomReplaced = errors.New("another connection took over this bot; the sandbox and production each need their own bot")
 
 // wecomAuthError is WeCom refusing the bot ID or secret.
 type wecomAuthError struct {
@@ -130,26 +127,14 @@ func (c wecomCallback) chat() (kind, id string) {
 	return "single", c.From.UserID
 }
 
-type wecomSettings struct {
-	enabled            bool
-	botID, sealed, url string
-	version            int
-}
-
 // WeComBot keeps the bot's connection while admins have it turned on, and lets bound members
 // release addresses from a chat through the same store the release console uses.
 type WeComBot struct {
-	db         *sql.DB
-	key        []byte
-	store      Store
-	principals PrincipalFinder
-	loc        *time.Location
-	publicURL  string // where card notices lead: the release console
+	chatCore
+	key []byte
 
-	// How often the settings are checked, results sent and heartbeats beaten; tests shorten them.
-	SettingsEvery, NotifyEvery, HeartbeatEvery time.Duration
-	// How long a card's buttons stay usable.
-	CardTTL time.Duration
+	// How often heartbeats are beaten; tests change it.
+	HeartbeatEvery time.Duration
 
 	writeMu sync.Mutex
 	conn    *websocket.Conn
@@ -168,8 +153,7 @@ func NewWeComBot(db *sql.DB, store Store, principals PrincipalFinder, loc *time.
 	if err != nil {
 		return nil, err
 	}
-	return &WeComBot{db: db, key: key, store: store, principals: principals, loc: loc, publicURL: publicURL,
-		SettingsEvery: 5 * time.Second, NotifyEvery: 3 * time.Second, HeartbeatEvery: 30 * time.Second, CardTTL: 30 * time.Minute,
+	return &WeComBot{chatCore: newChatCore(db, store, principals, loc, publicURL), key: key, HeartbeatEvery: 30 * time.Second,
 		pending: map[string]wecomPending{}}, nil
 }
 
@@ -179,85 +163,19 @@ func wecomReqID(prefix string) string {
 	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().UnixMilli(), hex.EncodeToString(b))
 }
 
-func (b *WeComBot) loadSettings(ctx context.Context) (wecomSettings, error) {
-	var s wecomSettings
-	var sealed sql.NullString
-	err := b.db.QueryRowContext(ctx, `SELECT is_enabled,bot_id,encrypted_bot_secret,ws_url,version FROM bp_wecom_settings`).Scan(&s.enabled, &s.botID, &sealed, &s.url, &s.version)
-	s.sealed = sealed.String
-	return s, err
-}
-
-// setState records how the connection stands for the WeCom page; a failure keeps its reason.
-func (b *WeComBot) setState(ctx context.Context, state, reason string) {
-	if _, err := b.db.ExecContext(ctx, `UPDATE bp_wecom_settings SET state=$1,state_at=now(),last_error=NULLIF($2,''),
- connected_at=CASE WHEN $1='connected' THEN now() ELSE connected_at END WHERE state<>$1 OR last_error IS DISTINCT FROM NULLIF($2,'')`, state, reason); err != nil && ctx.Err() == nil {
-		log.Printf("wecom: record state: %v", err)
-	}
-}
-
-// Run keeps the bot connected while it is turned on, reconnecting after failures with growing
-// pauses, and reconnecting at once with new settings.
+// Run keeps the bot connected while it is turned on. WeCom refusing the secret, or another
+// connection taking the bot over, waits for new settings or a long pause.
 func (b *WeComBot) Run(ctx context.Context) {
-	backoff := time.Second
-	for ctx.Err() == nil {
-		s, err := b.loadSettings(ctx)
-		if err != nil {
-			if ctx.Err() == nil {
-				log.Printf("wecom: load settings: %v", err)
-			}
-			b.waitChange(ctx, -1, b.SettingsEvery)
-			continue
-		}
-		if !s.enabled {
-			b.setState(ctx, "disabled", "")
-			b.waitChange(ctx, s.version, 0)
-			continue
-		}
-		err = b.session(ctx, s)
-		if ctx.Err() != nil {
-			return
-		}
-		if errors.Is(err, errWecomSettingsChanged) {
-			backoff = time.Second
-			continue
-		}
-		b.setState(ctx, "failed", err.Error())
+	b.runBot(ctx, platformWeCom, b.session, func(err error) time.Duration {
 		var auth wecomAuthError
 		switch {
 		case errors.As(err, &auth):
-			b.waitChange(ctx, s.version, 5*time.Minute)
+			return 5 * time.Minute
 		case errors.Is(err, errWecomReplaced):
-			b.waitChange(ctx, s.version, 10*time.Minute)
-		default:
-			b.waitChange(ctx, s.version, backoff)
-			backoff = min(backoff*2, time.Minute)
+			return 10 * time.Minute
 		}
-	}
-}
-
-// waitChange returns once the settings version differs from version, after limit (0 waits for
-// the change alone), or when ctx ends.
-func (b *WeComBot) waitChange(ctx context.Context, version int, limit time.Duration) {
-	var deadline <-chan time.Time
-	if limit > 0 {
-		timer := time.NewTimer(limit)
-		defer timer.Stop()
-		deadline = timer.C
-	}
-	tick := time.NewTicker(b.SettingsEvery)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-deadline:
-			return
-		case <-tick.C:
-			if s, err := b.loadSettings(ctx); err == nil && s.version != version {
-				return
-			}
-		}
-	}
+		return 0
+	})
 }
 
 func (b *WeComBot) send(ctx context.Context, cmd, reqID string, body any) error {
@@ -276,14 +194,14 @@ func (b *WeComBot) send(ctx context.Context, cmd, reqID string, body any) error 
 }
 
 // session signs in with s and serves the connection until it fails, the settings change or ctx ends.
-func (b *WeComBot) session(ctx context.Context, s wecomSettings) error {
+func (b *WeComBot) session(ctx context.Context, s botSettings) error {
 	secret, err := openLabelled(b.key, wecomSecretAAD, s.sealed)
 	if err != nil {
 		return errors.New("the stored secret cannot be decrypted; enter it again")
 	}
-	b.setState(ctx, "connecting", "")
+	b.setState(ctx, platformWeCom, "connecting", "")
 	dialCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	conn, _, err := websocket.Dial(dialCtx, s.url, wecomDial)
+	conn, _, err := websocket.Dial(dialCtx, s.address, wecomDial)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("cannot reach WeCom: %v", err)
@@ -320,7 +238,7 @@ func (b *WeComBot) session(ctx context.Context, s wecomSettings) error {
 			}
 		}
 	}()
-	if err = b.send(sessCtx, wecomSubscribe, wecomReqID(wecomSubscribe), map[string]string{"bot_id": s.botID, "secret": secret}); err != nil {
+	if err = b.send(sessCtx, wecomSubscribe, wecomReqID(wecomSubscribe), map[string]string{"bot_id": s.appID, "secret": secret}); err != nil {
 		return fmt.Errorf("cannot reach WeCom: %v", err)
 	}
 	signIn := time.NewTimer(15 * time.Second)
@@ -349,7 +267,7 @@ func (b *WeComBot) session(ctx context.Context, s wecomSettings) error {
 					return wecomAuthError{code: *frame.ErrCode, message: frame.ErrMsg}
 				}
 				signedIn = true
-				b.setState(ctx, "connected", "")
+				b.setState(ctx, platformWeCom, "connected", "")
 			case frame.Cmd == "" && strings.HasPrefix(reqID, wecomPing):
 				missed = 0
 			case frame.Cmd == "":
@@ -376,9 +294,9 @@ func (b *WeComBot) session(ctx context.Context, s wecomSettings) error {
 				return fmt.Errorf("WeCom closed the connection: %v", err)
 			}
 		case <-settings.C:
-			if now, err := b.loadSettings(ctx); err == nil && now.version != s.version {
+			if b.settingsChanged(ctx, platformWeCom, s.version) {
 				conn.Close(websocket.StatusNormalClosure, "settings changed")
-				return errWecomSettingsChanged
+				return errBotSettingsChanged
 			}
 		case <-notify.C:
 			if signedIn {
@@ -399,8 +317,6 @@ func (b *WeComBot) acknowledged(ctx context.Context, frame wecomFrame) {
 		return
 	}
 	if ok {
-		if _, err := b.db.ExecContext(ctx, `UPDATE bp_wecom_jobs SET notified_at=now() WHERE job_id=$1`, sent.jobID); err != nil && ctx.Err() == nil {
-			log.Printf("wecom: record result sent: %v", err)
-		}
+		b.delivered(ctx, sent.jobID)
 	}
 }

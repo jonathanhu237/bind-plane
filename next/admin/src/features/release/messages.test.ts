@@ -38,4 +38,11 @@ describe('server texts', () => {
     expect(serverText('cannot reach WeCom: dial tcp: i/o timeout', true)).toBe('连不上企业微信：dial tcp: i/o timeout。请确认服务器能访问长连接地址。')
     expect(serverText('another connection took over this bot; the sandbox and production each need their own bot', true)).toContain('沙箱和生产环境要各用一个机器人')
   })
+
+  it('words why the Feishu bot is not connected', () => {
+    expect(serverText('Feishu refused the App ID or secret (code 1000040346: )', true)).toBe('飞书拒绝了 App ID 或 App Secret（错误码 1000040346），请核对后重新填写。')
+    expect(serverText('Feishu refused the App ID or secret (code 10014: app secret invalid)', false)).toBe('Feishu refused the App ID or secret (error 10014: app secret invalid). Check them and enter them again.')
+    expect(serverText('cannot reach Feishu: HTTP 502', true)).toBe('连不上飞书：HTTP 502。请确认服务器能访问开放平台地址。')
+    expect(serverText('Feishu stopped answering the heartbeat', true)).toBe('飞书不再回应心跳。')
+  })
 })

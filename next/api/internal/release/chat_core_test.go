@@ -7,7 +7,7 @@ import (
 
 // The bot acts only on a command: the verb first, then one address and, to release at once, a
 // reason from the list. Anything else is explained, never guessed at.
-func TestParseWecomCommandIsStrict(t *testing.T) {
+func TestParseChatCommandIsStrict(t *testing.T) {
 	for _, tc := range []struct{ text, verb, ip, reason, problem string }{
 		{text: "", verb: "help"},
 		{text: "@Bind Plane", verb: "help"},
@@ -41,26 +41,26 @@ func TestParseWecomCommandIsStrict(t *testing.T) {
 		{text: "解绑 10.20.30.40 随便", problem: "不是可用的原因"},
 		{text: "查询 10.20.30.40 临时测试", problem: "查询只需要一个地址"},
 	} {
-		got := parseWecomCommand(tc.text)
+		got := parseChatCommand(tc.text)
 		if tc.problem != "" {
 			if !strings.Contains(got.problem, tc.problem) || got.verb != "" || got.ip != "" {
 				t.Errorf("%q: %+v, want a problem about %q", tc.text, got, tc.problem)
 			}
 			continue
 		}
-		if got != (wecomCommand{verb: tc.verb, ip: tc.ip, reason: tc.reason}) {
+		if got != (chatCommand{verb: tc.verb, ip: tc.ip, reason: tc.reason}) {
 			t.Errorf("%q: %+v, want %s %s %s", tc.text, got, tc.verb, tc.ip, tc.reason)
 		}
 	}
 }
 
 // Every reason the bot accepts is one the console offers, and the help lists them all.
-func TestWecomReasonsMatchTheHelp(t *testing.T) {
-	for _, reason := range wecomReasons {
-		if wecomReasonCode(reason.label) != reason.code || wecomReasonCode(reason.code) != reason.code {
+func TestChatReasonsMatchTheHelp(t *testing.T) {
+	for _, reason := range chatReasons {
+		if chatReasonCode(reason.label) != reason.code || chatReasonCode(reason.code) != reason.code {
 			t.Errorf("reason %s not accepted by name or code", reason.code)
 		}
-		if !strings.Contains(strings.ReplaceAll(wecomHelp, " ", ""), strings.ReplaceAll(reason.label, " ", "")) {
+		if !strings.Contains(strings.ReplaceAll(chatHelp, " ", ""), strings.ReplaceAll(reason.label, " ", "")) {
 			t.Errorf("help does not list %s", reason.label)
 		}
 	}

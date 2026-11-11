@@ -25,6 +25,9 @@ func configCipher(key []byte) (cipher.AEAD, error) {
 // sealed under the same key.
 const wecomSecretAAD = "bind-plane wecom secret v1"
 
+// feishuSecretAAD does the same for the Feishu app's secret.
+const feishuSecretAAD = "bind-plane feishu secret v1"
+
 func sealConfig(key []byte, plaintext string) (string, error) {
 	return sealLabelled(key, configBackupAAD, plaintext)
 }
