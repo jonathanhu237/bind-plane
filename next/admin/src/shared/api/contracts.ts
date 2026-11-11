@@ -9,6 +9,7 @@ export const userSchema = z
     avatarUrl: z.string().optional(),
     hasAvatar: z.boolean().default(false),
     avatarVersion: z.number().int().nonnegative().optional(),
+    passwordChangeRequired: z.boolean().optional(),
     roles: z.array(z.lazy(() => roleSchema)).optional(),
     permissions: z.array(z.string()).optional(),
     superAdmin: z.boolean().optional(),
@@ -50,7 +51,7 @@ export type PermissionCombination = { key: string; labelKey: string; description
 export type RoleOption = z.infer<typeof roleOptionSchema>
 
 export const principalEnvelopeSchema = z.object({
-  user: z.object({ id: z.string().uuid(), name: z.string(), email: z.string(), locale: z.enum(['en', 'zh-CN']).optional(), avatarUrl: z.string().optional(), hasAvatar: z.boolean().default(false), avatarVersion: z.number().int().nonnegative().optional() }).strict(),
+  user: z.object({ id: z.string().uuid(), name: z.string(), email: z.string(), locale: z.enum(['en', 'zh-CN']).optional(), avatarUrl: z.string().optional(), hasAvatar: z.boolean().default(false), avatarVersion: z.number().int().nonnegative().optional(), passwordChangeRequired: z.boolean().optional() }).strict(),
   roles: z.array(roleSchema),
   permissions: z.array(z.string()),
   superAdmin: z.boolean(),
@@ -81,6 +82,7 @@ export const accessUserSchema = z.object({
   authVersion: z.number().int().positive(),
   disabled: z.boolean().default(false),
   roles: z.array(roleSchema),
+  passwordChangeRequired: z.boolean().optional(),
 }).strict()
 
 export const usersResponseSchema = z.object({ users: z.array(accessUserSchema), nextCursor: z.string().optional() }).strict()
@@ -141,6 +143,7 @@ export const roleMutationInputSchema = z.object({
 }).strict()
 export const assignmentInputSchema = z.object({ roleIds: z.array(z.string().uuid()), authVersion: z.number().int().positive() }).strict()
 export const invitationInputSchema = z.object({ name: z.string(), email: z.string(), roleIds: z.array(z.string().uuid()) }).strict()
+export const createUserInputSchema = z.object({ name: z.string(), email: z.string(), password: z.string(), roleIds: z.array(z.string().uuid()), requirePasswordChange: z.boolean() }).strict()
 export const invitationAcceptanceInputSchema = z.object({ token: z.string(), password: z.string() }).strict()
 
 export const emailSettingsSchema = z.object({

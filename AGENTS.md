@@ -41,7 +41,7 @@ Start with two roles:
 - `operator`: can run the normal release workflow.
 - `admin`: can also manage users, switch assets, credentials, command profiles, imports, and audit logs.
 
-Accounts are created by admins. Do not implement open registration. Do not integrate SSO for MVP.
+Accounts are created by admins: by an emailed invitation, or directly with an initial password the admin hands over (generated or typed, shown once). A directly created account must replace that password at its first sign-in unless the admin unticks it for a shared account; until then it can only change the password or sign out. Do not implement open registration. Do not integrate SSO for MVP.
 
 ## Normal Workflow
 

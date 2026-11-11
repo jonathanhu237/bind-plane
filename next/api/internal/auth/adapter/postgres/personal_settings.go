@@ -126,7 +126,7 @@ func (s *Store) ChangePassword(ctx context.Context, userID string, expectedAuthV
 	var changedAt time.Time
 	if err := tx.QueryRowContext(operationCtx, `
 		UPDATE auth_users
-		SET password_hash = $2, auth_version = auth_version + 1
+		SET password_hash = $2, auth_version = auth_version + 1, password_change_required = false
 		WHERE id = $1::uuid AND auth_version < 9223372036854775807
 		RETURNING id::text, name, email, clock_timestamp(), created_at, COALESCE(locale, ''),
 			EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = auth_users.id),

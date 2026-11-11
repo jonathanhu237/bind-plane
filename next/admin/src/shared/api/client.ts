@@ -7,6 +7,7 @@ import {
 	assignmentInputSchema,
 	invitationAcceptanceInputSchema,
 	invitationInputSchema,
+	createUserInputSchema,
 	invitationsResponseSchema,
 	invitationResponseSchema,
 	passwordResetAcceptedSchema,
@@ -113,6 +114,7 @@ export interface ApiClient {
 	deleteUser?(id: string, authVersion: number, signal?: AbortSignal): Promise<void>
 	getInvitations?(options?: { cursor?: string; limit?: number; q?: string; roleId?: string; status?: 'pending' | 'expired'; sort?: string; direction?: 'asc' | 'desc' }, signal?: AbortSignal): Promise<{ invitations: Invitation[]; nextCursor?: string }>
 	createInvitation?(input: { name: string; email: string; roleIds: string[] }, signal?: AbortSignal): Promise<{ invitation: Invitation }>
+	createUser?(input: { name: string; email: string; password: string; roleIds: string[]; requirePasswordChange: boolean }, signal?: AbortSignal): Promise<{ user: AccessUser }>
 	resendInvitation?(id: string, signal?: AbortSignal): Promise<{ invitation: Invitation }>
 	revokeInvitation?(id: string, signal?: AbortSignal): Promise<void>
 	acceptInvitation?(input: { token: string; password: string }, signal?: AbortSignal): Promise<void>
@@ -266,6 +268,7 @@ export function createApiClient(): ApiClient {
 			return request(`/api/user-invitations${query.size ? `?${query.toString()}` : ''}`, invitationsResponseSchema, { signal, expectedStatus: 200 })
 		},
 		createInvitation: async (input, signal) => request('/api/user-invitations', invitationResponseSchema, { method: 'POST', body: invitationInputSchema.parse(input), signal, expectedStatus: 201 }),
+		createUser: async (input, signal) => request('/api/users', userRoleResponseSchema, { method: 'POST', body: createUserInputSchema.parse(input), signal, expectedStatus: 201 }),
 		resendInvitation: async (id, signal) => request(`/api/user-invitations/${encodeURIComponent(id)}/resend`, invitationResponseSchema, { method: 'POST', signal, expectedStatus: 202 }),
 		revokeInvitation: async (id, signal) => { await request(`/api/user-invitations/${encodeURIComponent(id)}`, { parse: (value: unknown) => value as undefined }, { method: 'DELETE', signal, expectedStatus: 204 }) },
 		acceptInvitation: async (input, signal) => { await request('/api/auth/invitations/accept', { parse: (value: unknown) => value as undefined }, { method: 'POST', body: invitationAcceptanceInputSchema.parse(input), signal, expectedStatus: 204 }) },

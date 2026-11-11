@@ -144,8 +144,11 @@ func (h *Handler) personalPasswordUpdate(w http.ResponseWriter, r *http.Request)
 	if h.operationOriginFailure(w, r, action, "password") {
 		return
 	}
-	principal, ok := h.operationPrincipal(w, r, action, "password", "")
-	if !ok {
+	// An account still on its initial password may change it: that is all it may do.
+	principal, err := h.principalAllowingPasswordChange(r, true)
+	if err != nil {
+		h.recordOperation(r, unverifiedFailure(action, "password", "", "", err))
+		writeApplicationError(w, err)
 		return
 	}
 	var input personalPasswordInput

@@ -52,7 +52,8 @@ function isPasswordSpecial(codePoint: number): boolean {
   )
 }
 
-function validatePassword(value: string, ctx: z.RefinementCtx): void {
+/** Whether a new password follows the rules the API applies: 8 to 128 characters with an uppercase and a lowercase letter, a digit and a special character. */
+export function passwordMeetsRules(value: string): boolean {
   const normalized = normalizePassword(value)
   const characters = Array.from(normalized)
   let hasUppercase = false
@@ -66,17 +67,21 @@ function validatePassword(value: string, ctx: z.RefinementCtx): void {
     hasDigit ||= codePoint >= 0x30 && codePoint <= 0x39
     hasSpecial ||= isPasswordSpecial(codePoint)
   }
-  if (characters.length < 8 || characters.length > 128 || !hasUppercase || !hasLowercase || !hasDigit || !hasSpecial) {
-    addIssue(ctx, ['password'], 'invalid_password')
+  return characters.length >= 8 && characters.length <= 128 && hasUppercase && hasLowercase && hasDigit && hasSpecial
+}
+
+function validatePassword(value: string, ctx: z.RefinementCtx, path: string[] = ['password']): void {
+  if (!passwordMeetsRules(value)) {
+    addIssue(ctx, path, 'invalid_password')
   }
 }
 
-function validateLoginPassword(value: string, ctx: z.RefinementCtx): void {
+function validateLoginPassword(value: string, ctx: z.RefinementCtx, path: string[] = ['password']): void {
   const length = Array.from(normalizePassword(value)).length
   if (length === 0) {
-    addIssue(ctx, ['password'], 'login_password_required')
+    addIssue(ctx, path, 'login_password_required')
   } else if (length > 128) {
-    addIssue(ctx, ['password'], 'login_password_too_long')
+    addIssue(ctx, path, 'login_password_too_long')
   }
 }
 
@@ -131,6 +136,19 @@ export const passwordResetFormSchema = z
   })
 
 export type PasswordResetFormValues = z.infer<typeof passwordResetFormSchema>
+
+/** Replacing the initial password an administrator set: the old one, then a new one twice. */
+export const forcedPasswordChangeFormSchema = z
+  .object({ currentPassword: z.string(), newPassword: z.string(), confirmPassword: z.string() })
+  .superRefine((value, ctx) => {
+    validateLoginPassword(value.currentPassword, ctx, ['currentPassword'])
+    validatePassword(value.newPassword, ctx, ['newPassword'])
+    if (normalizePassword(value.newPassword) !== normalizePassword(value.confirmPassword)) {
+      addIssue(ctx, ['confirmPassword'], 'password_mismatch')
+    }
+  })
+
+export type ForcedPasswordChangeFormValues = z.infer<typeof forcedPasswordChangeFormSchema>
 
 export function normalizeSetupValues(values: SetupFormValues): { name: string; email: string; password: string } {
   return {

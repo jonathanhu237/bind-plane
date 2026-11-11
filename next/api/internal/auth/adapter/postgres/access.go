@@ -17,8 +17,8 @@ import (
 func (s *Store) FindPrincipalByID(ctx context.Context, id string) (domain.Principal, error) {
 	var principal domain.Principal
 	var authVersion int64
-	err := s.db.QueryRowContext(ctx, `SELECT id::text, name, email, created_at, auth_version, COALESCE(locale, ''), EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = auth_users.id), COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id = auth_users.id), 0) FROM auth_users WHERE id = $1::uuid AND disabled_at IS NULL`, id).
-		Scan(&principal.User.ID, &principal.User.Name, &principal.User.Email, &principal.User.CreatedAt, &authVersion, &principal.User.Locale, &principal.User.HasAvatar, &principal.User.AvatarVersion)
+	err := s.db.QueryRowContext(ctx, `SELECT id::text, name, email, created_at, auth_version, COALESCE(locale, ''), EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = auth_users.id), COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id = auth_users.id), 0), password_change_required FROM auth_users WHERE id = $1::uuid AND disabled_at IS NULL`, id).
+		Scan(&principal.User.ID, &principal.User.Name, &principal.User.Email, &principal.User.CreatedAt, &authVersion, &principal.User.Locale, &principal.User.HasAvatar, &principal.User.AvatarVersion, &principal.User.PasswordChangeRequired)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Principal{}, application.ErrAccountNotFound
@@ -456,7 +456,7 @@ func (s *Store) ListUsers(ctx context.Context, cursor string, limit int) (applic
 func (s *Store) FindAccessUser(ctx context.Context, id string) (domain.AccessUser, error) {
 	page, err := scanUsers(ctx, s.db, `
 		SELECT u.id::text, u.name, u.email, u.created_at, u.auth_version, (u.disabled_at IS NOT NULL), COALESCE(u.locale, ''),
-		       EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = u.id), COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id = u.id), 0),
+		       EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = u.id), COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id = u.id), 0), u.password_change_required,
 		       COALESCE(r.id::text, ''), COALESCE(r.system_key, ''), COALESCE(r.name, ''), COALESCE(r.description, ''), COALESCE(r.revision, 0),
 		       COALESCE(rp.permission_key, '')
 		FROM auth_users AS u
@@ -518,14 +518,14 @@ func (s *Store) listUsersWithOptions(ctx context.Context, options application.Ac
 	}
 	query := fmt.Sprintf(`
 		WITH selected_users AS (
-			SELECT u.id, u.name, u.email, u.email_canonical, u.created_at, u.auth_version, u.disabled_at, u.locale
+			SELECT u.id, u.name, u.email, u.email_canonical, u.created_at, u.auth_version, u.disabled_at, u.locale, u.password_change_required
 			FROM auth_users AS u
 			WHERE %s
 			ORDER BY %s
 			LIMIT $%d
 		)
 		SELECT u.id::text, u.name, u.email, u.created_at, u.auth_version, (u.disabled_at IS NOT NULL), COALESCE(u.locale, ''),
-		       EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = u.id), COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id = u.id), 0),
+		       EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = u.id), COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id = u.id), 0), u.password_change_required,
 		       COALESCE(r.id::text, ''), COALESCE(r.system_key, ''), COALESCE(r.name, ''), COALESCE(r.description, ''), COALESCE(r.revision, 0),
 		       COALESCE(rp.permission_key, '')
 		FROM selected_users AS u
@@ -566,7 +566,7 @@ func scanUsers(ctx context.Context, db interface {
 		var user domain.AccessUser
 		var role domain.Role
 		var permission string
-		if err := rows.Scan(&user.User.ID, &user.User.Name, &user.User.Email, &user.User.CreatedAt, &user.AuthVersion, &user.User.Disabled, &user.User.Locale, &user.User.HasAvatar, &user.User.AvatarVersion, &role.ID, &role.SystemKey, &role.Name, &role.Description, &role.Revision, &permission); err != nil {
+		if err := rows.Scan(&user.User.ID, &user.User.Name, &user.User.Email, &user.User.CreatedAt, &user.AuthVersion, &user.User.Disabled, &user.User.Locale, &user.User.HasAvatar, &user.User.AvatarVersion, &user.User.PasswordChangeRequired, &role.ID, &role.SystemKey, &role.Name, &role.Description, &role.Revision, &permission); err != nil {
 			return application.UserPage{}, err
 		}
 		current := users[user.User.ID]
@@ -747,7 +747,7 @@ func (s *Store) replaceUserRoles(ctx context.Context, actorID, userID string, au
 		}
 	}
 	var user domain.AccessUser
-	if err := tx.QueryRowContext(ctx, `SELECT id::text, name, email, created_at, auth_version, disabled_at IS NOT NULL, COALESCE(locale, ''), EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = auth_users.id), COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id = auth_users.id), 0) FROM auth_users WHERE id = $1::uuid`, userID).Scan(&user.User.ID, &user.User.Name, &user.User.Email, &user.User.CreatedAt, &user.AuthVersion, &user.User.Disabled, &user.User.Locale, &user.User.HasAvatar, &user.User.AvatarVersion); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT id::text, name, email, created_at, auth_version, disabled_at IS NOT NULL, COALESCE(locale, ''), EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id = auth_users.id), COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id = auth_users.id), 0), password_change_required FROM auth_users WHERE id = $1::uuid`, userID).Scan(&user.User.ID, &user.User.Name, &user.User.Email, &user.User.CreatedAt, &user.AuthVersion, &user.User.Disabled, &user.User.Locale, &user.User.HasAvatar, &user.User.AvatarVersion, &user.User.PasswordChangeRequired); err != nil {
 		return domain.AccessUser{}, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT r.id::text, COALESCE(r.system_key, ''), r.name, r.description, r.revision, COALESCE(rp.permission_key, '') FROM auth_user_roles ur JOIN auth_roles r ON r.id = ur.role_id LEFT JOIN auth_role_permissions rp ON rp.role_id = r.id WHERE ur.user_id = $1::uuid ORDER BY (r.system_key IS NULL), r.name_canonical, r.id, rp.permission_key`, userID)
@@ -1676,4 +1676,79 @@ func (s *Store) CompleteInvitationWithLocale(ctx context.Context, selector, dige
 		return err
 	}
 	return tx.Commit()
+}
+
+// CreateUser creates an account an administrator set up directly, with its roles, in one
+// transaction. Like an invitation it serializes the email across accounts and pending
+// invitations, and with an actor it rechecks their authority and every granted role while the
+// rows are locked. The locale stays unset until the first sign-in sets it.
+func (s *Store) CreateUser(ctx context.Context, actorID string, user application.NewUser) (domain.AccessUser, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.AccessUser{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(lower($1), 0))`, user.Email.Canonical); err != nil {
+		return domain.AccessUser{}, err
+	}
+	var active, pending bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM auth_users WHERE email_canonical = $1), EXISTS (SELECT 1 FROM auth_user_invitations WHERE email_canonical = $1)`, user.Email.Canonical).Scan(&active, &pending); err != nil {
+		return domain.AccessUser{}, err
+	}
+	if active {
+		return domain.AccessUser{}, application.ErrEmailAlreadyRegistered
+	}
+	if pending {
+		return domain.AccessUser{}, application.ErrInvitationPending
+	}
+	if actorID != "" {
+		actorSuper, actorPermissions, scopeErr := lockActorForRoleMutation(ctx, tx, actorID, user.RoleIDs...)
+		if scopeErr != nil {
+			return domain.AccessUser{}, scopeErr
+		}
+		if !actorSuper && (!actorPermissions[domain.PermissionUsersWrite] || !actorPermissions[domain.PermissionRolesRead]) {
+			return domain.AccessUser{}, application.ErrForbidden
+		}
+		if !actorSuper {
+			for _, roleID := range user.RoleIDs {
+				systemKey, permissions, roleErr := rolePermissionsTx(ctx, tx, roleID)
+				if roleErr != nil {
+					return domain.AccessUser{}, roleErr
+				}
+				if systemKey != "" || !permissionSetContains(actorPermissions, permissions) {
+					return domain.AccessUser{}, application.ErrPermissionScope
+				}
+			}
+		}
+	} else if err := lockRoles(ctx, tx, user.RoleIDs); err != nil {
+		return domain.AccessUser{}, err
+	}
+	var userID string
+	if err := tx.QueryRowContext(ctx, `INSERT INTO auth_users (name, email, email_canonical, password_hash, password_change_required) VALUES ($1, $2, $3, $4, $5) RETURNING id::text`,
+		user.Name, user.Email.Display, user.Email.Canonical, user.PasswordHash, user.RequirePasswordChange).Scan(&userID); err != nil {
+		if isUniqueViolation(err) {
+			return domain.AccessUser{}, application.ErrEmailAlreadyRegistered
+		}
+		return domain.AccessUser{}, err
+	}
+	for _, roleID := range user.RoleIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO auth_user_roles (user_id, role_id) VALUES ($1::uuid, $2::uuid)`, userID, roleID); err != nil {
+			return domain.AccessUser{}, err
+		}
+	}
+	page, err := scanUsers(ctx, tx, `SELECT u.id::text,u.name,u.email,u.created_at,u.auth_version,u.disabled_at IS NOT NULL,COALESCE(u.locale,''),
+		EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id=u.id),COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id=u.id),0),u.password_change_required,
+		COALESCE(r.id::text,''),COALESCE(r.system_key,''),COALESCE(r.name,''),COALESCE(r.description,''),COALESCE(r.revision,0),COALESCE(rp.permission_key,'')
+		FROM auth_users u LEFT JOIN auth_user_roles ur ON ur.user_id=u.id LEFT JOIN auth_roles r ON r.id=ur.role_id LEFT JOIN auth_role_permissions rp ON rp.role_id=r.id
+		WHERE u.id=$1::uuid ORDER BY (r.system_key IS NULL), r.name_canonical, r.id, rp.permission_key`, userID)
+	if err != nil {
+		return domain.AccessUser{}, err
+	}
+	if len(page.Items) != 1 {
+		return domain.AccessUser{}, application.ErrUserNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.AccessUser{}, err
+	}
+	return page.Items[0], nil
 }

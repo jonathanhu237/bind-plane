@@ -141,7 +141,7 @@ func (s *Store) CompletePasswordReset(ctx context.Context, selector, verifierDig
 	var changedAt time.Time
 	if err := tx.QueryRowContext(ctx, `
 		UPDATE auth_users
-		SET password_hash = $2, auth_version = auth_version + 1
+		SET password_hash = $2, auth_version = auth_version + 1, password_change_required = false
 		WHERE id = $1::uuid AND auth_version < 9223372036854775807
 		RETURNING clock_timestamp()`, userID, passwordHash).Scan(&changedAt); err != nil {
 		if err == sql.ErrNoRows {

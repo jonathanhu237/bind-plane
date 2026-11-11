@@ -391,6 +391,8 @@ func operationErrorCode(err error) string {
 		return ""
 	case errors.Is(err, application.ErrAccountDisabled):
 		return "account_disabled"
+	case errors.Is(err, application.ErrPasswordChangeRequired):
+		return "password_change_required"
 	case errors.Is(err, application.ErrSelfUserOperation):
 		return "self_user_operation"
 	case errors.Is(err, application.ErrLastSuperAdmin):
@@ -494,7 +496,7 @@ func accessUserSnapshot(user domain.AccessUser) map[string]any {
 	for _, role := range user.Roles {
 		roles = append(roles, roleSnapshot(role))
 	}
-	return map[string]any{"id": user.User.ID, "name": user.User.Name, "email": user.User.Email, "roleIds": roleIDs(user.Roles), "roles": roles, "authVersion": user.AuthVersion, "disabled": user.User.Disabled}
+	return map[string]any{"id": user.User.ID, "name": user.User.Name, "email": user.User.Email, "roleIds": roleIDs(user.Roles), "roles": roles, "authVersion": user.AuthVersion, "disabled": user.User.Disabled, "passwordChangeRequired": user.User.PasswordChangeRequired}
 }
 
 func invitationSnapshot(invitation domain.Invitation) map[string]any {

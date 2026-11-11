@@ -9,6 +9,7 @@ var (
 	ErrInvalidCredentials            = errors.New("invalid credentials")
 	ErrUnauthenticated               = errors.New("unauthenticated")
 	ErrAccountDisabled               = errors.New("account disabled")
+	ErrPasswordChangeRequired        = errors.New("password change required")
 	ErrSelfUserOperation             = errors.New("cannot deactivate or delete own account")
 	ErrRateLimited                   = errors.New("rate limited")
 	ErrDependencyUnavailable         = errors.New("dependency unavailable")

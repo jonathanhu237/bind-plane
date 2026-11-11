@@ -28,7 +28,7 @@ type Filters = {
 
 const knownActions = [
   'auth.login', 'auth.logout', 'auth.password_reset.request', 'auth.password_reset.complete', 'auth.invitation.accept', 'auth.setup.complete',
-  'roles.create', 'roles.update', 'roles.delete', 'users.roles.update', 'users.sessions.revoke', 'users.deactivate', 'users.reactivate', 'users.delete', 'invitations.create', 'invitations.resend', 'invitations.revoke',
+  'roles.create', 'roles.update', 'roles.delete', 'users.roles.update', 'users.sessions.revoke', 'users.deactivate', 'users.reactivate', 'users.delete', 'users.create', 'invitations.create', 'invitations.resend', 'invitations.revoke',
   'settings.email.update', 'settings.email.test', 'settings.operation_log_retention.update',
   'mail_tasks.retry', 'mail_tasks.delete', 'mail_tasks.bulk_retry', 'mail_tasks.bulk_delete',
   'auth.profile.name.update', 'auth.profile.avatar.update', 'auth.profile.avatar.delete', 'auth.profile.password.update', 'auth.profile.email.request', 'auth.profile.email.resend', 'auth.profile.email.update',

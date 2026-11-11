@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, OnChangeFn, SortingState } from '@tanstack/react-table'
-import { Mail, MoreHorizontal, Pencil, Save, UserRoundCheck, UserRoundX, Trash2 } from 'lucide-react'
+import { Mail, MoreHorizontal, Pencil, Save, UserPlus, UserRoundCheck, UserRoundX, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ import { PageNavigation, RoleBadges, canAssignRole, formatDate, type AccessUser 
 import { usersOptions } from './queries'
 import { notifyRequestError, notifySuccess, readFailureFeedback, useRequestErrorToast } from '@/shared/feedback'
 import { UserAvatar } from '@/features/auth/user-avatar'
+import { CreateUserForm } from './create-user-dialog'
 
 export function UsersPage({ api, canManage, actorPermissions, actorSuperAdmin = false, actorID }: { api: ApiClient; canManage: boolean; actorPermissions?: string[]; actorSuperAdmin?: boolean; actorID?: string }) {
   const canAssign = canManage && (actorSuperAdmin || actorPermissions === undefined || actorPermissions.includes('roles.read'))
@@ -43,6 +44,8 @@ export function UsersPage({ api, canManage, actorPermissions, actorSuperAdmin = 
   useRequestErrorToast(users.error, users.isError, t, readFailureFeedback(users.error, { unavailableTitle: t('unavailableTitle'), unavailableDescription: t('unavailableDescription'), forbiddenTitle: t('forbiddenTitle'), forbiddenDescription: t('forbiddenDescription') }))
   useRequestErrorToast(roleAdministration.error, roleAdministration.isError && canAssign, t, readFailureFeedback(roleAdministration.error, { unavailableTitle: t('unavailableTitle'), unavailableDescription: t('unavailableDescription'), forbiddenTitle: t('forbiddenTitle'), forbiddenDescription: t('forbiddenDescription') }))
   const [assignmentOpen, setAssignmentOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createGeneration, setCreateGeneration] = useState(0)
   const [deleteEmail, setDeleteEmail] = useState('')
   const [lifecycleTarget, setLifecycleTarget] = useState<{ user: AccessUser; action: 'deactivate' | 'reactivate' | 'delete' }>()
   const [assignmentUser, setAssignmentUser] = useState<AccessUser | undefined>()
@@ -60,6 +63,8 @@ export function UsersPage({ api, canManage, actorPermissions, actorSuperAdmin = 
   const usersForbidden = users.isError && isForbidden(users.error)
   const roleAdministrationForbidden = canAssign && roleAdministration.isError && isForbidden(roleAdministration.error)
   const roleList = roleAdministrationForbidden ? [] : roleAdministration.data?.roles ?? []
+  const canCreate = canAssign && !roleAdministrationForbidden && Boolean(api.createUser)
+  const assignableRoleIDs = new Set(roleList.filter((role) => canAssignRole(role, actorPermissions, actorSuperAdmin)).map((role) => role.id))
   const activeAssignmentUser = assignmentUser ? users.data?.users.find((item) => item.id === assignmentUser.id) ?? assignmentUser : undefined
   const openAssignment = (user: AccessUser) => {
     const next = assignmentGenerationRef.current + 1
@@ -100,7 +105,7 @@ export function UsersPage({ api, canManage, actorPermissions, actorSuperAdmin = 
     },
     {
       id: 'status', header: t('status'), enableSorting: false,
-      cell: ({ row }) => <Badge variant={row.original.disabled ? 'secondary' : 'outline'}>{t(row.original.disabled ? 'disabledStatus' : 'activeStatus')}</Badge>,
+      cell: ({ row }) => <div className="flex flex-wrap gap-1"><Badge variant={row.original.disabled ? 'secondary' : 'outline'}>{t(row.original.disabled ? 'disabledStatus' : 'activeStatus')}</Badge>{row.original.passwordChangeRequired ? <Badge variant="secondary">{t('passwordChangePending')}</Badge> : null}</div>,
     },
     {
       id: 'roles',
@@ -137,7 +142,7 @@ export function UsersPage({ api, canManage, actorPermissions, actorSuperAdmin = 
 
   if (users.isPending || (canAssign && roleAdministration.isPending)) return <p role="status">{t('common:loading')}</p>
   return <section className="flex flex-col gap-5" aria-labelledby="users-title">
-    <h1 id="users-title" className="text-2xl font-semibold tracking-tight">{t('usersTitle')}</h1>
+    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between"><h1 id="users-title" className="text-2xl font-semibold tracking-tight">{t('usersTitle')}</h1>{canCreate ? <Button type="button" onClick={() => { setCreateGeneration((value) => value + 1); setCreateOpen(true) }}><UserPlus aria-hidden="true" data-icon="inline-start" />{t('createUser')}</Button> : null}</div>
     <Card>
       <CardContent className="pt-6">
         {users.isError && (usersForbidden || !users.data) ? <p role="status" className="text-sm text-muted-foreground">{usersForbidden ? t('forbiddenDescription') : t('common:refreshPage')}</p> : <>
@@ -167,6 +172,9 @@ export function UsersPage({ api, canManage, actorPermissions, actorSuperAdmin = 
         {lifecycleTarget?.action === 'delete' ? <Field><FieldLabel htmlFor="delete-user-email">{t('deletePrompt', { email: lifecycleTarget.user.email })}</FieldLabel><Input id="delete-user-email" value={deleteEmail} disabled={lifecycle.isPending} onChange={(event) => setDeleteEmail(event.target.value)} /></Field> : null}
         <DialogFooter><DialogClose asChild><Button type="button" variant="outline" disabled={lifecycle.isPending}>{t('common:cancel')}</Button></DialogClose><Button type="button" variant={lifecycleTarget?.action === 'delete' ? 'destructive' : 'default'} disabled={lifecycle.isPending || (lifecycleTarget?.action === 'delete' && deleteEmail !== lifecycleTarget.user.email)} onClick={() => { if (lifecycleTarget && !lifecycle.isPending && (lifecycleTarget.action !== 'delete' || deleteEmail === lifecycleTarget.user.email)) lifecycle.mutate(lifecycleTarget) }}>{lifecycleTarget?.action === 'delete' ? t('deleteUser') : lifecycleTarget?.action === 'deactivate' ? t('deactivate') : t('reactivate')}</Button></DialogFooter>
       </DialogContent>
+    </Dialog>
+    <Dialog open={createOpen && canCreate} onOpenChange={setCreateOpen}>
+      <DialogContent closeLabel={t('common:close')} className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">{createOpen ? <CreateUserForm key={createGeneration} api={api} roles={roleList} assignableRoleIDs={actorPermissions === undefined ? undefined : assignableRoleIDs} onCreated={() => void queryClient.invalidateQueries({ queryKey: ['access', 'users'] })} onDone={() => setCreateOpen(false)} /> : null}</DialogContent>
     </Dialog>
     {canAssign && !usersForbidden && !roleAdministrationForbidden ? <UserAssignmentDialog key={activeAssignmentUser?.id ?? 'none'} open={assignmentOpen} user={activeAssignmentUser} roles={roleList} actorPermissions={actorPermissions} actorSuperAdmin={actorSuperAdmin} api={api} canManage={canManage} assignmentGeneration={assignmentGeneration} onClose={() => setAssignmentOpen(false)} onDone={(_userID, generation) => { if (generation !== assignmentGenerationRef.current) return; setAssignmentOpen(false); void queryClient.invalidateQueries({ queryKey: ['access', 'users'] }); void queryClient.invalidateQueries({ queryKey: ['auth', 'current-user'] }) }} /> : null}
   </section>

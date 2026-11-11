@@ -118,14 +118,31 @@ func (a *Authentication) allowLogin(ctx context.Context, sourceIP, canonicalEmai
 }
 
 func (a *Authentication) Current(ctx context.Context, sessionID string) (domain.User, error) {
-	return a.current(ctx, sessionID, true)
+	return requireSettledPassword(a.current(ctx, sessionID, true))
+}
+
+// requireSettledPassword refuses an account that must still replace the initial password an
+// administrator gave it: until then the session may only read itself, change the password or
+// sign out, through the AllowingPasswordChange variants below.
+func requireSettledPassword(user domain.User, err error) (domain.User, error) {
+	if err == nil && user.PasswordChangeRequired {
+		return domain.User{}, ErrPasswordChangeRequired
+	}
+	return user, err
+}
+
+func requireSettledPrincipal(principal domain.Principal, err error) (domain.Principal, error) {
+	if err == nil && principal.User.PasswordChangeRequired {
+		return domain.Principal{}, ErrPasswordChangeRequired
+	}
+	return principal, err
 }
 
 // CurrentNoTouch checks a session without updating its activity timestamp or
 // idle expiry. Background status checks must use this path so an open page
 // cannot keep an otherwise idle session alive.
 func (a *Authentication) CurrentNoTouch(ctx context.Context, sessionID string) (domain.User, error) {
-	return a.current(ctx, sessionID, false)
+	return requireSettledPassword(a.current(ctx, sessionID, false))
 }
 
 func (a *Authentication) current(ctx context.Context, sessionID string, touch bool) (domain.User, error) {
@@ -246,14 +263,30 @@ func (a *Authentication) LoginWithPrincipal(ctx context.Context, input LoginInpu
 }
 
 func (a *Authentication) CurrentPrincipal(ctx context.Context, sessionID string) (domain.Principal, error) {
-	user, err := a.Current(ctx, sessionID)
-	return a.principalForUser(ctx, user, err)
+	return requireSettledPrincipal(a.CurrentPrincipalAllowingPasswordChange(ctx, sessionID))
 }
 
 // CurrentPrincipalNoTouch is the read-only authentication path used by
 // session probes and background online-user/operation-status requests.
 func (a *Authentication) CurrentPrincipalNoTouch(ctx context.Context, sessionID string) (domain.Principal, error) {
-	user, err := a.CurrentNoTouch(ctx, sessionID)
+	return requireSettledPrincipal(a.CurrentPrincipalAllowingPasswordChangeNoTouch(ctx, sessionID))
+}
+
+// PasswordChangeAuthenticationService resolves a session even when its account must still
+// replace its initial password. Only reading oneself, the session probe, changing the password
+// and signing out use it; every other request goes through CurrentPrincipal and is refused.
+type PasswordChangeAuthenticationService interface {
+	CurrentPrincipalAllowingPasswordChange(context.Context, string) (domain.Principal, error)
+	CurrentPrincipalAllowingPasswordChangeNoTouch(context.Context, string) (domain.Principal, error)
+}
+
+func (a *Authentication) CurrentPrincipalAllowingPasswordChange(ctx context.Context, sessionID string) (domain.Principal, error) {
+	user, err := a.current(ctx, sessionID, true)
+	return a.principalForUser(ctx, user, err)
+}
+
+func (a *Authentication) CurrentPrincipalAllowingPasswordChangeNoTouch(ctx context.Context, sessionID string) (domain.Principal, error) {
+	user, err := a.current(ctx, sessionID, false)
 	return a.principalForUser(ctx, user, err)
 }
 

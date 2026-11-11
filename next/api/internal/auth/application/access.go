@@ -78,6 +78,22 @@ type AccessStore interface {
 	CompleteInvitation(context.Context, []byte, []byte, string) error
 }
 
+// NewUser is an account an administrator creates directly: its initial password arrives hashed.
+type NewUser struct {
+	Name                  string
+	Email                 domain.Email
+	PasswordHash          string
+	RoleIDs               []string
+	RequirePasswordChange bool
+}
+
+// UserCreationStore creates an account and its role assignments in one transaction. With an
+// actor it rechecks, while the rows are locked, that the actor may manage users and grant every
+// role, as role assignment does.
+type UserCreationStore interface {
+	CreateUser(context.Context, string, NewUser) (domain.AccessUser, error)
+}
+
 // ScopedUserRoleStore performs an assignment replacement while rechecking the
 // actor's authority and the changed role set inside the same database
 // transaction that writes the assignment. Stores which do not implement this
@@ -153,6 +169,67 @@ type AccessManagement struct {
 	invitationTTL time.Duration
 	mailSettings  MailSettingsProvider
 	mailLimiter   InvitationSendLimiter
+	hasher        PasswordHasher
+}
+
+// SetPasswordHasher lets administrators create accounts directly; without it CreateUser is
+// unavailable.
+func (m *AccessManagement) SetPasswordHasher(hasher PasswordHasher) {
+	m.hasher = hasher
+}
+
+// CreateUserInput is an account an administrator creates directly, with the initial password
+// they hand to the person who will use it.
+type CreateUserInput struct {
+	Name                  string
+	Email                 string
+	Password              string
+	RoleIDs               []string
+	RequirePasswordChange bool
+}
+
+// CreateUser creates an account without an invitation. The actor needs to manage users and read
+// roles, and may grant only roles within their own permissions; the store rechecks both inside
+// its transaction. The initial password follows the same rules as any new password.
+func (m *AccessManagement) CreateUser(ctx context.Context, actorID string, input CreateUserInput) (domain.AccessUser, error) {
+	store, ok := m.store.(UserCreationStore)
+	if !ok || m.hasher == nil {
+		return domain.AccessUser{}, ErrDependencyUnavailable
+	}
+	principal, err := m.principal(ctx, actorID)
+	if err != nil {
+		return domain.AccessUser{}, err
+	}
+	if !principal.SuperAdmin && (!principal.Has(domain.PermissionUsersWrite) || !principal.Has(domain.PermissionRolesRead)) {
+		return domain.AccessUser{}, ErrForbidden
+	}
+	name, err := domain.NewName(input.Name)
+	if err != nil {
+		return domain.AccessUser{}, err
+	}
+	email, err := domain.NewEmail(input.Email)
+	if err != nil {
+		return domain.AccessUser{}, err
+	}
+	password, err := domain.NewPassword(input.Password)
+	if err != nil {
+		return domain.AccessUser{}, err
+	}
+	if err := validateRoleIDs(input.RoleIDs); err != nil {
+		return domain.AccessUser{}, err
+	}
+	hash, err := m.hasher.Hash(ctx, string(password))
+	if err != nil {
+		if errors.Is(err, ErrPasswordHashBusy) {
+			return domain.AccessUser{}, ErrDependencyUnavailable
+		}
+		return domain.AccessUser{}, dependencyError(err)
+	}
+	user, err := store.CreateUser(ctx, actorID, NewUser{Name: string(name), Email: email, PasswordHash: hash, RoleIDs: input.RoleIDs, RequirePasswordChange: input.RequirePasswordChange})
+	if err != nil {
+		return domain.AccessUser{}, normalizeAccessError(err)
+	}
+	return normalizeAccessUser(m.catalog, user)
 }
 
 func NewAccessManagement(store AccessStore, principals PrincipalStore, catalog domain.PermissionCatalog) *AccessManagement {

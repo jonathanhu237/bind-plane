@@ -120,7 +120,7 @@ func (s *Store) mutateUserLifecycle(ctx context.Context, actorID, userID string,
 	}
 	if action != "delete" {
 		page, readErr := scanUsers(ctx, tx, `SELECT u.id::text,u.name,u.email,u.created_at,u.auth_version,u.disabled_at IS NOT NULL,COALESCE(u.locale,''),
-		EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id=u.id),COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id=u.id),0),
+		EXISTS(SELECT 1 FROM auth_user_avatars a WHERE a.user_id=u.id),COALESCE((SELECT version FROM auth_user_avatars a WHERE a.user_id=u.id),0),u.password_change_required,
 		COALESCE(r.id::text,''),COALESCE(r.system_key,''),COALESCE(r.name,''),COALESCE(r.description,''),COALESCE(r.revision,0),COALESCE(rp.permission_key,'')
 		FROM auth_users u LEFT JOIN auth_user_roles ur ON ur.user_id=u.id LEFT JOIN auth_roles r ON r.id=ur.role_id LEFT JOIN auth_role_permissions rp ON rp.role_id=r.id WHERE u.id=$1::uuid ORDER BY r.id,rp.permission_key`, userID)
 		if readErr != nil {

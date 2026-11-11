@@ -17,6 +17,8 @@ export type AccessUser = {
   authVersion: number
   disabled: boolean
   roles: Role[]
+  /** Still on the initial password an administrator set. */
+  passwordChangeRequired?: boolean
 }
 
 export function formatDate(value: string, language: string): string {

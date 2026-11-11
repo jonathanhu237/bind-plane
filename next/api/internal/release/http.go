@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/application"
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
 )
 
@@ -151,6 +152,11 @@ func (h *handler) principal(w http.ResponseWriter, r *http.Request, mutate bool)
 		return domain.Principal{}, false, false
 	}
 	p, err := h.identity.CurrentPrincipal(r.Context(), cookie.Value)
+	if errors.Is(err, application.ErrPasswordChangeRequired) {
+		// An account an administrator created must replace its initial password first.
+		fail(w, 403, "password change required")
+		return domain.Principal{}, false, false
+	}
 	if err != nil {
 		fail(w, 401, "login required")
 		return domain.Principal{}, false, false

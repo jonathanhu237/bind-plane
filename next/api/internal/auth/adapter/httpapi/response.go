@@ -23,6 +23,8 @@ type userResponseBody struct {
 	AvatarURL     string `json:"avatarUrl,omitempty"`
 	HasAvatar     bool   `json:"hasAvatar"`
 	AvatarVersion int64  `json:"avatarVersion,omitempty"`
+	// PasswordChangeRequired asks the signed-in person to replace an initial password first.
+	PasswordChangeRequired bool `json:"passwordChangeRequired,omitempty"`
 }
 
 type roleResponseBody struct {
@@ -99,6 +101,8 @@ type accessUserResponseBody struct {
 	HasAvatar     bool               `json:"hasAvatar"`
 	AvatarVersion int64              `json:"avatarVersion,omitempty"`
 	Roles         []roleResponseBody `json:"roles"`
+	// PasswordChangeRequired marks an account still on the initial password an administrator set.
+	PasswordChangeRequired bool `json:"passwordChangeRequired,omitempty"`
 }
 
 type usersResponse struct {
@@ -183,7 +187,7 @@ func accessUserResponse(user domain.AccessUser) accessUserResponseBody {
 	for _, role := range user.Roles {
 		roles = append(roles, roleResponse(role))
 	}
-	return accessUserResponseBody{ID: user.User.ID, Name: user.User.Name, Email: user.User.Email, CreatedAt: user.User.CreatedAt.UTC().Format(time.RFC3339Nano), AuthVersion: user.AuthVersion, Disabled: user.User.Disabled, Locale: string(user.User.Locale), AvatarURL: avatarURL(user.User), HasAvatar: user.User.HasAvatar, AvatarVersion: user.User.AvatarVersion, Roles: roles}
+	return accessUserResponseBody{ID: user.User.ID, Name: user.User.Name, Email: user.User.Email, CreatedAt: user.User.CreatedAt.UTC().Format(time.RFC3339Nano), AuthVersion: user.AuthVersion, Disabled: user.User.Disabled, Locale: string(user.User.Locale), AvatarURL: avatarURL(user.User), HasAvatar: user.User.HasAvatar, AvatarVersion: user.User.AvatarVersion, Roles: roles, PasswordChangeRequired: user.User.PasswordChangeRequired}
 }
 
 func invitationResponse(invitation domain.Invitation) invitationResponseBody {
@@ -199,7 +203,7 @@ func userResponse(user domain.User) userEnvelope {
 }
 
 func userResponseBodyFor(user domain.User) userResponseBody {
-	return userResponseBody{ID: user.ID, Name: user.Name, Email: user.Email, Locale: string(user.Locale), AvatarURL: avatarURL(user), HasAvatar: user.HasAvatar, AvatarVersion: user.AvatarVersion}
+	return userResponseBody{ID: user.ID, Name: user.Name, Email: user.Email, Locale: string(user.Locale), AvatarURL: avatarURL(user), HasAvatar: user.HasAvatar, AvatarVersion: user.AvatarVersion, PasswordChangeRequired: user.PasswordChangeRequired}
 }
 
 func avatarURL(user domain.User) string {

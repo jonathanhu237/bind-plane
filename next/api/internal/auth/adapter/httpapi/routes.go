@@ -259,6 +259,9 @@ func newHandlerWithOperationLogAndIdentityAndPersonal(setup SetupService, auth A
 		h.mux.HandleFunc("PUT /api/roles/{id}", h.replaceRole)
 		h.mux.HandleFunc("DELETE /api/roles/{id}", h.deleteRole)
 		h.mux.HandleFunc("GET /api/users", h.users)
+		if _, ok := h.access.(userCreationService); ok {
+			h.mux.HandleFunc("POST /api/users", h.createUser)
+		}
 		h.mux.HandleFunc("PUT /api/users/{id}/roles", h.replaceUserRoles)
 		h.mux.HandleFunc("POST /api/users/{id}/deactivate", h.deactivateUser)
 		h.mux.HandleFunc("POST /api/users/{id}/reactivate", h.reactivateUser)
@@ -345,7 +348,7 @@ var knownMethods = map[string]string{
 	"/api/auth/password-reset/complete":     "POST",
 	"/api/roles":                            "GET, POST",
 	"/api/access/role-options":              "GET",
-	"/api/users":                            "GET",
+	"/api/users":                            "GET, POST",
 	"/api/online-users":                     "GET",
 	"/api/user-invitations":                 "GET, POST",
 	"/api/settings/email":                   "GET, PUT",
@@ -524,6 +527,15 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
+	if _, ok := h.auth.(application.PasswordChangeAuthenticationService); ok {
+		principal, err := h.principalAllowingPasswordChange(r, true)
+		if err != nil {
+			writeApplicationError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, principalResponse(principal))
+		return
+	}
 	if enriched, ok := h.auth.(application.PrincipalAuthenticationService); ok {
 		principal, err := enriched.CurrentPrincipal(r.Context(), cookie.Value)
 		if err != nil {
@@ -545,7 +557,7 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 // normal authenticated request and renews the session; this endpoint is used
 // by the periodic browser probe and must only inspect session state.
 func (h *Handler) sessionStatus(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.currentPrincipalNoTouch(r); err != nil {
+	if _, err := h.principalAllowingPasswordChange(r, false); err != nil {
 		writeApplicationError(w, err)
 		return
 	}
@@ -560,7 +572,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		actor := domain.User{}
 		verifiedActor := false
-		if principal, principalErr := h.currentPrincipal(r); principalErr == nil {
+		if principal, principalErr := h.principalAllowingPasswordChange(r, true); principalErr == nil {
 			actor = principal.User
 			verifiedActor = true
 		}
@@ -695,6 +707,26 @@ func (h *Handler) operationPrincipal(w http.ResponseWriter, r *http.Request, act
 		return domain.Principal{}, false
 	}
 	return principal, true
+}
+
+// principalAllowingPasswordChange resolves the session even when its account must still replace
+// its initial password: only reading oneself, the session probe, changing the password and
+// signing out use it. Without that seam it is the ordinary lookup.
+func (h *Handler) principalAllowingPasswordChange(r *http.Request, touch bool) (domain.Principal, error) {
+	cookie, err := r.Cookie(h.cfg.CookieName)
+	if err != nil {
+		return domain.Principal{}, application.ErrUnauthenticated
+	}
+	if lenient, ok := h.auth.(application.PasswordChangeAuthenticationService); ok {
+		if touch {
+			return lenient.CurrentPrincipalAllowingPasswordChange(r.Context(), cookie.Value)
+		}
+		return lenient.CurrentPrincipalAllowingPasswordChangeNoTouch(r.Context(), cookie.Value)
+	}
+	if touch {
+		return h.currentPrincipal(r)
+	}
+	return h.currentPrincipalNoTouch(r)
 }
 
 func (h *Handler) currentPrincipal(r *http.Request) (domain.Principal, error) {
@@ -1063,6 +1095,52 @@ type invitationRequest struct {
 	Name    string   `json:"name"`
 	Email   string   `json:"email"`
 	RoleIDs []string `json:"roleIds"`
+}
+
+// userCreationService lets administrators create accounts directly, with an initial password.
+type userCreationService interface {
+	CreateUser(context.Context, string, application.CreateUserInput) (domain.AccessUser, error)
+}
+
+type createUserRequest struct {
+	Name                  string   `json:"name"`
+	Email                 string   `json:"email"`
+	Password              string   `json:"password"`
+	RoleIDs               []string `json:"roleIds"`
+	RequirePasswordChange *bool    `json:"requirePasswordChange"`
+}
+
+// createUser creates an account without an invitation. The initial password never enters the
+// operation history; asking for a password change is the default.
+func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
+	const action = "users.create"
+	if h.operationOriginFailure(w, r, action, "user") {
+		return
+	}
+	principal, ok := h.operationPrincipal(w, r, action, "user", "")
+	if !ok {
+		return
+	}
+	creator, ok := h.access.(userCreationService)
+	if !ok {
+		writeApplicationError(w, application.ErrDependencyUnavailable)
+		return
+	}
+	var input createUserRequest
+	if err := decodeJSONObject(r, &input, map[string]struct{}{"name": {}, "email": {}, "password": {}, "roleIds": {}, "requirePasswordChange": {}}); err != nil {
+		h.recordOperation(r, operationFailure(principal.User, action, "user", "", err, nil))
+		writeDecodeError(w, err)
+		return
+	}
+	requireChange := input.RequirePasswordChange == nil || *input.RequirePasswordChange
+	user, err := creator.CreateUser(r.Context(), principal.User.ID, application.CreateUserInput{Name: input.Name, Email: input.Email, Password: input.Password, RoleIDs: input.RoleIDs, RequirePasswordChange: requireChange})
+	if err != nil {
+		h.recordOperation(r, application.OperationLogInput{ActorID: principal.User.ID, ActorName: principal.User.Name, ActorEmail: principal.User.Email, Action: action, ObjectType: "user", Result: application.OperationLogFailure, AttemptedAccount: input.Email, Details: map[string]any{"failure": operationErrorCode(err)}})
+		writeApplicationError(w, err)
+		return
+	}
+	h.recordOperation(r, application.OperationLogInput{ActorID: principal.User.ID, ActorName: principal.User.Name, ActorEmail: principal.User.Email, Action: action, ObjectType: "user", ObjectID: user.User.ID, Result: application.OperationLogSuccess, Details: map[string]any{"before": nil, "after": accessUserSnapshot(user)}})
+	writeJSON(w, http.StatusCreated, map[string]accessUserResponseBody{"user": accessUserResponse(user)})
 }
 
 func (h *Handler) createInvitation(w http.ResponseWriter, r *http.Request) {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/application"
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
 )
 
@@ -94,6 +95,7 @@ func TestStartRequiresSessionAndBusinessRole(t *testing.T) {
 		code     int
 	}{
 		{"anonymous", fakeIdentity{}, false, 401},
+		{"still on an initial password", fakeIdentity{err: application.ErrPasswordChangeRequired}, true, 403},
 		{"unrelated custom role", fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Auditor"}}}}, true, 403},
 		{"operator", fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Operator"}}}}, true, 202},
 	} {

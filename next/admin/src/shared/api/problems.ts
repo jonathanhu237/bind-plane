@@ -34,6 +34,7 @@ const typeKeys: Record<string, string> = {
 
 const codeKeys: Record<string, string> = {
   account_disabled: 'problems:accountDisabled',
+  password_change_required: 'problems:passwordChangeRequired',
   self_user_operation: 'problems:selfUserOperation',
   invalid_request: 'problems:invalidRequest',
   invalid_credentials: 'problems:invalidCredentials',
@@ -112,6 +113,11 @@ export function isUnauthenticated(error: unknown): boolean {
 
 export function isAccountDisabled(error: unknown): boolean {
   return error instanceof ApiProblemError && error.problem.status === 401 && error.problem.code === 'account_disabled'
+}
+
+/** The account is still on the initial password an administrator gave it and must change it first. */
+export function isPasswordChangeRequired(error: unknown): boolean {
+  return error instanceof ApiProblemError && error.problem.status === 403 && error.problem.code === 'password_change_required'
 }
 
 export function isForbidden(error: unknown): boolean {

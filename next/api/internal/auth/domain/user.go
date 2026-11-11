@@ -20,6 +20,9 @@ type User struct {
 	Locale        Locale
 	HasAvatar     bool
 	AvatarVersion int64
+	// PasswordChangeRequired marks an account an administrator created with an initial password
+	// that must be replaced before the account can do anything else.
+	PasswordChangeRequired bool
 }
 
 type Avatar struct {

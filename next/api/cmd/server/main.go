@@ -128,6 +128,7 @@ func newApplicationHandlerWithOperationLogAndIdentity(cfg config.Config, setup a
 				access = application.NewAccessManagementWithInvitations(store, principals, catalog, cfg.InvitationTokenKey, random, cfg.InvitationLinkTTL)
 			}
 			access.SetInvitationSendLimiter(invitationSendLimiter(store))
+			access.SetPasswordHasher(hasher)
 			accept := application.NewInvitationAcceptance(store, hasher, cfg.InvitationTokenKey, invitationAcceptLimiter(store))
 			personal := personalSettingsService(auth, hasher, random, cfg, settingsService)
 			authHandler := buildAuthHandler(setupService, authService, cfg, recovery, access, accept, settingsService, operationLogs, identity, personal, mailTasks...)

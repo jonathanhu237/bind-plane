@@ -8,9 +8,14 @@ import { clearAccessDrafts } from '@/features/access/drafts'
 import { restoreGuestLocale } from '@/shared/i18n'
 
 export const Route = createFileRoute('/_authenticated')({
-  loader: async ({ context }) => {
+  // The session is checked in beforeLoad, not the loader: loaders of the page being opened run in
+  // parallel with this route's, so they would ask the API for data before an account still on
+  // its initial password had been sent to change it.
+  beforeLoad: async ({ context }) => {
     try {
       const user = await context.queryClient.fetchQuery(currentUserOptions(context.api))
+      // An account on the initial password an administrator set must choose its own first.
+      if (user.passwordChangeRequired) throw redirect({ to: '/change-password', replace: true })
       return { user }
     } catch (error) {
       if (isUnauthenticated(error)) {
@@ -30,6 +35,7 @@ export const Route = createFileRoute('/_authenticated')({
       throw error
     }
   },
+  loader: ({ context }) => ({ user: context.user }),
   errorComponent: ({ error }) => <SessionError error={error} />,
   component: AuthenticatedRoute,
 })
