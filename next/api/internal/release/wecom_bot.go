@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,29 @@ type wecomAuthError struct {
 func (e wecomAuthError) Error() string {
 	return fmt.Sprintf("WeCom refused the bot ID or secret (errcode %d: %s)", e.code, e.message)
 }
+
+// wecomHandshake sends the WebSocket handshake headers spelled as WeCom requires. Its server
+// matches header names case-sensitively and answers 404 to Go's canonical "Sec-Websocket-Key";
+// Go writes a header name as stored, so moving the values to the exact spelling is enough.
+type wecomHandshake struct{ next http.RoundTripper }
+
+var wecomHeaderNames = map[string]string{
+	"Sec-Websocket-Key": "Sec-WebSocket-Key", "Sec-Websocket-Version": "Sec-WebSocket-Version",
+	"Sec-Websocket-Extensions": "Sec-WebSocket-Extensions", "Sec-Websocket-Protocol": "Sec-WebSocket-Protocol",
+}
+
+func (t wecomHandshake) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	for canonical, exact := range wecomHeaderNames {
+		if values, ok := r.Header[canonical]; ok {
+			delete(r.Header, canonical)
+			r.Header[exact] = values
+		}
+	}
+	return t.next.RoundTrip(r)
+}
+
+var wecomDial = &websocket.DialOptions{HTTPClient: &http.Client{Transport: wecomHandshake{next: http.DefaultTransport}}}
 
 // PrincipalFinder loads a user with their roles, as the bot acts for the member's bound account.
 type PrincipalFinder interface {
@@ -244,7 +268,7 @@ func (b *WeComBot) session(ctx context.Context, s wecomSettings) error {
 	}
 	b.setState(ctx, "connecting", "")
 	dialCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	conn, _, err := websocket.Dial(dialCtx, s.url, nil)
+	conn, _, err := websocket.Dial(dialCtx, s.url, wecomDial)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("cannot reach WeCom: %v", err)

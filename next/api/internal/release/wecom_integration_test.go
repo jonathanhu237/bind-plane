@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -311,4 +312,38 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 		t.Fatalf("refused %v", s)
 	}
 	cancel()
+}
+
+// WeCom's server matches handshake header names case-sensitively, so the bot must spell them as
+// the WebSocket specification does on the wire, not as Go canonicalizes them.
+func TestWeComHandshakeSpellsHeadersExactly(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	raw := make(chan string, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 4096)
+		n, _ := conn.Read(buf)
+		raw <- string(buf[:n])
+		_, _ = conn.Write([]byte("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"))
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _, _ = websocket.Dial(ctx, "ws://"+ln.Addr().String(), wecomDial)
+	request := <-raw
+	for _, name := range []string{"Sec-WebSocket-Key: ", "Sec-WebSocket-Version: 13"} {
+		if !strings.Contains(request, "\r\n"+name) {
+			t.Fatalf("handshake lacks %q:\n%s", name, request)
+		}
+	}
+	if strings.Contains(request, "Sec-Websocket-") {
+		t.Fatalf("handshake has a canonicalized name:\n%s", request)
+	}
 }
