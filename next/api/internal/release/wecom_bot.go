@@ -102,9 +102,23 @@ type wecomCallback struct {
 	} `json:"text"`
 	Event struct {
 		EventType string `json:"eventtype"`
-		EventKey  string `json:"event_key"`
-		TaskID    string `json:"task_id"`
+		// A card click names the card and button inside template_card_event; the SDK's types put
+		// them on the event itself, which is read when the nested object is missing.
+		Card struct {
+			EventKey string `json:"event_key"`
+			TaskID   string `json:"task_id"`
+		} `json:"template_card_event"`
+		EventKey string `json:"event_key"`
+		TaskID   string `json:"task_id"`
 	} `json:"event"`
+}
+
+// cardClick is the card and button a template card event is about.
+func (c wecomCallback) cardClick() (taskID, key string) {
+	if c.Event.Card.TaskID != "" {
+		return c.Event.Card.TaskID, c.Event.Card.EventKey
+	}
+	return c.Event.TaskID, c.Event.EventKey
 }
 
 // chat is where a reply or a later result goes: the member's ID in a single chat, the group's ID
@@ -130,6 +144,7 @@ type WeComBot struct {
 	store      Store
 	principals PrincipalFinder
 	loc        *time.Location
+	publicURL  string // where card notices lead: the release console
 
 	// How often the settings are checked, results sent and heartbeats beaten; tests shorten them.
 	SettingsEvery, NotifyEvery, HeartbeatEvery time.Duration
@@ -148,12 +163,12 @@ type wecomPending struct {
 	sent  time.Time
 }
 
-func NewWeComBot(db *sql.DB, store Store, principals PrincipalFinder, loc *time.Location) (*WeComBot, error) {
+func NewWeComBot(db *sql.DB, store Store, principals PrincipalFinder, loc *time.Location, publicURL string) (*WeComBot, error) {
 	key, err := credentialKey()
 	if err != nil {
 		return nil, err
 	}
-	return &WeComBot{db: db, key: key, store: store, principals: principals, loc: loc,
+	return &WeComBot{db: db, key: key, store: store, principals: principals, loc: loc, publicURL: publicURL,
 		SettingsEvery: 5 * time.Second, NotifyEvery: 3 * time.Second, HeartbeatEvery: 30 * time.Second, CardTTL: 30 * time.Minute,
 		pending: map[string]wecomPending{}}, nil
 }

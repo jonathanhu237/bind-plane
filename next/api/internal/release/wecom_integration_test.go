@@ -107,7 +107,8 @@ func wecomText(reqID, chatType, chatID, user, text string) map[string]any {
 func wecomClick(reqID, user, taskID, key string) map[string]any {
 	return map[string]any{"cmd": wecomEvent, "headers": map[string]string{"req_id": reqID},
 		"body": map[string]any{"msgid": reqID, "chattype": "group", "chatid": "grp1", "from": map[string]string{"userid": user}, "msgtype": "event",
-			"event": map[string]string{"eventtype": "template_card_event", "event_key": key, "task_id": taskID}}}
+			"event": map[string]any{"eventtype": "template_card_event",
+				"template_card_event": map[string]string{"card_type": "button_interaction", "event_key": key, "task_id": taskID}}}}
 }
 
 func frameBody(frame map[string]any) map[string]any { return frame["body"].(map[string]any) }
@@ -196,7 +197,7 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 	}
 
 	principals := fakePrincipals{operatorID: {User: domain.User{ID: operatorID, Name: "张三", Email: "zhangsan@test.invalid"}, Roles: []domain.Role{{Name: "Operator"}}}}
-	bot, err := NewWeComBot(db, NewSQLStore(db), principals, time.UTC)
+	bot, err := NewWeComBot(db, NewSQLStore(db), principals, time.UTC, "https://bind-plane.test/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +245,9 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 		t.Fatalf("someone else's click %v", update)
 	}
 	server.push(wecomClick("e2", "zhang.san", taskID, "temporary_test"))
-	if update := frameBody(server.next(wecomUpdateCard)); !strings.Contains(fmt.Sprint(update), "已提交") {
+	// WeCom requires a notice card to lead somewhere: it opens the job in the release console.
+	if update := frameBody(server.next(wecomUpdateCard)); !strings.Contains(fmt.Sprint(update), "已提交") ||
+		!strings.HasPrefix(fmt.Sprint(update["template_card"].(map[string]any)["card_action"].(map[string]any)["url"]), "https://bind-plane.test/release?job=") {
 		t.Fatalf("click %v", update)
 	}
 	var jobID, source, actor, reason string

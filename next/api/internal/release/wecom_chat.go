@@ -87,10 +87,22 @@ func (b *WeComBot) replyCard(ctx context.Context, reqID string, card map[string]
 	}
 }
 
-// updateCard replaces a clicked card, for everyone or (userids) only for the members named. WeCom
-// takes it only within five seconds of the click.
-func (b *WeComBot) updateCard(ctx context.Context, reqID, taskID, title, desc, note string, userids ...string) {
-	card := map[string]any{"card_type": "text_notice", "main_title": map[string]string{"title": title, "desc": desc}, "task_id": taskID}
+// consoleLink is the release console, on the job when there is one; WeCom requires a text notice
+// card to lead somewhere when tapped.
+func (b *WeComBot) consoleLink(jobID string) string {
+	link := strings.TrimRight(b.publicURL, "/") + "/release"
+	if jobID != "" {
+		link += "?job=" + jobID
+	}
+	return link
+}
+
+// updateCard replaces a clicked card with a notice, for everyone or (userids) only for the members
+// named; tapping it opens the release console, on jobID when given. WeCom takes it only within
+// five seconds of the click.
+func (b *WeComBot) updateCard(ctx context.Context, reqID, taskID, jobID, title, desc, note string, userids ...string) {
+	card := map[string]any{"card_type": "text_notice", "main_title": map[string]string{"title": title, "desc": desc}, "task_id": taskID,
+		"card_action": map[string]any{"type": 1, "url": b.consoleLink(jobID)}}
 	if note != "" {
 		card["sub_title_text"] = note
 	}
@@ -273,7 +285,8 @@ func (b *WeComBot) onEvent(ctx context.Context, frame wecomFrame, cb wecomCallba
 // onClick starts the release a card's button asks for: the reason on a release card, or releasing
 // again on a result card. Only the member the card was for may choose, once, while it is fresh.
 func (b *WeComBot) onClick(ctx context.Context, reqID string, cb wecomCallback) {
-	taskID, who := cb.Event.TaskID, cb.From.UserID
+	taskID, key := cb.cardClick()
+	who := cb.From.UserID
 	var kind, ip, owner, chatType, chatID string
 	var original sql.NullString
 	var used bool
@@ -282,23 +295,23 @@ func (b *WeComBot) onClick(ctx context.Context, reqID string, cb wecomCallback) 
 		Scan(&kind, &ip, &original, &owner, &chatType, &chatID, &used, &created)
 	switch {
 	case err != nil:
-		b.updateCard(ctx, reqID, taskID, "这张卡片已失效", "", "请重新发送要解绑的地址。")
+		b.updateCard(ctx, reqID, taskID, "", "这张卡片已失效", "", "请重新发送要解绑的地址。")
 		return
 	case who != owner:
-		b.updateCard(ctx, reqID, taskID, "解绑 "+ip, "只有发起人可以选择", "需要解绑请自己发送这个地址。", who)
+		b.updateCard(ctx, reqID, taskID, "", "解绑 "+ip, "只有发起人可以选择", "需要解绑请自己发送这个地址。", who)
 		return
 	case used:
 		return // a second click on a card already answered changes nothing
 	case time.Since(created) > b.CardTTL:
-		b.updateCard(ctx, reqID, taskID, "解绑 "+ip+" · 已过期", "", "请重新发送要解绑的地址。")
+		b.updateCard(ctx, reqID, taskID, "", "解绑 "+ip+" · 已过期", "", "请重新发送要解绑的地址。")
 		return
 	}
 	actor, admin, refusal := b.member(ctx, who)
 	if refusal != "" {
-		b.updateCard(ctx, reqID, taskID, "解绑 "+ip, "未开始", refusal)
+		b.updateCard(ctx, reqID, taskID, "", "解绑 "+ip, "未开始", refusal)
 		return
 	}
-	reason := cb.Event.EventKey
+	reason := key
 	if kind == "release" && !ValidReason(reason) {
 		return
 	}
@@ -316,31 +329,31 @@ func (b *WeComBot) onClick(ctx context.Context, reqID string, cb wecomCallback) 
 	title := "解绑 " + ip
 	switch {
 	case errors.Is(err, ErrConflict):
-		b.updateCard(ctx, reqID, taskID, title, "未开始", "这个地址已有解绑在进行，完成后再试。")
+		b.updateCard(ctx, reqID, taskID, "", title, "未开始", "这个地址已有解绑在进行，完成后再试。")
 		return
 	case errors.Is(err, ErrNotFound):
-		b.updateCard(ctx, reqID, taskID, title, "未开始", "只有原来的发起人或管理员可以重新解绑。")
+		b.updateCard(ctx, reqID, taskID, "", title, "未开始", "只有原来的发起人或管理员可以重新解绑。")
 		return
 	case errors.Is(err, ErrAssetChanged):
-		b.updateCard(ctx, reqID, taskID, title, "未开始", "交换机配置刚刚有变化，请重新发送地址。")
+		b.updateCard(ctx, reqID, taskID, "", title, "未开始", "交换机配置刚刚有变化，请重新发送地址。")
 		return
 	case errors.Is(err, ErrNoSwitch), errors.Is(err, ErrAmbiguous):
 		_, _, _, stop := b.resolved(ctx, ip)
-		b.updateCard(ctx, reqID, taskID, title, "未开始", stop)
+		b.updateCard(ctx, reqID, taskID, "", title, "未开始", stop)
 		return
 	case err != nil:
 		log.Printf("wecom: start release: %v", err)
-		b.updateCard(ctx, reqID, taskID, title, "未开始", "暂时无法提交，请稍后再试。")
+		b.updateCard(ctx, reqID, taskID, "", title, "未开始", "暂时无法提交，请稍后再试。")
 		return
 	case job.JobID == "":
 		_, _, _, stop := b.resolved(ctx, ip)
-		b.updateCard(ctx, reqID, taskID, title, "未开始", stop)
+		b.updateCard(ctx, reqID, taskID, "", title, "未开始", stop)
 		return
 	}
 	if _, err = b.db.ExecContext(ctx, `INSERT INTO bp_wecom_jobs(job_id,wecom_userid,chat_type,chat_id) VALUES ($1,$2,$3,$4)`, job.JobID, who, chatType, chatID); err != nil {
 		log.Printf("wecom: remember chat for job %s: %v", job.JobID, err)
 	}
-	b.updateCard(ctx, reqID, taskID, title+" · 已提交", fmt.Sprintf("交换机 %s（%s）", job.SwitchName, job.SwitchManagementIP),
+	b.updateCard(ctx, reqID, taskID, job.JobID, title+" · 已提交", fmt.Sprintf("交换机 %s（%s）", job.SwitchName, job.SwitchManagementIP),
 		fmt.Sprintf("原因：%s · 发起人：%s。完成后会在这里通知结果。", wecomReasonLabel(job.Reason), actor.Name))
 }
 

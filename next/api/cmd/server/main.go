@@ -249,7 +249,7 @@ func run() int {
 	if err != nil {
 		log.Fatalf("device operations configuration: %v", err)
 	}
-	wecomBot, err := release.NewWeComBot(db, release.NewSQLStore(db), postgresStore, scheduleZone)
+	wecomBot, err := release.NewWeComBot(db, release.NewSQLStore(db), postgresStore, scheduleZone, cfg.PublicURL)
 	if err != nil {
 		log.Fatalf("WeCom bot configuration: %v", err)
 	}
