@@ -261,7 +261,7 @@ func TestDeviceOperationsThroughTheAPI(t *testing.T) {
 	// The home page's trend counts, per day, the switches whose configuration changed (a first
 	// backup is a baseline, not a change); a day lists each change with the version before it.
 	trend := obj(call(ops, "GET", "/api/ops/overview", "", 200))["trend"].([]any)
-	today := time.Now().UTC().Format("2006-01-02")
+	today := time.Now().In(zone).Format("2006-01-02")
 	if last := obj(trend[len(trend)-1]); len(trend) != 30 || last["date"] != today || last["changed"] != float64(1) {
 		t.Fatalf("trend ends %v (%d days)", last, len(trend))
 	}

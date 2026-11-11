@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -13,6 +14,26 @@ const trendDays = 30
 // A configuration change is a stored version with an earlier one of the same switch: a switch's
 // first backup is its baseline, not a change.
 const isChange = `EXISTS (SELECT 1 FROM bp_config_backups p WHERE p.switch_id=b.switch_id AND (p.captured_at,p.id) < (b.captured_at,b.id))`
+
+// pgTimeZone names loc for PostgreSQL. A zone name Go loaded from the time zone database passes
+// through; a fixed zone made in Go, whose short name PostgreSQL may read as another zone ("CST" is
+// US Central there), becomes the Etc/GMT zone of its offset (with the sign POSIX gives it).
+func pgTimeZone(loc *time.Location) string {
+	name := loc.String()
+	_, offset := time.Now().In(loc).Zone()
+	if loaded, err := time.LoadLocation(name); err == nil && name != "Local" {
+		if _, same := time.Now().In(loaded).Zone(); same == offset {
+			return name
+		}
+	}
+	if offset%3600 == 0 {
+		if offset == 0 {
+			return "UTC"
+		}
+		return fmt.Sprintf("Etc/GMT%+d", -offset/3600)
+	}
+	return "UTC"
+}
 
 // changeTrend counts, for each of the last trendDays days in the operations time zone, the
 // switches whose configuration changed and the switches whose backup failed.
@@ -27,7 +48,7 @@ failures AS (
   SELECT (i.finished_at AT TIME ZONE $1)::date AS day,count(DISTINCT i.switch_id) AS n FROM bp_device_task_items i
   WHERE i.kind='config_backup' AND i.status='failed' AND i.finished_at >= now()-make_interval(days=>$2::int+1) GROUP BY 1)
 SELECT to_char(d.day,'YYYY-MM-DD'),COALESCE(c.n,0),COALESCE(f.n,0) FROM days d
- LEFT JOIN changes c ON c.day=d.day LEFT JOIN failures f ON f.day=d.day ORDER BY d.day`, o.loc.String(), trendDays)
+ LEFT JOIN changes c ON c.day=d.day LEFT JOIN failures f ON f.day=d.day ORDER BY d.day`, pgTimeZone(o.loc), trendDays)
 }
 
 // changes lists one day of the trend: the switches whose configuration changed, each with the
@@ -41,7 +62,7 @@ func (o *OpsHandler) changes(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "date must be YYYY-MM-DD")
 		return
 	}
-	ctx, zone, date := r.Context(), o.loc.String(), day.Format("2006-01-02")
+	ctx, zone, date := r.Context(), pgTimeZone(o.loc), day.Format("2006-01-02")
 	// The day runs from one local midnight to the next, as a range the indexes can use.
 	changed, err := o.rows(ctx, []string{"backup_id", "previous_id", "switch_id", "switch_name", "management_ip", "captured_at", "line_count"},
 		`SELECT b.id,prev.id,s.id::text,s.name,host(s.management_ip),b.captured_at,b.line_count

@@ -132,3 +132,22 @@ func TestSearchLinesNamesTheSectionOfEachMatch(t *testing.T) {
 		t.Fatalf("clipped to %d characters", utf8.RuneCountInString(long))
 	}
 }
+
+func TestPgTimeZoneNamesZonesPostgreSQLReadsTheSame(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		loc  *time.Location
+		want string
+	}{
+		{shanghai, "Asia/Shanghai"}, {time.UTC, "UTC"},
+		{time.FixedZone("CST", 8*3600), "Etc/GMT-8"}, // PostgreSQL reads "CST" as US Central
+		{time.FixedZone("X", -5*3600), "Etc/GMT+5"},
+	} {
+		if got := pgTimeZone(c.loc); got != c.want {
+			t.Errorf("%v: %s, want %s", c.loc, got, c.want)
+		}
+	}
+}
