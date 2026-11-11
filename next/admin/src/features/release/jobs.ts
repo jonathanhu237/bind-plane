@@ -139,6 +139,10 @@ export const entryLabel = (entry: string | undefined, zh: boolean) => (entry ? s
 export const reasonLabel = (reason: string, zh: boolean) => say(reasonWords[reason as (typeof reasons)[number]], zh, reason.replaceAll('_', ' '))
 export const rawOutputLabel = (key: (typeof rawOutputs)[number], zh: boolean) => say(rawOutputWords[key], zh, key)
 export const jobKindLabel = (kind: string, zh: boolean) => (kind === 'release' ? (zh ? '解绑' : 'Release') : zh ? '查询' : 'Query')
+/** What a finished lookup found on the switch: a static binding, a dynamic entry, or no record. */
+export const lookupFound = (job: Pick<Job, 'kind' | 'status' | 'before_state'>) => (job.kind === 'lookup' && job.status === 'succeeded' ? job.before_state?.entry_type : undefined)
+/** A lookup's progress: it only ever queries. */
+export const lookupPhase = (phase: string, zh: boolean) => (phase === 'querying_before' ? (zh ? '正在查询' : 'Querying') : phaseLabel(phase, zh))
 /** Why a release stopped before a job existed; empty for every other status. */
 export const stopText = (status: string, zh: boolean) => say(stops[status], zh, '')
 

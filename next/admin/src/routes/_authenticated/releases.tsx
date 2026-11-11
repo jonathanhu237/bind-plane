@@ -11,11 +11,13 @@ import { Empty, ErrorNote, PageHeader, Pager, isAdmin, pick, useZh } from '@/fea
 import { JobTable } from '@/features/release/job-lists'
 import { canRelease, jobListKey, jobsPath, request, statusLabel, type JobPage } from '@/features/release/jobs'
 
-type HistorySearch = { q?: string; status?: string; page?: number }
+type HistorySearch = { q?: string; kind?: 'lookup'; status?: string; page?: number }
 const filterKeys = ['q', 'status'] as const
 // A filter set to everything travels as this select value and leaves the search parameter out.
 const ANY = 'any'
 const statuses = ['succeeded', 'no_static_binding', 'no_record', 'failed', 'timeout', 'needs_manual_confirmation', 'queued', 'running']
+// A finished lookup shows what it found; its status only says whether it got an answer.
+const lookupStatuses = ['succeeded', 'failed', 'timeout', 'queued', 'running']
 
 export const Route = createFileRoute('/_authenticated/releases')({
   validateSearch: (search: Record<string, unknown>): HistorySearch => {
@@ -23,6 +25,7 @@ export const Route = createFileRoute('/_authenticated/releases')({
     for (const key of filterKeys) {
       if (typeof search[key] === 'string' && search[key]) result[key] = search[key]
     }
+    if (search.kind === 'lookup') result.kind = 'lookup'
     const page = Number(search.page)
     if (Number.isInteger(page) && page > 1) result.page = page
     return result
@@ -39,8 +42,9 @@ function ReleaseHistoryPage() {
   const navigate = Route.useNavigate()
   const page = search.page ?? 1
   const [text, setText] = useState(search.q ?? '')
-  // Queries left from the old two-step flow stay out of the history; their own pages still open.
-  const path = jobsPath({ q: search.q, kind: 'release', status: search.status, page })
+  // Releases, or lookups; queries left from the old two-step flow stay out, though their own pages still open.
+  const lookups = search.kind === 'lookup'
+  const path = jobsPath({ q: search.q, kind: lookups ? 'lookup' : 'release', status: search.status, page })
   const list = useQuery({ queryKey: [jobListKey, path], queryFn: () => request<JobPage>(path), enabled: allowed, placeholderData: keepPreviousData, refetchInterval: 15_000 })
 
   const filter = (patch: HistorySearch) => void navigate({ search: (previous) => ({ ...previous, ...patch, page: undefined }), replace: true })
@@ -64,13 +68,24 @@ function ReleaseHistoryPage() {
     </PageHeader>
     <div className="flex flex-wrap items-center gap-2">
       <Input aria-label={pick(zh, '搜索 IP 或交换机', 'Search IP or switch')} placeholder={pick(zh, '搜索 IP 或交换机', 'Search IP or switch')} value={text} onChange={(event) => setText(event.target.value)} className="w-full sm:w-64" />
-      {filterSelect('status', pick(zh, '全部状态', 'Any status'), statuses.map((status) => [status, statusLabel(status, zh)]))}
+      <Select value={lookups ? 'lookup' : 'release'} onValueChange={(value) => filter({ kind: value === 'lookup' ? 'lookup' : undefined, status: undefined })}>
+        <SelectTrigger aria-label={pick(zh, '类型', 'Kind')} className="w-auto min-w-28"><SelectValue /></SelectTrigger>
+        <SelectContent><SelectGroup>
+          <SelectItem value="release">{pick(zh, '解绑', 'Releases')}</SelectItem>
+          <SelectItem value="lookup">{pick(zh, '查询', 'Lookups')}</SelectItem>
+        </SelectGroup></SelectContent>
+      </Select>
+      {filterSelect('status', pick(zh, '全部状态', 'Any status'), lookups
+        ? lookupStatuses.map((status) => [status, status === 'succeeded' ? pick(zh, '已查到结果', 'Answered') : statusLabel(status, zh)])
+        : statuses.map((status) => [status, statusLabel(status, zh)]))}
     </div>
     <ErrorNote error={list.error} zh={zh} />
     {list.data
       ? list.data.items.length
         ? <JobTable jobs={list.data.items} zh={zh} admin={admin} reasons />
-        : <Empty>{filtered ? pick(zh, '没有符合筛选条件的解绑。', 'No release matches these filters.') : pick(zh, '还没有解绑记录。', 'No releases yet.')}</Empty>
+        : <Empty>{lookups
+          ? filtered ? pick(zh, '没有符合筛选条件的查询。', 'No lookup matches these filters.') : pick(zh, '还没有查询记录。在解绑控制台输入地址后点“查询”。', 'No lookups yet. Enter an address in the release console and choose Query.')
+          : filtered ? pick(zh, '没有符合筛选条件的解绑。', 'No release matches these filters.') : pick(zh, '还没有解绑记录。', 'No releases yet.')}</Empty>
       : list.isPending ? <Skeleton className="h-64 rounded-xl" /> : null}
     {list.data ? <Pager page={page} total={list.data.total} pageSize={list.data.page_size} zh={zh} onPage={(next) => void navigate({ search: (previous) => ({ ...previous, page: next > 1 ? next : undefined }) })} /> : null}
   </main>

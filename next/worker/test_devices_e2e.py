@@ -240,6 +240,33 @@ async def test_backups_and_a_release_against_a_fake_switch(tmp_path):
                 pinned["pv"],
                 ip,
             )
+        # A lookup reads the address's entry on the switch and finishes there.
+        async with pool.acquire() as conn:
+            lookup = await conn.fetchval(
+                """INSERT INTO bp_release_jobs(target_ip,kind,reason,status,phase,actor_id,
+                actor_email,switch_id,command_profile_id,switch_version,command_profile_version,
+                switch_name,switch_management_ip)
+                SELECT target_ip,'lookup','','queued','queued',actor_id,actor_email,switch_id,
+                command_profile_id,switch_version,command_profile_version,switch_name,
+                switch_management_ip FROM bp_release_jobs WHERE id=$1 RETURNING id""",
+                prequery,
+            )
+            await conn.execute(
+                "UPDATE bp_release_jobs SET created_at=created_at-interval '1 minute' WHERE id=$1",
+                lookup,
+            )
+        job = await claim(pool)
+        assert job["id"] == lookup
+        await execute(pool, job)
+        async with pool.acquire() as conn:
+            found = await conn.fetchrow(
+                "SELECT status,before_state FROM bp_release_jobs WHERE id=$1", lookup
+            )
+            assert found["status"] == "succeeded"
+            state = json.loads(found["before_state"])
+            assert state["entry_type"] == "static" and state["mac"], state
+        assert fake.arp["10.20.30.40"][1] == "static"  # a lookup changes nothing
+
         job = await claim(pool)
         assert job["id"] == prequery
         await execute(pool, job)

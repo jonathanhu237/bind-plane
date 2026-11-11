@@ -134,6 +134,24 @@ def test_prequery_never_sends_release_command():
     assert events[-1]["status"] == "waiting_confirmation"
 
 
+def test_lookup_reports_the_entry_and_never_sends_release_command():
+    events = []
+    instance = Device(None)
+    with (
+        patch("worker.main.NetmikoSwitchSession", return_value=instance),
+        patch("worker.main.connection_settings", return_value=SimpleNamespace()),
+        patch("worker.main.legacy_encrypted_secret", side_effect=lambda value: value),
+    ):
+        device_task(
+            {"target_ip": "10.1.2.3", "kind": "lookup", **PINNED},
+            dependency(),
+            lambda **data: events.append(data),
+        )
+    assert instance.release_calls == 0
+    assert (events[-1]["status"], events[-1]["message"]) == ("succeeded", "Static binding found")
+    assert any(event.get("before_state", {}).get("entry_type") == "static" for event in events)
+
+
 def test_changed_revision_never_reaches_the_switch():
     job = {"target_ip": "10.1.2.3", "kind": "release", **PINNED}
     edited = {**dependency(), "switch_version": 2}

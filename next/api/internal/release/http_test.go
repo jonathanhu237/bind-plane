@@ -30,6 +30,10 @@ func (f *fakeStore) Start(context.Context, StartInput) (Job, error) {
 	f.calls++
 	return f.started, nil
 }
+func (f *fakeStore) Lookup(context.Context, string, Actor) (Job, error) {
+	f.calls++
+	return Job{}, nil
+}
 func (f *fakeStore) Retry(context.Context, string, Actor, bool) (Job, error) {
 	f.calls++
 	return Job{Status: "queued"}, nil

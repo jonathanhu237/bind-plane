@@ -64,7 +64,7 @@ var wecomFailures = map[string]string{
 }
 
 const wecomHelp = "发送要解绑的 IPv4 地址，例如 `解绑 10.20.30.40`，再选择原因，就会开始解绑。\n" +
-	"只想看看它归哪台交换机，发送 `查询 10.20.30.40`。\n" +
+	"想先看看它现在的 MAC 和绑定类型，发送 `查询 10.20.30.40`：只查询，不改动交换机。\n" +
 	"一次只解绑一个地址；解绑前会先查询交换机，不是静态绑定就不会发送任何命令。"
 
 func wecomTaskID() string {
@@ -162,7 +162,8 @@ func (b *WeComBot) onMessage(ctx context.Context, frame wecomFrame) {
 		b.replyText(ctx, reqID, "目前只认文字消息。\n\n"+wecomHelp)
 		return
 	}
-	if _, _, refusal := b.member(ctx, cb.From.UserID); refusal != "" {
+	actor, _, refusal := b.member(ctx, cb.From.UserID)
+	if refusal != "" {
 		b.replyText(ctx, reqID, refusal)
 		return
 	}
@@ -180,7 +181,7 @@ func (b *WeComBot) onMessage(ctx context.Context, frame wecomFrame) {
 	case ip == "":
 		b.replyText(ctx, reqID, wecomHelp)
 	case strings.Contains(text, "查询") || strings.HasPrefix(strings.ToLower(text), "query"):
-		b.replyText(ctx, reqID, b.lookUp(ctx, ip))
+		b.startLookup(ctx, reqID, cb, ip, actor)
 	default:
 		b.offerRelease(ctx, reqID, cb, ip)
 	}
@@ -219,16 +220,25 @@ func (b *WeComBot) lastRelease(ctx context.Context, ip string) string {
 	return fmt.Sprintf("%s · %s · %s", wecomStatus[status][0], at.In(b.loc).Format("01-02 15:04"), actor)
 }
 
-func (b *WeComBot) lookUp(ctx context.Context, ip string) string {
-	name, managementIP, cidr, stop := b.resolved(ctx, ip)
-	if stop != "" {
-		return stop
+// startLookup asks the address's switch for its ARP entry through the console's own store; the
+// MAC and entry type come back to the chat when the worker has read them.
+func (b *WeComBot) startLookup(ctx context.Context, reqID string, cb wecomCallback, ip string, actor Actor) {
+	job, err := b.store.Lookup(ctx, ip, actor)
+	if err == nil && job.JobID == "" {
+		_, _, _, stop := b.resolved(ctx, ip)
+		b.replyText(ctx, reqID, stop)
+		return
 	}
-	text := fmt.Sprintf("**%s**\n负责解绑：%s（%s）\n网段：%s", ip, name, managementIP, cidr)
-	if last := b.lastRelease(ctx, ip); last != "" {
-		text += "\n最近一次解绑：" + last
+	if err != nil {
+		log.Printf("wecom: start lookup: %v", err)
+		b.replyText(ctx, reqID, "暂时无法查询，请稍后再试。")
+		return
 	}
-	return text
+	chatType, chatID := cb.chat()
+	if _, err = b.db.ExecContext(ctx, `INSERT INTO bp_wecom_jobs(job_id,wecom_userid,chat_type,chat_id) VALUES ($1,$2,$3,$4)`, job.JobID, cb.From.UserID, chatType, chatID); err != nil {
+		log.Printf("wecom: remember chat for lookup %s: %v", job.JobID, err)
+	}
+	b.replyText(ctx, reqID, fmt.Sprintf("正在向交换机 %s（%s）查询 %s，稍等几秒。", job.SwitchName, job.SwitchManagementIP, ip))
 }
 
 // offerRelease answers an address with its release card: the switch it goes to and one button per
@@ -357,6 +367,48 @@ func (b *WeComBot) onClick(ctx context.Context, reqID string, cb wecomCallback) 
 		fmt.Sprintf("原因：%s · 发起人：%s。完成后会在这里通知结果。", wecomReasonLabel(job.Reason), actor.Name))
 }
 
+// lookupResult words what a lookup found. A static binding comes as a card with the reasons, so
+// it can be released from there; anything else is a message.
+func (b *WeComBot) lookupResult(ctx context.Context, owner, chatType, chat, status, ip, switchText, entry, mac, failure string) map[string]any {
+	if status == "succeeded" && entry == "static" {
+		taskID := wecomTaskID()
+		if _, err := b.db.ExecContext(ctx, `INSERT INTO bp_wecom_cards(task_id,kind,target_ip,wecom_userid,chat_type,chat_id) VALUES ($1,'release',$2::inet,$3,$4,$5)`,
+			taskID, ip, owner, chatType, chat); err != nil {
+			return nil
+		}
+		buttons := make([]map[string]any, 0, len(wecomReasons))
+		for _, reason := range wecomReasons {
+			buttons = append(buttons, map[string]any{"text": reason.label, "key": reason.code})
+		}
+		return map[string]any{"msgtype": "template_card", "template_card": map[string]any{
+			"card_type":               "button_interaction",
+			"main_title":              map[string]string{"title": ip + " · 静态绑定", "desc": "交换机 " + switchText},
+			"horizontal_content_list": []map[string]string{{"keyname": "MAC", "value": mac}},
+			"sub_title_text":          "要解绑就选择原因，选了即开始；不解绑就不用管这张卡片。",
+			"button_list":             buttons,
+			"task_id":                 taskID,
+		}}
+	}
+	var text string
+	switch {
+	case status == "succeeded" && entry == "dynamic":
+		text = fmt.Sprintf("**%s · 动态记录**\nMAC：%s\n交换机：%s\n只有动态记录，没有静态绑定，不需要解绑。", ip, mac, switchText)
+	case status == "succeeded":
+		text = fmt.Sprintf("**%s · 查无此 IP**\n交换机：%s\n交换机上查不到这个 IP 的记录。请检查地址，以及它所在网段的交换机和命令模板是否正确。", ip, switchText)
+	default:
+		reason := "暂时无法读取交换机"
+		if status == "timeout" {
+			reason = "查询超时"
+		} else if failure == "Lookup output could not be parsed" {
+			reason = "无法解析交换机的回复，不确定这个地址的记录"
+		} else if zh, ok := wecomFailures[failure]; ok {
+			reason = zh
+		}
+		text = fmt.Sprintf("**%s 查询失败**\n交换机：%s\n%s。可以稍后再查一次。", ip, switchText, reason)
+	}
+	return map[string]any{"msgtype": "markdown", "markdown": map[string]string{"content": text}}
+}
+
 // notifyResults tells each chat how the releases started from it ended. A result WeCom has not
 // acknowledged is sent again later, at most five times.
 func (b *WeComBot) notifyResults(ctx context.Context) {
@@ -371,7 +423,8 @@ func (b *WeComBot) notifyResults(ctx context.Context) {
 	}
 	b.pendingMu.Unlock()
 	rows, err := b.db.QueryContext(ctx, `SELECT w.job_id::text,w.wecom_userid,w.chat_type,w.chat_id,j.status,host(j.target_ip),COALESCE(j.switch_name,''),COALESCE(host(j.switch_management_ip),''),
- j.reason,COALESCE(NULLIF(j.actor_name,''),j.actor_email),COALESCE(j.error_message,'')
+ j.reason,COALESCE(NULLIF(j.actor_name,''),j.actor_email),
+ COALESCE(j.error_message,(SELECT e.message FROM bp_release_events e WHERE e.job_id=j.id AND e.message IS NOT NULL ORDER BY e.id DESC LIMIT 1),''),j.kind,COALESCE(j.before_state->>'entry_type',''),COALESCE(j.before_state->>'mac','')
  FROM bp_wecom_jobs w JOIN bp_release_jobs j ON j.id=w.job_id
  WHERE w.notified_at IS NULL AND w.attempts<5 AND j.status NOT IN ('queued','running') ORDER BY j.finished_at LIMIT 20`)
 	if err != nil {
@@ -380,11 +433,11 @@ func (b *WeComBot) notifyResults(ctx context.Context) {
 		}
 		return
 	}
-	type result struct{ job, owner, chatType, chat, status, ip, name, management, reason, actor, failure string }
+	type result struct{ job, owner, chatType, chat, status, ip, name, management, reason, actor, failure, kind, entry, mac string }
 	var results []result
 	for rows.Next() {
 		var r result
-		if err = rows.Scan(&r.job, &r.owner, &r.chatType, &r.chat, &r.status, &r.ip, &r.name, &r.management, &r.reason, &r.actor, &r.failure); err != nil {
+		if err = rows.Scan(&r.job, &r.owner, &r.chatType, &r.chat, &r.status, &r.ip, &r.name, &r.management, &r.reason, &r.actor, &r.failure, &r.kind, &r.entry, &r.mac); err != nil {
 			break
 		}
 		if !waiting[r.job] {
@@ -408,7 +461,11 @@ func (b *WeComBot) notifyResults(ctx context.Context) {
 		}
 		switchText := fmt.Sprintf("%s（%s）", r.name, r.management)
 		var body map[string]any
-		if r.status == "failed" || r.status == "timeout" || r.status == "needs_manual_confirmation" {
+		if r.kind == "lookup" {
+			if body = b.lookupResult(ctx, r.owner, r.chatType, r.chat, r.status, r.ip, switchText, r.entry, r.mac, r.failure); body == nil {
+				continue
+			}
+		} else if r.status == "failed" || r.status == "timeout" || r.status == "needs_manual_confirmation" {
 			taskID := wecomTaskID()
 			if _, err := b.db.ExecContext(ctx, `INSERT INTO bp_wecom_cards(task_id,kind,target_ip,job_id,wecom_userid,chat_type,chat_id) VALUES ($1,'retry',$2::inet,$3,$4,$5,$6)`,
 				taskID, r.ip, r.job, r.owner, r.chatType, r.chat); err != nil {

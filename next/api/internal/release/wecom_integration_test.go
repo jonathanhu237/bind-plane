@@ -226,9 +226,32 @@ func TestWeComBotReleasesFromAChat(t *testing.T) {
 	if reply := server.next(wecomReply); !strings.Contains(fmt.Sprint(reply), "查询 10.20.30.40") {
 		t.Fatalf("help %v", reply)
 	}
-	server.push(wecomText("m3", "group", "grp1", "zhang.san", "@Bind Plane 查询 10.177.1.20"))
-	if reply := server.next(wecomReply); !strings.Contains(fmt.Sprint(reply), "WECOM-SW") || !strings.Contains(fmt.Sprint(reply), "10.177.0.0/16") {
-		t.Fatalf("look-up %v", reply)
+	// "查询" asks the switch: a lookup job, and what it found sent back to the chat. A static
+	// binding comes with the reasons, and choosing one releases it.
+	server.push(wecomText("m3", "group", "grp1", "zhang.san", "@Bind Plane 查询 10.177.1.30"))
+	if reply := server.next(wecomReply); !strings.Contains(fmt.Sprint(reply), "正在向交换机 WECOM-SW") {
+		t.Fatalf("lookup %v", reply)
+	}
+	var lookupID string
+	if err = db.QueryRow(`SELECT id::text FROM bp_release_jobs WHERE target_ip='10.177.1.30' AND kind='lookup' AND source='wecom' AND actor_id=$1`, operatorID).Scan(&lookupID); err != nil {
+		t.Fatalf("lookup job: %v", err)
+	}
+	if _, err = db.Exec(`UPDATE bp_release_jobs SET status='succeeded',phase='finished',finished_at=now(),before_state='{"entry_type":"static","mac":"00e0-fc12-3456"}' WHERE id=$1`, lookupID); err != nil {
+		t.Fatal(err)
+	}
+	found := server.next(wecomSend)
+	foundCard := frameBody(found)["template_card"].(map[string]any)
+	if frameBody(found)["chatid"] != "grp1" || !strings.Contains(fmt.Sprint(foundCard), "00e0-fc12-3456") || !strings.Contains(fmt.Sprint(foundCard), "静态绑定") || len(foundCard["button_list"].([]any)) != 6 {
+		t.Fatalf("lookup result %v", found)
+	}
+	server.ack(found, 0)
+	server.push(wecomClick("e0", "zhang.san", foundCard["task_id"].(string), "user_report"))
+	if update := frameBody(server.next(wecomUpdateCard)); !strings.Contains(fmt.Sprint(update), "已提交") {
+		t.Fatalf("release from a lookup %v", update)
+	}
+	var fromLookup int
+	if err = db.QueryRow(`SELECT count(*) FROM bp_release_jobs WHERE target_ip='10.177.1.30' AND kind='release' AND reason='user_report' AND source='wecom'`).Scan(&fromLookup); err != nil || fromLookup != 1 {
+		t.Fatalf("released from a lookup %d times: %v", fromLookup, err)
 	}
 
 	// An address gets its release card: the switch, and one button per reason.

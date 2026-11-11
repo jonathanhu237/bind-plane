@@ -58,14 +58,16 @@ The normal operator flow is:
 9. Worker queries state after release.
 10. Store structured result, raw output, job status, and audit data.
 
-There is no separate confirmation step: choosing Release starts the job, and the state before release is recorded with it. One release per address may be queued or running at a time. An earlier release with an unknown outcome does not hold the address.
+There is no separate confirmation step: choosing Release starts the job, and the state before release is recorded with it.
+
+An address can also be looked up without releasing it: a lookup job signs in to the address's switch, runs the single-IP query, records the MAC and whether the entry is a static binding, a dynamic entry or missing, and changes nothing. It needs no reason and takes no address lock, so it never holds up a release; who looked up what is kept like a release. A reply the rules cannot read is a failed lookup, never a guess. One release per address may be queued or running at a time. An earlier release with an unknown outcome does not hold the address.
 
 ## WeCom Bot
 
 Members can also release from WeCom (企业微信), through a bot that admins set up on the WeCom page (bot ID, secret, connection address; the secret is sealed and never shown). The API keeps one long connection out to WeCom, so the server needs no public address; one bot allows one connection, so the sandbox and production each use their own.
 
 - A member is bound by admins to a Bind Plane user by their WeCom account; that user's roles decide what they may do and the release is recorded as theirs, with its source `wecom`. Unbound members are told to ask an admin.
-- An address answers with a card naming the switch and one button per reason; choosing a reason starts the release, as choosing Release does in the console. Only the member who asked may choose, once, within 30 minutes. "查询" with an address only looks it up.
+- An address answers with a card naming the switch and one button per reason; choosing a reason starts the release, as choosing Release does in the console. Only the member who asked may choose, once, within 30 minutes. "查询" with an address looks it up on its switch; a static binding comes back with the reasons, so it can be released from there.
 - The result goes back to the same chat; a failed, timed-out or unknown outcome comes with Release again, which creates a new job linked to the original. The console's rules hold: one release per address at a time, same statuses and wording.
 
 Reasons should be quick to select and include a temporary-test option. Ticket IDs are optional for MVP.
@@ -179,7 +181,7 @@ Everyone lands on the home page after login. It shows where things stand and sta
 - Admins also see the device operations summary there; there is no separate overview page.
 - A "New release" (发起解绑) button in its header opens the release console, so the release workflow stays one click away.
 
-Every release starts in the release console or the WeCom bot; do not add another release form elsewhere. It is a focused page for one job at a time: address and reason, then the result. The job it shows is part of the URL, so a reload or a link from the history returns to it. Release history is its own page, with filters and pagination. It only finds jobs: opening one shows it in the console, where Release again is.
+Every release starts in the release console or the WeCom bot; do not add another release form elsewhere. It is a focused page for one job at a time: address and reason, then the result; Query looks the address up instead, and a static binding it finds can be put back into the form to release. The job it shows is part of the URL, so a reload or a link from the history returns to it. Release history is its own page, with filters and pagination, listing releases or lookups. It only finds jobs: opening one shows it in the console, where Release again is.
 
 Navigation stays small:
 

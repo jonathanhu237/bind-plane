@@ -89,6 +89,7 @@ type JobPage struct {
 
 type Store interface {
 	Start(context.Context, StartInput) (Job, error)
+	Lookup(context.Context, string, Actor) (Job, error)
 	Retry(context.Context, string, Actor, bool) (Job, error)
 	Job(context.Context, string, string, bool) (Job, error)
 	Jobs(context.Context, string, bool, JobFilter) (JobPage, error)
@@ -106,6 +107,7 @@ func NewHandler(store Store, identity Identity, cookieName, origin string) http.
 	h := &handler{store: store, identity: identity, cookie: cookieName, origin: origin}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/releases", h.start)
+	mux.HandleFunc("POST /api/releases/lookups", h.lookup)
 	mux.HandleFunc("GET /api/releases/jobs", h.jobs)
 	mux.HandleFunc("GET /api/releases/jobs/{id}", h.job)
 	mux.HandleFunc("POST /api/releases/jobs/{id}/retry", h.retry)
@@ -191,6 +193,36 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	}
 	write(w, http.StatusAccepted, job)
 }
+
+// lookup asks an address's switch for its ARP entry, changing nothing; it answers like start.
+func (h *handler) lookup(w http.ResponseWriter, r *http.Request) {
+	p, _, ok := h.principal(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		TargetIP string `json:"target_ip"`
+	}
+	if err := decode(r, &input); err != nil {
+		fail(w, 400, "invalid request")
+		return
+	}
+	if _, err := ResolveNetwork(input.TargetIP, nil); err == ErrInvalidIP {
+		fail(w, 422, err.Error())
+		return
+	}
+	job, err := h.store.Lookup(r.Context(), input.TargetIP, Actor{ID: p.User.ID, Name: p.User.Name, Email: p.User.Email})
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	if job.JobID == "" {
+		write(w, http.StatusOK, job)
+		return
+	}
+	write(w, http.StatusAccepted, job)
+}
+
 func (h *handler) job(w http.ResponseWriter, r *http.Request) {
 	p, admin, ok := h.principal(w, r, false)
 	if !ok {
@@ -241,7 +273,7 @@ var jobStatus = regexp.MustCompile(`^[a-z_]{1,40}$`)
 // jobFilter reads the history's search text, kind, status, latest flag and page from the query string.
 func jobFilter(q url.Values) (JobFilter, bool) {
 	filter := JobFilter{Query: strings.TrimSpace(q.Get("q")), Kind: q.Get("kind"), Status: q.Get("status"), Latest: q.Get("latest") == "1", Limit: jobPageSize}
-	if len(filter.Query) > 100 || filter.Kind != "" && filter.Kind != "release" && filter.Kind != "pre_release_query" ||
+	if len(filter.Query) > 100 || filter.Kind != "" && filter.Kind != "release" && filter.Kind != "pre_release_query" && filter.Kind != "lookup" ||
 		filter.Status != "" && !jobStatus.MatchString(filter.Status) || q.Get("latest") != "" && !filter.Latest {
 		return JobFilter{}, false
 	}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canRelease, canRetry, entryLabel, jobsPath, phaseLabel, reasonLabel, releaseErrorText, statusLabel, stopText, targetIPProblem } from './jobs'
+import { canRelease, canRetry, entryLabel, jobsPath, lookupFound, lookupPhase, phaseLabel, reasonLabel, releaseErrorText, statusLabel, stopText, targetIPProblem } from './jobs'
 import type { User } from '@/shared/api/contracts'
 
 describe('release job messages', () => {
@@ -64,5 +64,18 @@ describe('release jobs', () => {
     expect(canRelease(user(['Admin']))).toBe(true)
     expect(canRelease(user([], true))).toBe(true)
     expect(canRelease(user(['Auditor']))).toBe(false)
+  })
+})
+
+describe('lookups', () => {
+  it('shows what a finished lookup found, and nothing for a release or an unfinished lookup', () => {
+    expect(lookupFound({ kind: 'lookup', status: 'succeeded', before_state: { entry_type: 'static', mac: '00e0-fc12-3456' } })).toBe('static')
+    expect(lookupFound({ kind: 'lookup', status: 'running', before_state: {} })).toBeUndefined()
+    expect(lookupFound({ kind: 'release', status: 'succeeded', before_state: { entry_type: 'static' } })).toBeUndefined()
+  })
+
+  it('says a lookup is querying, not querying before a release', () => {
+    expect(lookupPhase('querying_before', true)).toBe('正在查询')
+    expect(lookupPhase('connecting', true)).toBe('正在连接交换机')
   })
 })

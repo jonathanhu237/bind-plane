@@ -48,7 +48,7 @@ async def claim(pool):
         async with pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow("""SELECT j.id,host(j.target_ip) AS target_ip,j.kind
                     FROM bp_release_jobs j WHERE j.status='queued'
-                    AND (j.kind='pre_release_query' OR NOT EXISTS (
+                    AND (j.kind IN ('pre_release_query','lookup') OR NOT EXISTS (
                         SELECT 1 FROM bp_release_jobs previous
                         WHERE previous.target_ip=j.target_ip AND previous.id<>j.id
                         AND previous.kind='release'
@@ -199,6 +199,14 @@ def dependency_problem(job, dep):
     return None
 
 
+# What a lookup found, as the job's closing message.
+LOOKUP_FOUND = {
+    ArpEntryType.STATIC: "Static binding found",
+    ArpEntryType.DYNAMIC: "Only a dynamic entry",
+    ArpEntryType.MISSING: "No record of this address",
+}
+
+
 def device_task(job, dep, checkpoint_sync):
     """Run all Netmiko operations in one dedicated thread; checkpoints are durable."""
     target = IPv4Address(job["target_ip"])
@@ -254,7 +262,17 @@ def device_task(job, dep, checkpoint_sync):
             checkpoint_sync(
                 phase="finished",
                 status="failed",
-                message="Pre-query could not be parsed; nothing was sent",
+                message=(
+                    "Lookup output could not be parsed"
+                    if job["kind"] == "lookup"
+                    else "Pre-query could not be parsed; nothing was sent"
+                ),
+            )
+            return
+        if job["kind"] == "lookup":
+            # A lookup ends with what the switch holds for the address; it sends nothing else.
+            checkpoint_sync(
+                phase="finished", status="succeeded", message=LOOKUP_FOUND[before.entry_type]
             )
             return
         if job["kind"] == "pre_release_query":

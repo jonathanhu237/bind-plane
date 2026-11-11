@@ -1,5 +1,5 @@
 import { actorText, ToneBadge } from '@/features/ops/ui'
-import { statusLabel, statusTone, type Job } from './jobs'
+import { entryLabel, lookupFound, statusLabel, statusTone, type Job } from './jobs'
 
 export function SwitchName({ job }: { job: Pick<Job, 'switch_id' | 'switch_name' | 'switch_management_ip'> }) {
   if (!job.switch_name) return <span className="break-all font-mono">{job.switch_id || '—'}</span>
@@ -17,6 +17,11 @@ export function Info({ label, children, className }: { label: string; children: 
   return <div className="min-w-0"><dt className="text-muted-foreground">{label}</dt><dd className={className}>{children}</dd></div>
 }
 
-export function JobStatusBadge({ job, zh }: { job: Pick<Job, 'status'>; zh: boolean }) {
+/** A release's status; for a finished lookup, what it found. */
+export function JobStatusBadge({ job, zh }: { job: Pick<Job, 'status'> & Partial<Pick<Job, 'kind' | 'before_state'>>; zh: boolean }) {
+  const found = lookupFound({ kind: job.kind ?? 'release', status: job.status, before_state: job.before_state })
+  if (found) return <ToneBadge kind="muted">{entryLabel(found, zh)}</ToneBadge>
+  // A lookup never releases anything, so it never says Released, even without what it found.
+  if (job.kind === 'lookup' && job.status === 'succeeded') return <ToneBadge kind="muted">{zh ? '已查询' : 'Looked up'}</ToneBadge>
   return <ToneBadge kind={statusTone(job.status)}>{statusLabel(job.status, zh)}</ToneBadge>
 }

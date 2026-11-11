@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ChevronRight, CircleAlert, TriangleAlert } from 'lucide-react'
+import { ChevronRight, CircleAlert, TriangleAlert, Unlink } from 'lucide-react'
 import { useState } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -10,15 +10,19 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatTime } from '@/features/ops/ui'
 import { ActorName, Info, JobStatusBadge, SwitchName } from './job-parts'
 import {
-  assetOptionsKey, canRetry, entryLabel, isRunning, jobListKey, phaseLabel, rawOutputLabel, rawOutputs, reasonLabel, releaseErrorText, request, statusLabel,
+  assetOptionsKey, canRetry, entryLabel, isRunning, jobListKey, lookupPhase, phaseLabel, rawOutputLabel, rawOutputs, reasonLabel, releaseErrorText, request, statusLabel,
   type AssetOptions, type Job,
 } from './jobs'
 import { serverText } from './messages'
 
-type Props = { jobID: string; admin: boolean; zh: boolean; onJob: (jobID: string) => void }
+type Props = {
+  jobID: string; admin: boolean; zh: boolean; onJob: (jobID: string) => void
+  /** Puts an address a lookup found statically bound into the release form. */
+  onRelease?: (ip: string) => void
+}
 
-/** One release and its outcome. A query left from the old two-step flow is shown read-only. */
-export function JobView({ jobID, admin, zh, onJob }: Props) {
+/** One release and its outcome, or one lookup and what it found. A query left from the old two-step flow is shown read-only. */
+export function JobView({ jobID, admin, zh, onJob, onRelease }: Props) {
   const queryClient = useQueryClient()
   const job = useQuery({ queryKey: ['release-job', jobID], queryFn: () => request<Job>(`/api/releases/jobs/${jobID}`),
     refetchInterval: (query) => (isRunning(query.state.data) ? 1800 : false) })
@@ -28,6 +32,7 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
   const [error, setError] = useState('')
   const labels = zh ? {
     release: '解绑', query: '查询', legacy: '这是改版前的查询记录：只查询了交换机上的绑定，没有执行解绑。', viewRelease: '查看之后的解绑',
+    lookup: '只查询了交换机上这个地址的记录，没有改动任何东西。', releaseThis: '解绑这个地址', releaseThisHint: '把地址填到上面的表单，选好原因再点“解绑”。',
     switch: '交换机', reason: '解绑原因', entryType: '绑定类型', queriedAt: '查询时间', retry: '重新解绑',
     actor: '执行人', profile: '命令模板', before: '解绑前', after: '解绑后', forced: '强制解绑', startedAt: '提交时间', finishedAt: '完成时间', yes: '是',
     retryOf: '原任务', original: '查看原任务', next: '下一次解绑', viewNext: '查看同一 IP 的下一次解绑', events: '执行过程',
@@ -36,6 +41,7 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
     followed: '这个 IP 之后又解绑过，现状见下一次解绑。',
   } : {
     release: 'Release', query: 'Query', legacy: 'A query from before the one-step release: it read the binding on the switch and released nothing.', viewRelease: 'View the release that followed',
+    lookup: 'Looked the address up on its switch; nothing was changed.', releaseThis: 'Release this address', releaseThisHint: 'Puts the address in the form above; choose a reason and Release.',
     switch: 'Switch', reason: 'Reason', entryType: 'Entry type', queriedAt: 'Queried', retry: 'Release again',
     actor: 'Actor', profile: 'Command profile', before: 'Before release', after: 'After release', forced: 'Forced', startedAt: 'Started', finishedAt: 'Finished', yes: 'Yes',
     retryOf: 'Original', original: 'View the original job', next: 'Next release', viewNext: 'View the next release of this IP', events: 'Progress',
@@ -65,12 +71,12 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
   const events = data.events?.length ? <div className="flex flex-col gap-1">
     <h3 className="text-sm font-medium">{labels.events}</h3>
     <ol className="flex flex-col gap-1 text-xs text-muted-foreground">{data.events.map((event, index) => <li key={`${event.created_at}-${index}`}>
-      <time dateTime={event.created_at} className="tabular-nums">{formatTime(event.created_at, zh)}</time> · {phaseLabel(event.phase, zh)} · {statusLabel(event.status, zh)} {serverText(event.message, zh)}
+      <time dateTime={event.created_at} className="tabular-nums">{formatTime(event.created_at, zh)}</time> · {data.kind === 'lookup' ? lookupPhase(event.phase, zh) : phaseLabel(event.phase, zh)} · {data.kind === 'lookup' && event.status === 'succeeded' ? (zh ? '已完成' : 'Done') : statusLabel(event.status, zh)} {serverText(event.message, zh)}
     </li>)}</ol>
   </div> : null
   const raw = rawOutputs.map((key) => data[key] ? <Collapsible key={key}>
     <CollapsibleTrigger asChild>
-      <Button type="button" variant="ghost" size="sm" className="group -ml-3"><ChevronRight aria-hidden="true" data-icon="inline-start" className="transition-transform group-data-[state=open]:rotate-90" />{rawOutputLabel(key, zh)}</Button>
+      <Button type="button" variant="ghost" size="sm" className="group -ml-3"><ChevronRight aria-hidden="true" data-icon="inline-start" className="transition-transform group-data-[state=open]:rotate-90" />{data.kind === 'lookup' && key === 'raw_before_output' ? (zh ? '查询原始输出' : 'Raw lookup output') : rawOutputLabel(key, zh)}</Button>
     </CollapsibleTrigger>
     <CollapsibleContent><pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">{data[key]}</pre></CollapsibleContent>
   </Collapsible> : null)
@@ -81,6 +87,28 @@ export function JobView({ jobID, admin, zh, onJob }: Props) {
     </div>
     <JobStatusBadge job={data} zh={zh} />
   </CardHeader>
+
+  if (data.kind === 'lookup') {
+    const found = data.status === 'succeeded' ? data.before_state?.entry_type : undefined
+    return <Card aria-live="polite">
+      {header(labels.query, isRunning(data) ? lookupPhase(data.phase, zh) : data.status === 'succeeded' ? labels.lookup : message || labels.lookup)}
+      <CardContent className="flex flex-col gap-4">
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <Info label="MAC" className="font-mono">{data.before_state?.mac ?? '—'}</Info>
+          <Info label={labels.entryType}>{entryLabel(found, zh)}</Info>
+          <Info label={labels.switch}><SwitchName job={data} /></Info>
+          <Info label={labels.actor}><ActorName job={data} zh={zh} /></Info>
+          <Info label={labels.queriedAt} className="tabular-nums">{formatTime(data.finished_at ?? data.created_at, zh)}</Info>
+        </dl>
+        {found === 'static' && onRelease ? <div className="flex flex-wrap items-center gap-3">
+          <Button type="button" variant="outline" onClick={() => onRelease(data.target_ip)}><Unlink aria-hidden="true" data-icon="inline-start" />{labels.releaseThis}</Button>
+          <span className="text-xs text-muted-foreground">{labels.releaseThisHint}</span>
+        </div> : null}
+        {events}
+        {raw}
+      </CardContent>
+    </Card>
+  }
 
   if (data.kind !== 'release') return <Card aria-live="polite">
     {header(labels.query, labels.legacy)}

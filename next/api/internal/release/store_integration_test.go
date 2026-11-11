@@ -3,7 +3,9 @@ package release
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -144,5 +146,25 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 	second, err := store.Jobs(ctx, actor, false, JobFilter{Limit: 2, Offset: 2})
 	if err != nil || len(second.Items) != 2 || second.Total != 4 || second.Items[0].ID != history.Items[2].ID {
 		t.Fatalf("second page %+v %v", second, err)
+	}
+	// A lookup changes nothing and holds nothing: it queues beside a release of the same address,
+	// needs no reason, and is listed as a lookup.
+	if _, err = start("10.2.1.9"); err != nil {
+		t.Fatal(err)
+	}
+	looked, err := store.Lookup(ctx, "10.2.1.9", operator)
+	if err != nil || looked.Kind != "lookup" || looked.JobID == "" || looked.Reason != "" || looked.SwitchName != "test" {
+		t.Fatalf("lookup %+v %v", looked, err)
+	}
+	if _, err = db.ExecContext(ctx, `UPDATE bp_release_jobs SET status='succeeded',phase='finished',before_state='{"entry_type":"dynamic","mac":"00e0-fc12-3456"}' WHERE id=$1`, looked.JobID); err != nil {
+		t.Fatal(err)
+	}
+	lookups, err := store.Jobs(ctx, actor, false, JobFilter{Kind: "lookup", Limit: 10})
+	listed, _ := json.Marshal(lookups.Items)
+	if err != nil || lookups.Total != 1 || lookups.Items[0].ID != looked.JobID || !strings.Contains(string(listed), `"entry_type":"dynamic"`) {
+		t.Fatalf("lookups listed with what they found %+v %v", lookups, err)
+	}
+	if stopped, err := store.Lookup(ctx, "10.9.0.1", operator); err != nil || stopped.Status != "stopped_no_switch" {
+		t.Fatalf("lookup of an address without a switch: %+v %v", stopped, err)
 	}
 }

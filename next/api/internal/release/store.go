@@ -56,6 +56,18 @@ func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	if !ValidReason(input.Reason) {
 		return Job{}, ErrConflict
 	}
+	return s.enqueue(ctx, "release", input)
+}
+
+// Lookup queues a lookup: the worker asks the address's switch for its ARP entry and sends nothing
+// else. It needs no reason and takes no address lock, so it never holds up a release.
+func (s *SQLStore) Lookup(ctx context.Context, ip string, actor Actor) (Job, error) {
+	return s.enqueue(ctx, "lookup", StartInput{TargetIP: ip, Actor: actor})
+}
+
+// enqueue resolves the address's switch and queues a job of kind on it; a release first makes sure
+// no other release of the address is queued or running.
+func (s *SQLStore) enqueue(ctx context.Context, kind string, input StartInput) (Job, error) {
 	if _, err := ResolveNetwork(input.TargetIP, nil); err == ErrInvalidIP {
 		return Job{}, err
 	}
@@ -81,15 +93,17 @@ func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	if err = addressFree(ctx, tx, input.TargetIP); err != nil {
-		return Job{}, err
+	if kind == "release" {
+		if err = addressFree(ctx, tx, input.TargetIP); err != nil {
+			return Job{}, err
+		}
 	}
 	var id, switchName, managementIP string
 	err = tx.QueryRowContext(ctx, `INSERT INTO bp_release_jobs(target_ip,kind,reason,status,phase,actor_id,actor_email,actor_name,result,resolved_network_id,
  switch_id,command_profile_id,switch_version,command_profile_version,switch_name,switch_management_ip,source)
- SELECT $1,'release',$2,'queued','queued',$3,$4,$8,$5::jsonb,NULLIF($6,'')::uuid,`+pinnedColumns+`,$9
+ SELECT $1,$10,$2,'queued','queued',$3,$4,$8,$5::jsonb,NULLIF($6,'')::uuid,`+pinnedColumns+`,$9
  FROM `+usableSwitch+` WHERE `+switchUsable+` AND s.id=$7
- RETURNING id::text,switch_name,host(switch_management_ip)`, input.TargetIP, input.Reason, input.Actor.ID, input.Actor.Email, selectionJSON(selected), selected.ID, selected.SwitchID, input.Actor.Name, input.Actor.source()).Scan(&id, &switchName, &managementIP)
+ RETURNING id::text,switch_name,host(switch_management_ip)`, input.TargetIP, input.Reason, input.Actor.ID, input.Actor.Email, selectionJSON(selected), selected.ID, selected.SwitchID, input.Actor.Name, input.Actor.source(), kind).Scan(&id, &switchName, &managementIP)
 	if err == sql.ErrNoRows {
 		// The switch was disabled between resolution and insertion.
 		return Job{}, ErrAssetChanged
@@ -97,13 +111,17 @@ func (s *SQLStore) Start(ctx context.Context, input StartInput) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO bp_release_events(job_id,phase,status,message) VALUES ($1,'queued','queued','Release queued')`, id); err != nil {
+	queued := "Release queued"
+	if kind == "lookup" {
+		queued = "Lookup queued"
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO bp_release_events(job_id,phase,status,message) VALUES ($1,'queued','queued',$2)`, id, queued); err != nil {
 		return Job{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		return Job{}, err
 	}
-	return Job{ID: id, JobID: id, TargetIP: input.TargetIP, SwitchID: selected.SwitchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: "release", Source: input.Actor.source(), Status: "queued", Phase: "queued", Reason: input.Reason}, nil
+	return Job{ID: id, JobID: id, TargetIP: input.TargetIP, SwitchID: selected.SwitchID, SwitchName: switchName, SwitchManagementIP: managementIP, Kind: kind, Source: input.Actor.source(), Status: "queued", Phase: "queued", Reason: input.Reason}, nil
 }
 func selectionJSON(n Network) string {
 	b, _ := json.Marshal(map[string]string{"network_id": n.ID, "cidr": n.CIDR})
@@ -205,7 +223,8 @@ func (s *SQLStore) Job(ctx context.Context, id, actor string, admin bool) (Job, 
 // The search text matches an address prefix or part of a switch name.
 func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool, filter JobFilter) (JobPage, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT j.id::text,host(j.target_ip),j.switch_id::text,j.switch_name,host(j.switch_management_ip),j.kind,j.source,j.status,j.phase,j.reason,j.force,
- COALESCE(j.actor_name,''),j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.finished_at,count(*) OVER()
+ COALESCE(j.actor_name,''),j.actor_email,j.retry_of_id::text,j.preparation_job_id::text,r.id::text,j.created_at,j.finished_at,
+ CASE WHEN j.kind='lookup' THEN j.before_state END,count(*) OVER()
  FROM bp_release_jobs j LEFT JOIN bp_release_jobs r ON r.preparation_job_id=j.id
  WHERE ($1 OR j.actor_id=$2) AND ($3='' OR host(j.target_ip) LIKE $3||'%' OR j.switch_name ILIKE '%'||$3||'%')
  AND ($4='' OR j.kind=$4) AND ($5='' OR j.status=$5)
@@ -221,11 +240,15 @@ func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool, filter Jo
 		var retryOf, preparationID, releaseID sql.NullString
 		var created time.Time
 		var finished sql.NullTime
+		var found []byte // what a lookup found, which the list shows as its outcome
 		if err = rows.Scan(&job.ID, &job.TargetIP, &job.SwitchID, &job.SwitchName, &job.SwitchManagementIP, &job.Kind, &job.Source, &job.Status, &job.Phase, &job.Reason, &job.Force,
-			&job.ActorName, &job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &finished, &page.Total); err != nil {
+			&job.ActorName, &job.ActorEmail, &retryOf, &preparationID, &releaseID, &created, &finished, &found, &page.Total); err != nil {
 			return JobPage{}, err
 		}
 		job.CreatedAt = &created
+		if found != nil {
+			job.BeforeState = json.RawMessage(found)
+		}
 		if finished.Valid {
 			job.FinishedAt = &finished.Time
 		}

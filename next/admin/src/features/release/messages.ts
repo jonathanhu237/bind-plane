@@ -128,6 +128,12 @@ const fixed: Record<string, Words> = {
   'ids must be at most 1000 switch IDs': ['Choose at most 1000 switches, or export by filter instead.', '一次最多选 1000 台设备，更多的请按筛选条件导出。'],
   // Release jobs in the API, the worker and its result classifier.
   'Release queued': ['Release queued', '已提交解绑，等待执行'],
+  // Lookups: the switch is asked for the address's entry and nothing is changed.
+  'Lookup queued': ['Lookup queued', '已提交查询，等待执行'],
+  'Static binding found': ['A static binding', '查到静态绑定'],
+  'Only a dynamic entry': ['Only a dynamic entry, no binding', '只有动态记录，没有绑定'],
+  'No record of this address': ['The switch has no record of this address', '交换机上查不到这个 IP 的记录'],
+  'Lookup output could not be parsed': ['The switch’s answer could not be read, so what it holds for the address is unknown', '无法解析交换机的回复，不确定这个地址的记录'],
   'Retry queued as a new release': ['Released again; queued as a new release', '重新解绑：已作为新的解绑排队'],
   'Dynamic entry is not a static binding': ['Only a dynamic entry, so the address is not bound; nothing was sent', '只有动态记录，没有绑定，未发送任何命令'],
   'No record; release stopped': ['The switch has no record of this address, so nothing was sent. Check the address, and that its network belongs to the right switch and command profile.', '交换机上查不到这个 IP 的记录，未发送任何命令。请检查 IP 是否输错，以及它所在网段登记的交换机和命令模板是否正确。'],
