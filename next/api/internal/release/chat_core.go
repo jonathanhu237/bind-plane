@@ -266,7 +266,7 @@ type chatCore struct {
 
 func newChatCore(db *sql.DB, store Store, principals PrincipalFinder, loc *time.Location, publicURL string) chatCore {
 	return chatCore{db: db, store: store, principals: principals, loc: loc, publicURL: publicURL,
-		SettingsEvery: 5 * time.Second, NotifyEvery: 3 * time.Second, CardTTL: 30 * time.Minute}
+		SettingsEvery: 5 * time.Second, NotifyEvery: time.Second, CardTTL: 30 * time.Minute}
 }
 
 // consoleLink is the release console, on the job when there is one.

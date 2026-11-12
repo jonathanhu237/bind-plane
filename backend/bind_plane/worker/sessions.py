@@ -6,6 +6,10 @@ from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutExc
 
 from bind_plane.services.command_profiles import RenderedCommands
 
+# The end of a switch's answer to one line: a prompt ending in >, # or ], or a question it waits
+# on. Anchored at the end of what has arrived, so output merely containing these never matches.
+STEP_END_PATTERN = r"(?:[>#\]]|[Pp]assword:|\[[Yy]/[Nn]\]:?)\s*$"
+
 
 class SwitchSessionError(RuntimeError):
     def __init__(self, message: str, *, partial_output: str | None = None) -> None:
@@ -133,14 +137,20 @@ class NetmikoSwitchSession:
         except OSError as exc:
             raise SwitchSessionError("Switch command failed") from exc
 
-    def _send_timing(self, command: str) -> str:
+    def _send_step(self, command: str, *, echo: bool = True) -> str:
+        """Send one line of a release and return as soon as the switch answers with a prompt
+        (<name>, [name], [~name], name#, name(config)#) or asks a question (Password:, [Y/N]).
+        Waiting until the switch fell silent instead cost two seconds a line. The privilege
+        password is not echoed, so it is sent with echo=False."""
         connection = self._require_connection()
         try:
-            return connection.send_command_timing(
+            return connection.send_command(
                 command,
+                expect_string=STEP_END_PATTERN,
                 read_timeout=self.settings.timeout,
                 strip_prompt=False,
                 strip_command=False,
+                cmd_verify=echo,
             )
         except (NetmikoTimeoutException, ReadTimeout) as exc:
             raise SwitchConnectionTimeoutError("Switch command timed out") from exc
@@ -174,12 +184,12 @@ class NetmikoSwitchSession:
         """Enter the privileged level (super on H3C and Huawei, enable on Ruijie), answering the
         privilege password when the switch asks. The password never appears in the output."""
         output = [] if output is None else output
-        privilege_output = self._send_timing(command)
+        privilege_output = self._send_step(command)
         output.append(privilege_output)
         if "assword" in privilege_output:
             if not self.settings.secret:
                 raise SwitchAuthenticationError("Switch privilege password is required")
-            secret_output = self._send_timing(self.settings.secret)
+            secret_output = self._send_step(self.settings.secret, echo=False)
             output.append(secret_output.replace(self.settings.secret, "***REDACTED***"))
         return output
 
@@ -189,7 +199,7 @@ class NetmikoSwitchSession:
             if commands.elevate_privilege:
                 self.elevate_privilege(commands.elevate_privilege, output)
             if commands.enter_config:
-                output.append(self._send_timing(commands.enter_config))
+                output.append(self._send_step(commands.enter_config))
             if self.settings.release_expect_string:
                 output.append(
                     self._send_command(
@@ -198,9 +208,9 @@ class NetmikoSwitchSession:
                     )
                 )
             else:
-                output.append(self._send_timing(commands.release))
+                output.append(self._send_step(commands.release))
             if commands.exit_config:
-                output.append(self._send_timing(commands.exit_config))
+                output.append(self._send_step(commands.exit_config))
         except SwitchSessionError as exc:
             self._attach_partial_output(exc, output)
             raise

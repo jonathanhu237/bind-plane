@@ -144,20 +144,16 @@ class PrivilegeConnection:
         self.calls = []
         self.privileged = False
 
-    def send_command_timing(self, command, **kwargs):
-        self.calls.append(command)
-        if command == "super":
-            return "Password:"
-        if command == "super-secret":
-            self.privileged = True
-            return "User privilege level is 3"
-        return ""
-
     def disable_paging(self, *, command):
         self.calls.append(command)
 
-    def send_command(self, command, **kwargs):
+    def send_command(self, command, expect_string=None, **kwargs):
         self.calls.append(command)
+        if command == "super":
+            return "super\nPassword:"
+        if command == "super-secret":
+            self.privileged = True
+            return "User privilege level is 3\n<X>"
         return "sysname X\n#\nreturn" if self.privileged else "% Unrecognized command"
 
 

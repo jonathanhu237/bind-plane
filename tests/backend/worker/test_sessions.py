@@ -1,6 +1,7 @@
 import pytest
 from bind_plane.services.command_profiles import RenderedCommands
 from bind_plane.worker.sessions import (
+    STEP_END_PATTERN,
     NetmikoConnectionSettings,
     NetmikoSwitchSession,
     SwitchSessionError,
@@ -30,8 +31,22 @@ class FakeConnection:
         *,
         read_timeout: int,
         expect_string: str | None = None,
+        cmd_verify: bool = True,
+        **kwargs,
     ) -> str:
         self.calls.append(("send_command", command, expect_string))
+        if expect_string == STEP_END_PATTERN:
+            # A release step: the switch answers with a prompt or a question.
+            self.unechoed = (
+                [*getattr(self, "unechoed", []), command]
+                if not cmd_verify
+                else getattr(self, "unechoed", [])
+            )
+            if command == "super":
+                return "Password:"
+            if command == "secret":
+                return "secret\nUser privilege level is 3\n<edge-sw-01>"
+            return f"{command}\n[edge-sw-01]"
         return f"output:{command}:{read_timeout}"
 
     def send_command_timing(
@@ -109,13 +124,15 @@ def test_netmiko_session_uses_explicit_profile_config_sequence(monkeypatch) -> N
     assert fake.calls == [
         ("disable_paging", "screen-length disable", None),
         ("send_command", "display arp 10.44.132.254", None),
-        ("send_command_timing", "super", None),
-        ("send_command_timing", "secret", None),
-        ("send_command_timing", "sy", None),
-        ("send_command_timing", "undo arp 10.44.132.254", None),
-        ("send_command_timing", "return", None),
+        ("send_command", "super", STEP_END_PATTERN),
+        ("send_command", "secret", STEP_END_PATTERN),
+        ("send_command", "sy", STEP_END_PATTERN),
+        ("send_command", "undo arp 10.44.132.254", STEP_END_PATTERN),
+        ("send_command", "return", STEP_END_PATTERN),
         ("send_command", "display arp 10.44.132.254", None),
     ]
+    # The privilege password is never echoed, so nothing waits for its echo.
+    assert fake.unechoed == ["secret"]
     assert fake.closed is True
 
 
@@ -165,22 +182,10 @@ def test_netmiko_session_uses_prompt_patterns(monkeypatch) -> None:
 
 def test_netmiko_session_attaches_partial_release_output(monkeypatch) -> None:
     class FailingExitConnection(FakeConnection):
-        def send_command_timing(
-            self,
-            command: str,
-            *,
-            read_timeout: int,
-            strip_prompt: bool,
-            strip_command: bool,
-        ) -> str:
+        def send_command(self, command: str, **kwargs) -> str:
             if command == "return":
                 raise OSError("connection dropped")
-            return super().send_command_timing(
-                command,
-                read_timeout=read_timeout,
-                strip_prompt=strip_prompt,
-                strip_command=strip_command,
-            )
+            return super().send_command(command, **kwargs)
 
     fake = FailingExitConnection()
     monkeypatch.setattr("bind_plane.worker.sessions.ConnectHandler", lambda **_: fake)
@@ -208,6 +213,5 @@ def test_netmiko_session_attaches_partial_release_output(monkeypatch) -> None:
         )
 
     assert exc_info.value.partial_output == (
-        "timing:sy:20:False:False\n"
-        "timing:undo arp 10.44.132.254:20:False:False"
+        "sy\n[edge-sw-01]\nundo arp 10.44.132.254\n[edge-sw-01]"
     )
