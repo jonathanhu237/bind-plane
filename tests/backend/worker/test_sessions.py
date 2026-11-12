@@ -27,6 +27,10 @@ class FakeConnection:
         self.calls.append(("disable_paging", command, None))
         return "paging disabled"
 
+    def clear_buffer(self, **kwargs) -> str:
+        self.calls.append(("clear_buffer", "", None))
+        return ">"
+
     def send_command(
         self,
         command: str,
@@ -126,6 +130,7 @@ def test_netmiko_session_uses_explicit_profile_config_sequence(monkeypatch) -> N
     assert fake.calls == [
         ("disable_paging", "screen-length disable", None),
         ("send_command", "display arp 10.44.132.254", None),
+        ("clear_buffer", "", None),
         ("send_command", "super", STEP_END_PATTERN),
         ("send_command", "secret", STEP_END_PATTERN),
         ("send_command", "sy", STEP_END_PATTERN),
@@ -277,7 +282,22 @@ def test_huawei_login_answers_username_then_password() -> None:
     assert switch.writes == ["admin\r", "pw\r"]
 
 
-def test_huawei_login_declines_a_password_change_and_fails_fast_on_a_wrong_password() -> None:
+def test_huawei_login_answers_again_when_the_first_answer_is_rejected() -> None:
+    # Old Quidway switches reject the first answer to the password question whatever it is.
+    attempts = []
+
+    class FirstAttemptRejected(FakeHuaweiTelnet):
+        def write_channel(self, data):
+            attempts.append(data)
+            self.writes.append(data)
+            self.buffer += " %Wrong password!\r\nPassword:" if len(attempts) == 1 else WELCOME
+
+    switch = FirstAttemptRejected("Login authentication\r\nPassword:", {})
+    huawei_telnet_login(switch)
+    assert switch.writes == ["pw\r", "pw\r"]
+
+
+def test_huawei_login_declines_a_password_change_and_gives_up_on_a_wrong_password() -> None:
     changing = FakeHuaweiTelnet(
         "Password:",
         {
@@ -291,4 +311,4 @@ def test_huawei_login_declines_a_password_change_and_fails_fast_on_a_wrong_passw
     wrong = FakeHuaweiTelnet("Password:", {}, password="wrong")
     with pytest.raises(NetmikoAuthenticationException):
         huawei_telnet_login(wrong)
-    assert wrong.writes == ["wrong\r"]
+    assert wrong.writes == ["wrong\r", "wrong\r"]

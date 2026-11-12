@@ -1,4 +1,5 @@
 import re
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -7,9 +8,13 @@ from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutExc
 
 from bind_plane.services.command_profiles import RenderedCommands
 
-# The end of a switch's answer to one line: a prompt ending in >, # or ], or a question it waits
-# on. Anchored at the end of what has arrived, so output merely containing these never matches.
-STEP_END_PATTERN = r"(?:[>#\]]|[Pp]assword:|\[[Yy]/[Nn]\]:?)\s*$"
+# The end of a switch's answer to one line: a whole prompt on a line of its own (<name>, [name],
+# [~name], name#, name>, name(config)#) or a question it waits on (Password:, [Y/N]). Anchored at
+# the end of what has arrived; a lone ">" left over from the sign-in is not a prompt.
+STEP_END_PATTERN = (
+    r"(?:(?:^|[\r\n])[ \t]*(?:<[^<>\r\n]+>|\[[^\[\]\r\n]+\]|[\w.()/~*-]+[#>])"
+    r"|[Pp]assword:|\[[Yy]/[Nn]\]:?)\s*$"
+)
 
 # Login questions as a switch asks them: at the end of what has arrived and ending in a colon, so
 # a banner such as Huawei's "Login authentication" is not taken for a question.
@@ -35,14 +40,20 @@ def huawei_telnet_login(
             connection.write_channel((connection.username or "") + "\r")
             output = connection.read_until_pattern(pattern=password, re_flags=re.I)
             transcript += output
-        connection.write_channel(connection.password + "\r")
-        output = connection.read_until_pattern(
-            pattern=f"(?:{connection.prompt_or_password_change})|(?:{password})", re_flags=re.I
-        )
-        transcript += output
-        if re.search(password, output, flags=re.I) and not re.search(
-            connection.prompt_pattern, output
-        ):
+        # Some old Quidway switches reject the first answer to the password question whatever it
+        # is, and accept the same password when they ask again; a third question means it is wrong.
+        for _ in range(2):
+            connection.write_channel(connection.password + "\r")
+            output = connection.read_until_pattern(
+                pattern=f"(?:{connection.prompt_or_password_change})|(?:{password})", re_flags=re.I
+            )
+            transcript += output
+            asked_again = re.search(password, output, flags=re.I) and not re.search(
+                connection.prompt_pattern, output
+            )
+            if not asked_again:
+                break
+        else:
             raise NetmikoAuthenticationException(f"Login failed: {connection.host}")
         if re.search(connection.password_change_prompt, output):
             # "The password needs to be changed. Change now? [Y/N]": leave it to its owner.
@@ -191,6 +202,13 @@ class NetmikoSwitchSession:
         except OSError as exc:
             raise SwitchSessionError("Switch command failed") from exc
 
+    def _drain(self) -> None:
+        """Discard what the switch printed after the last answer was read, such as the end of
+        the sign-in prompt or a log message, so the next answer is not mistaken for it."""
+        connection = self._require_connection()
+        with suppress(NetmikoTimeoutException, ReadTimeout, OSError):
+            connection.clear_buffer(backoff_max=0.4)
+
     def _send_step(self, command: str, *, echo: bool = True) -> str:
         """Send one line of a release and return as soon as the switch answers with a prompt
         (<name>, [name], [~name], name#, name(config)#) or asks a question (Password:, [Y/N]).
@@ -238,6 +256,7 @@ class NetmikoSwitchSession:
         """Enter the privileged level (super on H3C and Huawei, enable on Ruijie), answering the
         privilege password when the switch asks. The password never appears in the output."""
         output = [] if output is None else output
+        self._drain()
         privilege_output = self._send_step(command)
         output.append(privilege_output)
         if "assword" in privilege_output:

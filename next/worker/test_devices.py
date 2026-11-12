@@ -153,13 +153,16 @@ class PagedSwitch:
     def normalize_cmd(self, command):
         return command + "\n"
 
+    def clear_buffer(self, **kwargs):
+        return ">"
+
     def disable_paging(self, *, command):
         self.calls.append(command)
 
     def send_command(self, command, expect_string=None, **kwargs):
         self.calls.append(command)
         if command == "super":
-            return "super\nPassword:"
+            return "super\n Password:"
         if command == "super-secret":
             self.privileged = True
             return "User privilege level is 3\n<X>"
