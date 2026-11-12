@@ -225,7 +225,7 @@ export function editorLabels(zh: boolean) {
   return zh ? {
     edit: '编辑', copy: '复制', enable: '启用', disable: '停用', disabled: '已停用', cancel: '取消', close: '关闭',
     save: '保存修改', saving: '正在保存…', saved: '已保存。', choose: '请选择', noVendorProfile: '这个厂商还没有命令模板',
-    name: '名称', username: '设备用户名', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
+    name: '名称', username: '设备用户名（只问密码的交换机留空）', description: '描述（可选）', newPassword: '新设备密码', newSecret: '新特权密码',
     keep: '留空则保留现有值', clearSecret: '删除已保存的特权密码', managementIP: '管理 IPv4', credential: '凭据', profile: '命令模板',
     inactive: '（已停用）', handlesRelease: '负责解绑',
     handlesReleaseHint: '网关交换机打开：解绑时按它的网段找到它，网段从它的配置里自动读取。',
@@ -264,7 +264,7 @@ export function editorLabels(zh: boolean) {
   } : {
     edit: 'Edit', copy: 'Copy', enable: 'Enable', disable: 'Disable', disabled: 'Disabled', cancel: 'Cancel', close: 'Close',
     save: 'Save changes', saving: 'Saving…', saved: 'Saved.', choose: 'Choose…', noVendorProfile: 'No command profile for this vendor yet',
-    name: 'Name', username: 'Device username', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
+    name: 'Name', username: 'Device username (empty when the switch asks only for a password)', description: 'Description (optional)', newPassword: 'New device password', newSecret: 'New privilege secret',
     keep: 'Leave empty to keep the stored value', clearSecret: 'Remove the stored privilege secret', managementIP: 'Management IPv4', credential: 'Credential', profile: 'Command profile',
     inactive: ' (disabled)', handlesRelease: 'Handles releases',
     handlesReleaseHint: 'For gateway switches: releases find it by its networks, which are read from its configuration.',
@@ -338,7 +338,7 @@ function EditorForm({ target, inventory, labels, zh, onSave }: {
   const value = (key: string) => String(form[key] ?? '')
   const need = (id: string, key: string, label: string, choose = false): RequiredField => ({ id, label, value: value(key), choose })
   const required = useRequiredFields(zh, {
-    credentials: [need('edit-name', 'name', labels.name), need('edit-username', 'username', labels.username)],
+    credentials: [need('edit-name', 'name', labels.name)],
     profiles: [need('edit-name', 'name', labels.name)],
     switches: [need('edit-name', 'name', labels.name), need('edit-management-ip', 'management_ip', labels.managementIP),
       need('edit-credential', 'credential_id', labels.credential, true), need('edit-profile', 'command_profile_id', labels.profile, true)],

@@ -26,7 +26,6 @@ function CredentialsPage() {
   const label = { username: pick(zh, '设备用户名', 'Device username'), password: pick(zh, '设备密码', 'Device password') }
   const required = useRequiredFields(zh, [
     { id: 'credential-name', label: labels.name, value: form.name },
-    { id: 'credential-username', label: label.username, value: form.username },
     { id: 'credential-password', label: label.password, value: form.password },
   ])
   if (!page.admin) return <AdminOnly zh={zh} />
@@ -66,7 +65,7 @@ function CredentialsPage() {
                 <div className="flex flex-wrap items-center gap-2"><span className={cn('font-medium', !item.is_active && 'text-muted-foreground')}>{item.name}</span>{item.is_active ? null : <ToneBadge kind="muted">{labels.disabled}</ToneBadge>}</div>
                 {item.description ? <p className="text-xs text-muted-foreground">{item.description}</p> : null}
               </TableCell>
-              <TableCell className="font-mono text-sm">{item.username}</TableCell>
+              <TableCell className="font-mono text-sm">{item.username || <span className="font-sans text-muted-foreground">{pick(zh, '只用密码', 'Password only')}</span>}</TableCell>
               <TableCell className="text-sm">{item.has_secret ? pick(zh, '已设置', 'Set') : <span className="text-muted-foreground">—</span>}</TableCell>
               <TableCell className="text-sm text-muted-foreground">{labels.usedBy(switchesUsing(target, data))}</TableCell>
               <TableCell><AssetActions title={item.name} on={item.is_active} busy={page.busy} labels={labels} onEdit={() => page.edit(target)} onToggle={() => page.toggle(target)} /></TableCell>
@@ -78,7 +77,11 @@ function CredentialsPage() {
       description={pick(zh, '登录交换机用的账号。密码加密保存，保存后不再显示。', 'An account for signing in to switches. Passwords are stored encrypted and never shown again.')}>
       <FieldGroup>
         {text('credential-name', 'name', labels.name)}
-        {text('credential-username', 'username', label.username)}
+        <Field>
+          <FieldLabel htmlFor="credential-username">{pick(zh, '设备用户名（可选）', 'Device username (optional)')}</FieldLabel>
+          <Input id="credential-username" autoComplete="off" aria-describedby="credential-username-hint" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
+          <FieldDescription id="credential-username-hint">{pick(zh, '交换机登录时只问密码就留空。', 'Leave empty when the switch asks only for a password.')}</FieldDescription>
+        </Field>
         {text('credential-password', 'password', label.password, 'password')}
         <Field>
           <FieldLabel htmlFor="credential-secret">{pick(zh, '特权密码（可选）', 'Privilege secret (optional)')}</FieldLabel>

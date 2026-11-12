@@ -238,9 +238,13 @@ func (a *AdminHandler) editCredential(w http.ResponseWriter, r *http.Request) {
 		ClearSecret bool    `json:"clear_secret"`
 	}
 	next := map[string]any{}
-	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) || !requiredText(next, "username", input.Username) || input.ClearSecret && input.Secret != "" {
+	if err := decode(r, &input); err != nil || !requiredText(next, "name", input.Name) || input.ClearSecret && input.Secret != "" {
 		fail(w, 422, "invalid credential")
 		return
+	}
+	// An empty username is allowed: the switch asks only for a password.
+	if input.Username != nil {
+		next["username"] = strings.TrimSpace(*input.Username)
 	}
 	optionalText(next, "description", input.Description)
 	optionalBool(next, "is_active", input.IsActive)

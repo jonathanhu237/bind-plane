@@ -115,11 +115,14 @@ func (a *AdminHandler) credential(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The username may be empty: many switches ask only for a password over Telnet, and a
+	// username is sent only when the switch asks for one.
 	var input struct{ Name, Username, Password, Secret string }
-	if err := decode(r, &input); err != nil || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Username) == "" || input.Password == "" {
-		fail(w, 422, "credential name, username and password required")
+	if err := decode(r, &input); err != nil || strings.TrimSpace(input.Name) == "" || input.Password == "" {
+		fail(w, 422, "credential name and password required")
 		return
 	}
+	input.Username = strings.TrimSpace(input.Username)
 	password, err := a.seal(input.Password)
 	if err != nil {
 		fail(w, 503, "encryption unavailable")

@@ -39,7 +39,7 @@ const fixed: Record<string, Words> = {
   'group not found': ['That group no longer exists.', '该分组已不存在。'],
   'alert is not open': ['This alert has already been handled.', '该告警已被处理。'],
   'both versions must exist and belong to one switch': ['Both configuration versions must exist and belong to the same switch.', '两个配置版本都必须存在，并且属于同一台交换机。'],
-  'credential name, username and password required': ['Name, device username and device password are required.', '名称、设备用户名和设备密码都必须填写。'],
+  'credential name and password required': ['Name and device password are required.', '名称和设备密码都必须填写。'],
   'current version required': ['The version being edited is unknown. Reload and try again.', '无法确定正在编辑的版本，请刷新后重试。'],
   'group name required': ['Enter a group name.', '请输入分组名称。'],
   'invalid credential': ['The credential is not valid.', '凭据内容无效。'],

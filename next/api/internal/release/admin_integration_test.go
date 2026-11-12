@@ -62,4 +62,32 @@ func TestCredentialCreationIsAuditedAtomicallyWithoutPlaintext(t *testing.T) {
 	if err != nil || count != 1 {
 		t.Fatalf("asset audit missing: %v count %d", err, count)
 	}
+
+	// Switches that ask only for a password over Telnet have a credential without a username,
+	// and an existing credential can lose its username; a password stays required.
+	send := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "http://localhost:5173")
+		r.AddCookie(&http.Cookie{Name: "session", Value: "token"})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := send("POST", "/api/releases/admin/credentials", `{"Name":"password-only","Password":"another-secret"}`); w.Code != 201 {
+		t.Fatalf("password-only credential = %d %s", w.Code, w.Body.String())
+	}
+	if w := send("POST", "/api/releases/admin/credentials", `{"Name":"no-password","Username":"operator"}`); w.Code != 422 {
+		t.Fatalf("credential without a password = %d %s", w.Code, w.Body.String())
+	}
+	var username string
+	if err = db.QueryRow(`SELECT username FROM bp_credentials WHERE name='password-only'`).Scan(&username); err != nil || username != "" {
+		t.Fatalf("password-only username = %q, %v", username, err)
+	}
+	if w := send("PATCH", "/api/releases/admin/credentials/"+body.ID, `{"version":1,"username":"  "}`); w.Code != 200 {
+		t.Fatalf("clearing the username = %d %s", w.Code, w.Body.String())
+	}
+	if err = db.QueryRow(`SELECT username FROM bp_credentials WHERE id=$1`, body.ID).Scan(&username); err != nil || username != "" {
+		t.Fatalf("cleared username = %q, %v", username, err)
+	}
 }
