@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -9,6 +10,47 @@ from bind_plane.services.command_profiles import RenderedCommands
 # The end of a switch's answer to one line: a prompt ending in >, # or ], or a question it waits
 # on. Anchored at the end of what has arrived, so output merely containing these never matches.
 STEP_END_PATTERN = r"(?:[>#\]]|[Pp]assword:|\[[Yy]/[Nn]\]:?)\s*$"
+
+# Login questions as a switch asks them: at the end of what has arrived and ending in a colon, so
+# a banner such as Huawei's "Login authentication" is not taken for a question.
+USERNAME_PROMPT = r"(?:user ?name|login|user)\s*:\s*$"
+PASSWORD_PROMPT = r"password\s*:\s*$"
+
+
+def huawei_telnet_login(
+    connection, *, username_pattern: str | None = None, pwd_pattern: str | None = None, **_
+) -> str:
+    """Huawei's Telnet login, for switches that ask for a username and a password and for those
+    that ask only for a password. Netmiko's own takes the "Login authentication" banner for a
+    username question, sends an empty name the switch rejects as a wrong password, and then
+    types the password before the switch asks again, so it is lost and the login times out."""
+    username = username_pattern or USERNAME_PROMPT
+    password = pwd_pattern or PASSWORD_PROMPT
+    try:
+        output = connection.read_until_pattern(
+            pattern=f"(?:{username})|(?:{password})", re_flags=re.I
+        )
+        transcript = output
+        if not re.search(password, output, flags=re.I):
+            connection.write_channel((connection.username or "") + "\r")
+            output = connection.read_until_pattern(pattern=password, re_flags=re.I)
+            transcript += output
+        connection.write_channel(connection.password + "\r")
+        output = connection.read_until_pattern(
+            pattern=f"(?:{connection.prompt_or_password_change})|(?:{password})", re_flags=re.I
+        )
+        transcript += output
+        if re.search(password, output, flags=re.I) and not re.search(
+            connection.prompt_pattern, output
+        ):
+            raise NetmikoAuthenticationException(f"Login failed: {connection.host}")
+        if re.search(connection.password_change_prompt, output):
+            # "The password needs to be changed. Change now? [Y/N]": leave it to its owner.
+            connection.write_channel("N" + connection.TELNET_RETURN)
+            transcript += connection.read_until_pattern(pattern=connection.prompt_pattern)
+        return transcript
+    except (EOFError, ReadTimeout) as exc:
+        raise NetmikoAuthenticationException(f"Login failed: {connection.host}") from exc
 
 
 class SwitchSessionError(RuntimeError):
@@ -94,7 +136,12 @@ class NetmikoSwitchSession:
             }.items()
             if value
         }
-        original_telnet_login = connection.telnet_login
+        if self._huawei_telnet():
+
+            def original_telnet_login(*args, **kwargs):
+                return huawei_telnet_login(connection, **kwargs)
+        else:
+            original_telnet_login = connection.telnet_login
 
         def telnet_login_with_profile_patterns(*args, **kwargs):
             kwargs.update(login_patterns)
@@ -103,10 +150,17 @@ class NetmikoSwitchSession:
         connection.telnet_login = telnet_login_with_profile_patterns
         connection._open()
 
+    def _huawei_telnet(self) -> bool:
+        return self.settings.device_type.startswith(
+            "huawei"
+        ) and self.settings.device_type.endswith("_telnet")
+
     def connect(self) -> None:
         try:
             has_login_patterns = bool(
-                self.settings.username_pattern or self.settings.password_pattern
+                self.settings.username_pattern
+                or self.settings.password_pattern
+                or self._huawei_telnet()
             )
             self._connection = ConnectHandler(
                 **self._connection_kwargs(auto_connect=not has_login_patterns)

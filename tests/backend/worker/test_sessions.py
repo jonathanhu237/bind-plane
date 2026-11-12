@@ -5,7 +5,9 @@ from bind_plane.worker.sessions import (
     NetmikoConnectionSettings,
     NetmikoSwitchSession,
     SwitchSessionError,
+    huawei_telnet_login,
 )
+from netmiko.exceptions import NetmikoAuthenticationException
 
 
 class FakeConnection:
@@ -215,3 +217,78 @@ def test_netmiko_session_attaches_partial_release_output(monkeypatch) -> None:
     assert exc_info.value.partial_output == (
         "sy\n[edge-sw-01]\nundo arp 10.44.132.254\n[edge-sw-01]"
     )
+
+
+class FakeHuaweiTelnet:
+    """A Huawei switch on Telnet, replying the way the campus's do (seen 2026-11-12)."""
+
+    from netmiko.huawei.huawei import HuaweiTelnet as _H
+
+    prompt_pattern = _H.prompt_pattern
+    password_change_prompt = _H.password_change_prompt
+    prompt_or_password_change = _H.prompt_or_password_change
+    TELNET_RETURN = "\r\n"
+    host = "10.0.0.1"
+
+    def __init__(self, greeting, replies, username="", password="pw"):
+        self.buffer = greeting
+        self.replies = replies
+        self.username = username
+        self.password = password
+        self.writes = []
+
+    def read_until_pattern(self, pattern, re_flags=0, read_timeout=10):
+        import re
+
+        from netmiko.exceptions import ReadTimeout
+
+        found = re.search(pattern, self.buffer, flags=re_flags)
+        if not found:
+            raise ReadTimeout("pattern not found")
+        output, self.buffer = self.buffer[: found.end()], self.buffer[found.end() :]
+        return output
+
+    def write_channel(self, data):
+        self.writes.append(data)
+        self.buffer += self.replies.get(data, "\r\nError: The password is invalid.\r\nPassword:")
+
+
+BANNER = "Warning: Telnet is not a secure protocol, and it is recommended to use Stelnet.\r\n"
+WELCOME = "\r\nInfo: The max number of VTY users is 10.\r\n<SW>"
+
+
+def test_huawei_login_answers_a_password_only_switch() -> None:
+    # The banner says "Login authentication"; that is no question, so nothing is sent for it.
+    switch = FakeHuaweiTelnet(
+        BANNER + "Login authentication\r\n\r\nPassword:",
+        {"pw\r": "\r\nWarning: The password of the configuration is too weak." + WELCOME},
+    )
+    huawei_telnet_login(switch)
+    assert switch.writes == ["pw\r"]
+
+
+def test_huawei_login_answers_username_then_password() -> None:
+    switch = FakeHuaweiTelnet(
+        "Login authentication\r\n\r\nUsername:",
+        {"admin\r": "\r\nPassword:", "pw\r": WELCOME},
+        username="admin",
+    )
+    huawei_telnet_login(switch)
+    assert switch.writes == ["admin\r", "pw\r"]
+
+
+def test_huawei_login_declines_a_password_change_and_fails_fast_on_a_wrong_password() -> None:
+    changing = FakeHuaweiTelnet(
+        "Password:",
+        {
+            "pw\r": "\r\nThe password needs to be changed. Change now? [Y/N]:",
+            "N\r\n": WELCOME,
+        },
+    )
+    huawei_telnet_login(changing)
+    assert changing.writes == ["pw\r", "N\r\n"]
+
+    wrong = FakeHuaweiTelnet("Password:", {}, password="wrong")
+    with pytest.raises(NetmikoAuthenticationException):
+        huawei_telnet_login(wrong)
+    assert wrong.writes == ["wrong\r"]
