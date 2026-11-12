@@ -41,6 +41,10 @@ export function notifySuccess(message: string): void {
   toast.success(message)
 }
 
+export function notifyFailure(message: string): void {
+  toast.error(message)
+}
+
 function notifyRequestErrorOnce(error: unknown, t: Translator, options: RequestFeedbackOptions): void {
   if (typeof error === 'object' && error !== null) {
     if (announcedRequestErrors.has(error)) return

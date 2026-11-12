@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input'
 import type { ApiClient } from '@/shared/api/client'
 import type { AccessUser, Role } from '@/shared/api/contracts'
 import { fieldProblemFor } from '@/shared/api/problems'
-import { notifyRequestError, notifySuccess } from '@/shared/feedback'
+import { notifyFailure, notifyRequestError, notifySuccess } from '@/shared/feedback'
+import { copyText } from '@/lib/clipboard'
 import { passwordMeetsRules } from '@/features/auth/schemas'
 import { generatePassword } from './password-generator'
 
@@ -43,8 +44,10 @@ export function CreateUserForm({ api, roles, assignableRoleIDs, onCreated, onDon
       notifyRequestError(error, t, { title: t('createUser') })
     },
   })
-  const copy = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); notifySuccess(t('copied')) } catch { notifySuccess(t('copyFailed')) }
+  const copy = async (text: string, button: HTMLElement) => {
+    const copied = await copyText(text, button.closest<HTMLElement>('[role="dialog"]') ?? undefined)
+    if (copied) notifySuccess(t('copied'))
+    else notifyFailure(t('copyFailed'))
   }
   const submit = () => {
     const check: Problem = !name.trim() ? 'name' : !/^[^\s@]+@[^\s@]+$/.test(email.trim()) ? 'email' : roleIDs.length === 0 ? 'roles' : !passwordMeetsRules(password) ? 'password' : undefined
@@ -56,8 +59,8 @@ export function CreateUserForm({ api, roles, assignableRoleIDs, onCreated, onDon
     return <>
       <DialogHeader><DialogTitle>{t('userCreatedTitle')}</DialogTitle><DialogDescription>{t('userCreatedDescription')}</DialogDescription></DialogHeader>
       <dl className="grid gap-3 rounded-md border p-4 text-sm">
-        <div className="flex items-center justify-between gap-3"><div className="min-w-0"><dt className="text-muted-foreground">{t('inviteEmail')}</dt><dd className="truncate font-medium">{created.user.email}</dd></div><Button type="button" variant="outline" size="sm" onClick={() => void copy(created.user.email)}><Copy aria-hidden="true" data-icon="inline-start" />{t('copy')}</Button></div>
-        <div className="flex items-center justify-between gap-3"><div className="min-w-0"><dt className="text-muted-foreground">{t('initialPassword')}</dt><dd className="break-all font-mono">{created.password}</dd></div><Button type="button" variant="outline" size="sm" onClick={() => void copy(created.password)}><Copy aria-hidden="true" data-icon="inline-start" />{t('copy')}</Button></div>
+        <div className="flex items-center justify-between gap-3"><div className="min-w-0"><dt className="text-muted-foreground">{t('inviteEmail')}</dt><dd className="truncate font-medium">{created.user.email}</dd></div><Button type="button" variant="outline" size="sm" onClick={(event) => void copy(created.user.email, event.currentTarget)}><Copy aria-hidden="true" data-icon="inline-start" />{t('copy')}</Button></div>
+        <div className="flex items-center justify-between gap-3"><div className="min-w-0"><dt className="text-muted-foreground">{t('initialPassword')}</dt><dd className="break-all font-mono">{created.password}</dd></div><Button type="button" variant="outline" size="sm" onClick={(event) => void copy(created.password, event.currentTarget)}><Copy aria-hidden="true" data-icon="inline-start" />{t('copy')}</Button></div>
       </dl>
       {created.user.passwordChangeRequired ? <p className="text-sm text-muted-foreground">{t('userCreatedChangeNote')}</p> : null}
       <DialogFooter><Button type="button" onClick={onDone}>{t('done')}</Button></DialogFooter>
