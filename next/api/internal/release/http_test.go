@@ -114,6 +114,47 @@ func TestGuideIsRememberedPerUser(t *testing.T) {
 	}
 }
 
+// Browsers send an origin without its default port; the configured one names it. Any other
+// scheme, port or host, a missing Origin, or more than one, is refused.
+func TestSameOriginIgnoresTheDefaultPort(t *testing.T) {
+	for _, tc := range []struct {
+		want    string
+		origins []string
+		ok      bool
+	}{
+		{"http://192.0.2.10:80", []string{"http://192.0.2.10"}, true},
+		{"http://192.0.2.10:80", []string{"http://192.0.2.10:80"}, true},
+		{"https://example.com:443", []string{"https://EXAMPLE.com"}, true},
+		{"http://localhost:28080", []string{"http://localhost:28080"}, true},
+		{"http://192.0.2.10:80", []string{"http://192.0.2.10:8080"}, false},
+		{"http://192.0.2.10:80", []string{"https://192.0.2.10"}, false},
+		{"http://192.0.2.10:80", []string{"http://192.0.2.11"}, false},
+		{"http://192.0.2.10:80", []string{"null"}, false},
+		{"http://192.0.2.10:80", nil, false},
+		{"http://192.0.2.10:80", []string{"http://192.0.2.10", "http://192.0.2.10"}, false},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/releases", nil)
+		for _, origin := range tc.origins {
+			req.Header.Add("Origin", origin)
+		}
+		if got := sameOrigin(req, tc.want); got != tc.ok {
+			t.Errorf("sameOrigin(%v, %q) = %t, want %t", tc.origins, tc.want, got, tc.ok)
+		}
+	}
+	// End to end: a release from the browser of an origin on the default port goes through.
+	operator := fakeIdentity{principal: domain.Principal{User: domain.User{ID: "u1"}, Roles: []domain.Role{{Name: "Operator"}}}}
+	h := NewHandler(&fakeStore{}, operator, "s", "http://192.0.2.10:80")
+	req := httptest.NewRequest(http.MethodPut, "/api/releases/guide", strings.NewReader(`{"version":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://192.0.2.10")
+	req.AddCookie(&http.Cookie{Name: "s", Value: "v"})
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("default-port origin = %d %s", res.Code, res.Body.String())
+	}
+}
+
 func TestJobsReadsHistoryFilters(t *testing.T) {
 	operator := fakeIdentity{principal: domain.Principal{Roles: []domain.Role{{Name: "Operator"}}}}
 	for _, tc := range []struct {

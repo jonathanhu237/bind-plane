@@ -14,6 +14,7 @@ import (
 
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/application"
 	"github.com/jonathanhu237/bind-plane/next/api/internal/auth/domain"
+	"github.com/jonathanhu237/bind-plane/next/api/internal/config"
 )
 
 // StartInput asks for the release of one address. The worker queries the binding first and changes
@@ -146,9 +147,26 @@ func decodeLimit(r *http.Request, into any, limit int64) error {
 	}
 	return nil
 }
+
+// sameOrigin compares the request's Origin with the public URL's the way the sign-in API does.
+// Browsers leave a default port out (http://192.0.2.10) while the configured origin names it
+// (http://192.0.2.10:80), so both are put in canonical form first.
+func sameOrigin(r *http.Request, want string) bool {
+	values := r.Header.Values("Origin")
+	if len(values) != 1 {
+		return false
+	}
+	got, err := config.CanonicalOrigin(values[0])
+	if err != nil {
+		return false
+	}
+	expected, err := config.CanonicalOrigin(want)
+	return err == nil && got == expected
+}
+
 func (h *handler) principal(w http.ResponseWriter, r *http.Request, mutate bool) (domain.Principal, bool, bool) {
 	w.Header().Set("Cache-Control", "no-store")
-	if mutate && r.Header.Get("Origin") != h.origin {
+	if mutate && !sameOrigin(r, h.origin) {
 		fail(w, 403, "invalid origin")
 		return domain.Principal{}, false, false
 	}
