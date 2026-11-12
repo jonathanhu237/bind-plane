@@ -168,6 +168,9 @@ class ConfigurationSession(NetmikoSwitchSession):
                 self.elevate_privilege(elevate_privilege, required=False)
             if disable_paging:
                 connection.disable_paging(command=disable_paging)
+            # Whatever is still arriving (the end of a declined privilege question, a log message)
+            # must not be taken for the prompt that ends the configuration.
+            self._drain()
             return read_paged(connection, command)
         except (NetmikoTimeoutException, ReadTimeout) as exc:
             raise SwitchConnectionTimeoutError("Configuration read timed out") from exc

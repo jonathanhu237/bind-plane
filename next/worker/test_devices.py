@@ -154,6 +154,7 @@ class PagedSwitch:
         return command + "\n"
 
     def clear_buffer(self, **kwargs):
+        self.calls.append("<drain>")
         return ">"
 
     def disable_paging(self, *, command):
@@ -195,7 +196,14 @@ def test_configuration_session_enters_super_before_reading():
         "display current-configuration", "screen-length disable", "super"
     )
     assert normalize_config(text) == "#\n sysname X\n#\nreturn"
-    assert switch.calls[:3] == ["super", "super-secret", "screen-length disable"]
+    assert switch.calls[:6] == [
+        "<drain>",
+        "super",
+        "super-secret",
+        "screen-length disable",
+        "<drain>",
+        "display current-configuration\n",
+    ]
 
 
 def test_configuration_without_a_privilege_password_is_read_at_the_sign_in_level():
@@ -208,7 +216,8 @@ def test_configuration_without_a_privilege_password_is_read_at_the_sign_in_level
     session._connection = switch
     text = session.read_configuration("display current-configuration", None, "super")
     assert normalize_config(text) == "#\n sysname X\n#\nreturn"
-    assert switch.calls[:3] == ["super", "", ""]
+    # The declined question is drained before the configuration is asked for.
+    assert switch.calls[:5] == ["<drain>", "super", "", "", "<drain>"]
 
 
 @pytest.mark.parametrize("more,wipe", [("  ---- More ----", H3C_WIPE), (" --More-- ", RUIJIE_WIPE)])
