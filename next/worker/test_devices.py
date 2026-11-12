@@ -145,9 +145,9 @@ class PagedSwitch:
 
     base_prompt = "X"
 
-    def __init__(self, pages, *, wants_super=True):
+    def __init__(self, pages, *, wants_super=True, readable_unprivileged=False):
         self.pages = list(pages)
-        self.privileged = not wants_super
+        self.privileged = not wants_super or readable_unprivileged
         self.calls = []
 
     def normalize_cmd(self, command):
@@ -166,6 +166,10 @@ class PagedSwitch:
         if command == "super-secret":
             self.privileged = True
             return "User privilege level is 3\n<X>"
+        if command == "":
+            # An empty answer to the super password: H3C asks once more, then gives up.
+            self.empty_answers = getattr(self, "empty_answers", 0) + 1
+            return "% Authenticate failed.\n Password:" if self.empty_answers < 2 else "\n<X>"
         return ""
 
     def write_channel(self, data):
@@ -192,6 +196,19 @@ def test_configuration_session_enters_super_before_reading():
     )
     assert normalize_config(text) == "#\n sysname X\n#\nreturn"
     assert switch.calls[:3] == ["super", "super-secret", "screen-length disable"]
+
+
+def test_configuration_without_a_privilege_password_is_read_at_the_sign_in_level():
+    # jbxt never elevated some switches (its NO_SU tag); they show their configuration as is.
+    switch = PagedSwitch(
+        ["display current-configuration\r\n#\r\n sysname X\r\n#\r\nreturn\r\n<X>"],
+        readable_unprivileged=True,
+    )
+    session = ConfigurationSession(SimpleNamespace(secret=None, timeout=20))
+    session._connection = switch
+    text = session.read_configuration("display current-configuration", None, "super")
+    assert normalize_config(text) == "#\n sysname X\n#\nreturn"
+    assert switch.calls[:3] == ["super", "", ""]
 
 
 @pytest.mark.parametrize("more,wipe", [("  ---- More ----", H3C_WIPE), (" --More-- ", RUIJIE_WIPE)])

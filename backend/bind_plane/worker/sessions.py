@@ -252,16 +252,29 @@ class NetmikoSwitchSession:
             expect_string=self.settings.query_before_expect_string,
         )
 
-    def elevate_privilege(self, command: str, output: list[str] | None = None) -> list[str]:
+    def elevate_privilege(
+        self, command: str, output: list[str] | None = None, *, required: bool = True
+    ) -> list[str]:
         """Enter the privileged level (super on H3C and Huawei, enable on Ruijie), answering the
-        privilege password when the switch asks. The password never appears in the output."""
+        privilege password when the switch asks. The password never appears in the output.
+
+        When the switch asks but the credential has no privilege password, a release fails here
+        with a clear reason; a read (required=False) answers with nothing until the switch gives
+        up and goes on at the level it signed in at, as jbxt did for switches it never elevated."""
         output = [] if output is None else output
         self._drain()
         privilege_output = self._send_step(command)
         output.append(privilege_output)
         if "assword" in privilege_output:
             if not self.settings.secret:
-                raise SwitchAuthenticationError("Switch privilege password is required")
+                if required:
+                    raise SwitchAuthenticationError("Switch privilege password is required")
+                for _ in range(3):
+                    answer = self._send_step("", echo=False)
+                    output.append(answer)
+                    if not re.search(r"assword:\s*$", answer):
+                        break
+                return output
             secret_output = self._send_step(self.settings.secret, echo=False)
             output.append(secret_output.replace(self.settings.secret, "***REDACTED***"))
         return output

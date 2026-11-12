@@ -164,7 +164,8 @@ class ConfigurationSession(NetmikoSwitchSession):
         connection = self._require_connection()
         try:
             if elevate_privilege:
-                self.elevate_privilege(elevate_privilege)
+                # Without a privilege password the configuration is read at the sign-in level.
+                self.elevate_privilege(elevate_privilege, required=False)
             if disable_paging:
                 connection.disable_paging(command=disable_paging)
             return read_paged(connection, command)
