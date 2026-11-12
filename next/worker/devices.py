@@ -142,24 +142,63 @@ def config_fingerprint(text: str, ignore_patterns) -> str:
     return hashlib.sha256("\n".join(significant).encode("utf-8")).hexdigest()
 
 
+# A full page on a switch that cannot turn paging off: "  ---- More ----" on H3C and Huawei,
+# " --More-- " on Ruijie. After a space the switch wipes it with cursor moves, backspaces and
+# spaces.
+MORE_PROMPT = r"-+ ?[Mm]ore ?-+"
+# Spaces count as wiping only between cursor moves or backspaces, so the indentation of the line
+# that follows is kept.
+MORE_AND_WIPE = re.compile(r"[ \t]*" + MORE_PROMPT + r"(?:[ \t]*(?:\x1b\[\d*[A-Za-z]|\x08)+)*")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+CONFIG_READ_SECONDS = 180
+
+
 class ConfigurationSession(NetmikoSwitchSession):
     def read_configuration(
         self, command: str, disable_paging: str | None, elevate_privilege: str | None = None
     ) -> str:
         """Read the running configuration. Many switches show it only at the privileged level
         (H3C and Huawei after super, Ruijie after enable), so enter that first when the profile
-        has the command, the same way a release does."""
+        has the command, the same way a release does. Paging is turned off when the profile
+        can; old switches cannot, so a More prompt is answered with a space, as jbxt did."""
         connection = self._require_connection()
         try:
             if elevate_privilege:
                 self.elevate_privilege(elevate_privilege)
             if disable_paging:
                 connection.disable_paging(command=disable_paging)
-            return connection.send_command(command, read_timeout=180)
+            return read_paged(connection, command)
         except (NetmikoTimeoutException, ReadTimeout) as exc:
             raise SwitchConnectionTimeoutError("Configuration read timed out") from exc
         except OSError as exc:
             raise SwitchSessionError("Configuration read failed") from exc
+
+
+def read_paged(connection, command: str, read_timeout: float = CONFIG_READ_SECONDS) -> str:
+    """Send a command and read its whole output up to the prompt, pressing space at each More
+    prompt. Returns the output without the echoed command, the prompt, the More prompts or the
+    terminal codes that wipe them."""
+    prompt = re.compile(re.escape(connection.base_prompt) + r"[^\n]*[>#\]]\s*$")
+    page_end = re.compile(MORE_PROMPT + r"\s*$")
+    connection.write_channel(connection.normalize_cmd(command))
+    deadline = time.monotonic() + read_timeout
+    output = ""
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ReadTimeout("Configuration read timed out")
+        output += connection.read_until_pattern(
+            pattern=f"(?:{prompt.pattern})|(?:{page_end.pattern})", read_timeout=remaining
+        )
+        if prompt.search(output):
+            break
+        connection.write_channel(" ")
+    lines = ANSI_ESCAPE.sub("", MORE_AND_WIPE.sub("", output)).replace("\r\n", "\n").split("\n")
+    if lines and command.strip() in lines[0]:
+        lines = lines[1:]
+    if lines and prompt.search(lines[-1]):
+        lines = lines[:-1]
+    return "\n".join(lines)
 
 
 class BackupRejected(Exception):

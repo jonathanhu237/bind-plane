@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from worker.devices import (
     normalize_config,
     open_config,
     os_version,
+    read_paged,
     read_switch_configuration,
     resolve_transport,
     seal_config,
@@ -137,12 +139,19 @@ def test_configuration_is_read_at_the_privileged_level():
         assert FakeSession.elevated is None
 
 
-class PrivilegeConnection:
-    """A switch that shows its configuration only after super and the super password."""
+class PagedSwitch:
+    """A switch that answers super with a password prompt and shows its configuration only at
+    the privileged level, page by page, wiping each More prompt the way it really does."""
 
-    def __init__(self):
+    base_prompt = "X"
+
+    def __init__(self, pages, *, wants_super=True):
+        self.pages = list(pages)
+        self.privileged = not wants_super
         self.calls = []
-        self.privileged = False
+
+    def normalize_cmd(self, command):
+        return command + "\n"
 
     def disable_paging(self, *, command):
         self.calls.append(command)
@@ -154,22 +163,53 @@ class PrivilegeConnection:
         if command == "super-secret":
             self.privileged = True
             return "User privilege level is 3\n<X>"
-        return "sysname X\n#\nreturn" if self.privileged else "% Unrecognized command"
+        return ""
+
+    def write_channel(self, data):
+        self.calls.append(data)
+
+    def read_until_pattern(self, *, pattern, read_timeout):
+        if not self.privileged:
+            return "display current-configuration\r\n  % Unrecognized command\r\n<X>"
+        page = self.pages.pop(0)
+        assert re.search(pattern, page)
+        return page
+
+
+H3C_WIPE = "\x1b[42D" + " " * 42 + "\x1b[42D"
+RUIJIE_WIPE = "\x08" * 10 + " " * 10 + "\x08" * 10
 
 
 def test_configuration_session_enters_super_before_reading():
+    switch = PagedSwitch(["display current-configuration\r\n#\r\n sysname X\r\n#\r\nreturn\r\n<X>"])
     session = ConfigurationSession(SimpleNamespace(secret="super-secret", timeout=20))
-    session._connection = PrivilegeConnection()
+    session._connection = switch
     text = session.read_configuration(
         "display current-configuration", "screen-length disable", "super"
     )
-    assert text == "sysname X\n#\nreturn"
-    assert session._connection.calls == [
-        "super",
-        "super-secret",
-        "screen-length disable",
-        "display current-configuration",
-    ]
+    assert normalize_config(text) == "#\n sysname X\n#\nreturn"
+    assert switch.calls[:3] == ["super", "super-secret", "screen-length disable"]
+
+
+@pytest.mark.parametrize("more,wipe", [("  ---- More ----", H3C_WIPE), (" --More-- ", RUIJIE_WIPE)])
+def test_paged_configuration_is_read_to_the_end(more, wipe):
+    # Old switches cannot turn paging off: each More prompt is answered with a space and
+    # disappears from the configuration, and indentation after a page break is kept.
+    switch = PagedSwitch(
+        [
+            "display current-configuration\r\n#\r\n sysname X\r\n#\r\n"
+            "interface Vlan-interface10\r\n" + more,
+            wipe + " ip address 10.1.1.1 255.255.255.0\r\n#\r\n" + more,
+            wipe + "return\r\n<X>",
+        ],
+        wants_super=False,
+    )
+    text = read_paged(switch, "display current-configuration")
+    assert normalize_config(text) == (
+        "#\n sysname X\n#\ninterface Vlan-interface10\n"
+        " ip address 10.1.1.1 255.255.255.0\n#\nreturn"
+    )
+    assert switch.calls == ["display current-configuration\n", " ", " "]
 
 
 def test_failure_messages_never_echo_device_output():
