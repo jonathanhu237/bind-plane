@@ -15,6 +15,7 @@ import { useOptionalTheme, type Theme } from '@/shared/theme'
 import { notifyRequestError, notifySuccess } from '@/shared/feedback'
 import { UserAvatar } from '@/features/auth/user-avatar'
 import { passwordResetFormSchema, personalEmailChangeFormSchema, personalNameFormSchema } from '@/features/auth/schemas'
+import { withBase } from '@/lib/base-path'
 
 type Translate = (key: string, options?: Record<string, unknown>) => string
 
@@ -252,7 +253,7 @@ function AvatarEditor({ user, error, disabled, onError, onSave, onRemove }: { us
 function PasswordForm({ api, t }: { api: ApiClient; t: Translate }) {
   const [currentPassword, setCurrentPassword] = useState(''); const [newPassword, setNewPassword] = useState(''); const [confirmPassword, setConfirmPassword] = useState('')
   const [validation, setValidation] = useState<{ field: 'newPassword' | 'confirmPassword'; code: 'invalid_password' | 'password_mismatch' }>()
-  const mutation = useMutation({ mutationFn: () => api.changePersonalPassword ? api.changePersonalPassword({ currentPassword, newPassword, confirmPassword }) : Promise.reject(new Error('missing changePersonalPassword')), onSuccess: () => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setValidation(undefined); notifySuccess(t('personalSettings:passwordSaved')); window.location.assign('/login') }, onError: (error) => notifyRequestError(error, t, { title: t('personalSettings:passwordSaveFailed') }) })
+  const mutation = useMutation({ mutationFn: () => api.changePersonalPassword ? api.changePersonalPassword({ currentPassword, newPassword, confirmPassword }) : Promise.reject(new Error('missing changePersonalPassword')), onSuccess: () => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setValidation(undefined); notifySuccess(t('personalSettings:passwordSaved')); window.location.assign(withBase('/login')) }, onError: (error) => notifyRequestError(error, t, { title: t('personalSettings:passwordSaveFailed') }) })
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const parsed = passwordResetFormSchema.safeParse({ password: newPassword, passwordConfirmation: confirmPassword })
@@ -278,7 +279,7 @@ function EmailChangeForm({ api, t, emailChange, setEmailChange }: { api: ApiClie
   }, [emailChange?.resendAvailableAt])
   const request = useMutation({ mutationFn: () => api.requestPersonalEmailChange ? api.requestPersonalEmailChange({ currentPassword, newEmail }) : Promise.reject(new Error('missing requestPersonalEmailChange')), onSuccess: (value) => { setEmailChange(value); setCurrentPassword(''); notifySuccess(t('personalSettings:security.codeSent')) }, onError: (error) => notifyRequestError(error, t, { title: t('personalSettings:security.emailChangeFailed') }) })
   const resend = useMutation({ mutationFn: () => api.resendPersonalEmailChange ? api.resendPersonalEmailChange() : Promise.reject(new Error('missing resendPersonalEmailChange')), onSuccess: (value) => { setEmailChange(value); setCode(''); notifySuccess(t('personalSettings:security.codeSent')) }, onError: (error) => notifyRequestError(error, t) })
-  const verify = useMutation({ mutationFn: () => api.verifyPersonalEmailChange ? api.verifyPersonalEmailChange({ requestId: emailChange?.id ?? '', code }) : Promise.reject(new Error('missing verifyPersonalEmailChange')), onSuccess: () => { notifySuccess(t('personalSettings:security.emailChanged')); window.location.assign('/login') }, onError: async (error) => { if (api.getPersonalEmailChange) { try { setEmailChange(await api.getPersonalEmailChange()) } catch { /* Keep the current request visible when a refresh also fails. */ } } notifyRequestError(error, t, { title: t('personalSettings:security.verifyFailed') }) } })
+  const verify = useMutation({ mutationFn: () => api.verifyPersonalEmailChange ? api.verifyPersonalEmailChange({ requestId: emailChange?.id ?? '', code }) : Promise.reject(new Error('missing verifyPersonalEmailChange')), onSuccess: () => { notifySuccess(t('personalSettings:security.emailChanged')); window.location.assign(withBase('/login')) }, onError: async (error) => { if (api.getPersonalEmailChange) { try { setEmailChange(await api.getPersonalEmailChange()) } catch { /* Keep the current request visible when a refresh also fails. */ } } notifyRequestError(error, t, { title: t('personalSettings:security.verifyFailed') }) } })
   const resendDisabled = emailChange ? emailChange.attemptsRemaining <= 0 || new Date(emailChange.resendAvailableAt).getTime() > now : true
   const submitRequest = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); if (request.isPending || !currentPassword || !newEmail) return; if (!personalEmailChangeFormSchema.safeParse({ email: newEmail }).success) { setEmailError(true); return }; setEmailError(false); request.mutate() }
   const submitVerification = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!verify.isPending && code.length === 6) verify.mutate() }

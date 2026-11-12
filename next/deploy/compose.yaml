@@ -84,8 +84,10 @@ services:
     restart: unless-stopped
     depends_on: [api]
     environment:
-      BIND_PLANE_SITE: ${APP_PUBLIC_URL:?set APP_PUBLIC_URL in .env}
+      # Where Caddy listens: APP_PUBLIC_URL, unless that names a path (see README).
+      BIND_PLANE_SITE: ${BIND_PLANE_SITE:-${APP_PUBLIC_URL:?set APP_PUBLIC_URL in .env}}
       BIND_PLANE_TLS_HOST: ${BIND_PLANE_TLS_HOST:?set BIND_PLANE_TLS_HOST in .env}
+      BIND_PLANE_TRUSTED_PROXIES: ${BIND_PLANE_TRUSTED_PROXIES:-127.0.0.1/32}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

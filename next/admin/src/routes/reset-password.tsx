@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { AuthPage } from '@/features/auth/auth-page'
 import { PasswordResetForm } from '@/features/auth/password-reset-form'
 import { clearPasswordResetAuthority, getPasswordResetAuthority } from '@/shared/bootstrap/setup-authority'
+import { withBase } from '@/lib/base-path'
 
 export const Route = createFileRoute('/reset-password')({
   onLeave: () => clearPasswordResetAuthority(),
@@ -28,7 +29,7 @@ function ResetPasswordRoute() {
       <AuthPage title={t('resetPasswordSuccessTitle')}>
         <div className="flex flex-col gap-5">
           <p role="status" className="text-sm text-muted-foreground">{t('resetPasswordSuccessDescription')}</p>
-          <Button asChild className="w-full"><a href="/login">{commonT('backToLogin')}</a></Button>
+          <Button asChild className="w-full"><a href={withBase('/login')}>{commonT('backToLogin')}</a></Button>
         </div>
       </AuthPage>
     )
@@ -38,7 +39,7 @@ function ResetPasswordRoute() {
       <AuthPage title={t('invalidResetLinkTitle')}>
         <div className="flex flex-col gap-5">
           <p role="status" className="text-sm text-muted-foreground">{t('invalidResetLinkDescription')}</p>
-          <Button asChild className="w-full"><a href="/forgot-password">{t('resetAgain')}</a></Button>
+          <Button asChild className="w-full"><a href={withBase('/forgot-password')}>{t('resetAgain')}</a></Button>
         </div>
       </AuthPage>
     )
@@ -48,7 +49,7 @@ function ResetPasswordRoute() {
     <AuthPage title={t('resetPasswordTitle')}>
       <PasswordResetForm api={api} token={authority} onSuccess={() => { clearPasswordResetAuthority(); setSuccess(true) }} onInvalidAuthority={invalidAuthority} />
       <div className="mt-4">
-        <Button asChild type="button" variant="link" className="w-full"><a href="/login">{commonT('backToLogin')}</a></Button>
+        <Button asChild type="button" variant="link" className="w-full"><a href={withBase('/login')}>{commonT('backToLogin')}</a></Button>
       </div>
     </AuthPage>
   )

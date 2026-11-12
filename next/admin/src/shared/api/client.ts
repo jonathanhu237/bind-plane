@@ -55,6 +55,7 @@ import {
   type EmailChange,
   type AccessUser,
 } from './contracts'
+import { withBase } from '@/lib/base-path'
 
 export class ApiProblemError extends Error {
   readonly problem: ProblemDetails
@@ -162,7 +163,7 @@ async function request<T>(path: string, schema: { parse(value: unknown): T }, op
 
   let response: Response
   try {
-    response = await fetch(path, {
+    response = await fetch(withBase(path), {
       method: options.method ?? 'GET',
       credentials: 'same-origin',
       cache: 'no-store',

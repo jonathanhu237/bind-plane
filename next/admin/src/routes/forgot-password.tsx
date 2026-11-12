@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { AuthPage } from '@/features/auth/auth-page'
 import { PasswordResetRequestForm } from '@/features/auth/password-reset-request-form'
+import { withBase } from '@/lib/base-path'
 
 export const Route = createFileRoute('/forgot-password')({
   component: ForgotPasswordRoute,
@@ -22,7 +23,7 @@ function ForgotPasswordRoute() {
         <div className="flex flex-col gap-4">
           <p role="status" className="text-sm text-muted-foreground">{t('resetRequestAcceptedDescription')}</p>
           <Button type="button" className="w-full" onClick={() => setAccepted(false)}>{t('resetAgain')}</Button>
-          <Button asChild type="button" variant="outline" className="w-full"><a href="/login">{commonT('backToLogin')}</a></Button>
+          <Button asChild type="button" variant="outline" className="w-full"><a href={withBase('/login')}>{commonT('backToLogin')}</a></Button>
         </div>
       </AuthPage>
     )

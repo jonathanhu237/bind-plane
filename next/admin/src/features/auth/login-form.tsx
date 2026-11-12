@@ -12,6 +12,7 @@ import { currentUserQueryKey } from './queries'
 import { changeAccountLocale, i18n } from '@/shared/i18n'
 import { loginFormSchema, normalizeLoginValues, type LoginFormValues } from './schemas'
 import { PasswordField, TextField } from './form-fields'
+import { withBase } from '@/lib/base-path'
 
 export function LoginForm({ api, onSuccess }: { api: ApiClient; onSuccess: () => void }) {
   const { t } = useTranslation(['auth', 'problems'])
@@ -65,7 +66,7 @@ export function LoginForm({ api, onSuccess }: { api: ApiClient; onSuccess: () =>
       <Button type="submit" className="w-full" disabled={mutation.isPending}>
         {mutation.isPending ? t('loggingIn') : t('login')}
       </Button>
-      <a href="/forgot-password" className="text-center text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
+      <a href={withBase('/forgot-password')} className="text-center text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
         {t('forgotPassword')}
       </a>
     </form>

@@ -1,5 +1,6 @@
 import type { NetworkAsset, Vendor } from '@/features/release/asset-editors'
 import { saveBlob } from './csv'
+import { withBase } from '@/lib/base-path'
 
 export class OpsRequestError extends Error {
   status: number
@@ -11,7 +12,7 @@ export class OpsRequestError extends Error {
 
 /** Calls the admin-only device operations API. */
 export async function opsRequest<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
-  const response = await fetch(`/api/ops/${path}`, {
+  const response = await fetch(withBase(`/api/ops/${path}`), {
     method, credentials: 'same-origin', cache: 'no-store',
     headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -34,7 +35,7 @@ export function attachmentName(header: string | null): string | null {
 
 /** Saves a file the device operations API sends as an attachment; a refusal throws like opsRequest. */
 export async function opsDownload(path: string): Promise<void> {
-  const response = await fetch(`/api/ops/${path}`, { credentials: 'same-origin', cache: 'no-store' })
+  const response = await fetch(withBase(`/api/ops/${path}`), { credentials: 'same-origin', cache: 'no-store' })
   if (!response.ok) {
     const data: unknown = await response.json().catch(() => ({}))
     throw new OpsRequestError((data as { detail?: string }).detail || `HTTP ${response.status}`, response.status)

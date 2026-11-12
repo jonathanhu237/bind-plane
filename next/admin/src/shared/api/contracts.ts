@@ -1,4 +1,8 @@
 import { z } from 'zod'
+import { withBase } from '@/lib/base-path'
+
+/** A path the server names on this origin (an avatar, the system icon), put under the app's base path. */
+const serverPath = z.string().transform(withBase)
 
 export const userSchema = z
   .object({
@@ -6,7 +10,7 @@ export const userSchema = z
     name: z.string(),
     email: z.string(),
     locale: z.enum(['en', 'zh-CN']).optional(),
-    avatarUrl: z.string().optional(),
+    avatarUrl: serverPath.optional(),
     hasAvatar: z.boolean().default(false),
     avatarVersion: z.number().int().nonnegative().optional(),
     passwordChangeRequired: z.boolean().optional(),
@@ -51,7 +55,7 @@ export type PermissionCombination = { key: string; labelKey: string; description
 export type RoleOption = z.infer<typeof roleOptionSchema>
 
 export const principalEnvelopeSchema = z.object({
-  user: z.object({ id: z.string().uuid(), name: z.string(), email: z.string(), locale: z.enum(['en', 'zh-CN']).optional(), avatarUrl: z.string().optional(), hasAvatar: z.boolean().default(false), avatarVersion: z.number().int().nonnegative().optional(), passwordChangeRequired: z.boolean().optional() }).strict(),
+  user: z.object({ id: z.string().uuid(), name: z.string(), email: z.string(), locale: z.enum(['en', 'zh-CN']).optional(), avatarUrl: serverPath.optional(), hasAvatar: z.boolean().default(false), avatarVersion: z.number().int().nonnegative().optional(), passwordChangeRequired: z.boolean().optional() }).strict(),
   roles: z.array(roleSchema),
   permissions: z.array(z.string()),
   superAdmin: z.boolean(),
@@ -75,7 +79,7 @@ export const accessUserSchema = z.object({
   name: z.string(),
   email: z.string(),
   locale: z.enum(['en', 'zh-CN']).optional(),
-  avatarUrl: z.string().optional(),
+  avatarUrl: serverPath.optional(),
   hasAvatar: z.boolean().default(false),
   avatarVersion: z.number().int().nonnegative().optional(),
   createdAt: z.string(),
@@ -201,7 +205,7 @@ export const operationalWarningsSchema = z.object({ warnings: z.array(z.object({
 
 export const systemIdentitySchema = z.object({
   systemName: z.string(),
-  iconUrl: z.string(),
+  iconUrl: serverPath,
   hasCustomIcon: z.boolean(),
   revision: z.number().int().nonnegative(),
   updatedAt: z.string().optional(),
@@ -261,7 +265,7 @@ export type ProblemDetails = z.infer<typeof problemDetailsSchema>
 export type FieldProblem = z.infer<typeof fieldProblemSchema>
 
 export const onlineUsersResponseSchema = z.object({ users: z.array(z.object({
-  id: z.string().uuid(), name: z.string(), email: z.string(), avatarUrl: z.string().optional(), hasAvatar: z.boolean().default(false), avatarVersion: z.number().int().nonnegative().optional(),
+  id: z.string().uuid(), name: z.string(), email: z.string(), avatarUrl: serverPath.optional(), hasAvatar: z.boolean().default(false), avatarVersion: z.number().int().nonnegative().optional(),
   lastSeenAt: z.string().datetime(), sessionCount: z.number().int().positive(),
 }).strict()) }).strict()
 

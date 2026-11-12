@@ -3,11 +3,12 @@ import { createContext, useContext, useEffect } from 'react'
 import { Layers3 } from 'lucide-react'
 import type { ApiClient } from '@/shared/api/client'
 import type { SystemIdentity } from '@/shared/api/contracts'
+import { withBase } from '@/lib/base-path'
 
 export const publicSystemIdentityQueryKey = ['public', 'system-identity'] as const
 export const defaultSystemIdentity: SystemIdentity = {
   systemName: 'Bind Plane',
-  iconUrl: '/api/public/system-identity/icon?default=1&style=layers',
+  iconUrl: withBase('/api/public/system-identity/icon?default=1&style=layers'),
   hasCustomIcon: false,
   revision: 0,
 }

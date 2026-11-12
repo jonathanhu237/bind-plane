@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { AuthPage } from '@/features/auth/auth-page'
 import type { AppRouterContext } from '@/app/context'
+import { withBase } from '@/lib/base-path'
 
 export const Route = createRootRouteWithContext<AppRouterContext>()({
   component: () => <Outlet />,
@@ -14,7 +15,7 @@ function NotFoundPage() {
   const { t } = useTranslation(['common', 'problems'])
   return (
     <AuthPage title={t('problems:notFound')}>
-      <Button asChild className="w-full"><a href="/login">{t('backToLogin')}</a></Button>
+      <Button asChild className="w-full"><a href={withBase('/login')}>{t('backToLogin')}</a></Button>
     </AuthPage>
   )
 }

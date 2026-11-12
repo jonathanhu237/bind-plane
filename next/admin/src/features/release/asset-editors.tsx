@@ -22,6 +22,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { errorText } from './messages'
 import { useRequiredFields, type RequiredField } from './required-fields'
+import { withBase } from '@/lib/base-path'
 
 export const profileRuleKeys = ['command_templates', 'parser_rules', 'login_prompt_patterns', 'prompt_patterns', 'pagination_rules', 'success_patterns', 'error_patterns'] as const
 type RuleKey = (typeof profileRuleKeys)[number]
@@ -89,7 +90,7 @@ export class AssetRequestError extends Error {
 }
 
 export async function callAssets<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
-  const response = await fetch(`/api/releases/admin/${path}`, {
+  const response = await fetch(withBase(`/api/releases/admin/${path}`), {
     method, credentials: 'same-origin', cache: 'no-store',
     headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),

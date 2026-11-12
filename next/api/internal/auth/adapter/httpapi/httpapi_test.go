@@ -173,8 +173,20 @@ func TestHTTPContracts(t *testing.T) {
 		t.Fatalf("login status = %d, body %s", login.Code, login.Body.String())
 	}
 	cookies := login.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "temvia_session" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode || cookies[0].Secure {
+	if len(cookies) != 1 || cookies[0].Name != "temvia_session" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode || cookies[0].Secure || cookies[0].Path != "/" {
 		t.Fatalf("login cookies = %#v", cookies)
+	}
+	// Under a base path the session cookie stays with the app, also when it is cleared.
+	scoped := testConfig()
+	scoped.CookiePath = "/bind-plane/"
+	scopedHandler := NewHandler(setup, auth, scoped)
+	scopedLogin := request(scopedHandler, http.MethodPost, "/api/auth/login", `{"email":"ada@example.com","password":"long password value"}`, true)
+	if cookies := scopedLogin.Result().Cookies(); scopedLogin.Code != http.StatusOK || len(cookies) != 1 || cookies[0].Path != "/bind-plane/" {
+		t.Fatalf("scoped login = %d, cookies %#v", scopedLogin.Code, cookies)
+	}
+	scopedLogout := request(scopedHandler, http.MethodPost, "/api/auth/logout", "", true)
+	if cookies := scopedLogout.Result().Cookies(); len(cookies) != 1 || cookies[0].Path != "/bind-plane/" || cookies[0].MaxAge >= 0 {
+		t.Fatalf("scoped logout = %d, cookies %#v", scopedLogout.Code, cookies)
 	}
 	setupResult := request(handler, http.MethodPost, "/api/setup", `{"token":"x","name":"Ada","email":"ada@example.com","password":"long password value"}`, true)
 	if setupResult.Code != http.StatusCreated {

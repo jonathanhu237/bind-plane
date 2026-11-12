@@ -17,7 +17,10 @@ type Config struct {
 	Environment string
 	PublicURL   string
 	Origin      string
-	HTTPAddr    string
+	// BasePath is the path APP_PUBLIC_URL serves the app under, without a
+	// trailing slash: empty at the root, "/bind-plane" behind a shared proxy.
+	BasePath string
+	HTTPAddr string
 	// AllowPlainHTTP lets production serve an http:// APP_PUBLIC_URL, for
 	// networks without TLS. It must be chosen explicitly so a mistyped URL
 	// never downgrades a deployment.
@@ -64,10 +67,10 @@ type Config struct {
 	TestEmailActorRefill            time.Duration
 	TestEmailRecipientCapacity      int
 	TestEmailRecipientRefill        time.Duration
-	EmailChangeActorCapacity         int
-	EmailChangeActorRefill           time.Duration
-	EmailChangeRecipientCapacity     int
-	EmailChangeRecipientRefill       time.Duration
+	EmailChangeActorCapacity        int
+	EmailChangeActorRefill          time.Duration
+	EmailChangeRecipientCapacity    int
+	EmailChangeRecipientRefill      time.Duration
 
 	MailOutboxPollInterval    time.Duration
 	MailOutboxLeaseDuration   time.Duration
@@ -103,6 +106,7 @@ type Config struct {
 	LoginIPRefillInterval     time.Duration
 
 	CookieName            string
+	CookiePath            string
 	SecureCookie          bool
 	WarnInsecurePublicURL bool
 }
@@ -117,10 +121,10 @@ func Load(get Lookup) (Config, error) {
 		TrustedProxyCIDRs: parseCSV(get("TRUSTED_PROXY_CIDRS")),
 		SetupLinkTTL:      parseDuration(get, "SETUP_LINK_TTL", 30*time.Minute),
 
-		PasswordResetTokenKey:           parseTokenKey(get("PASSWORD_RESET_TOKEN_KEY")),
-		InvitationTokenKey:              parseTokenKey(get("INVITATION_TOKEN_KEY")),
-		EmailChangeCodeKey:              parseOptionalTokenKey(get("EMAIL_CHANGE_CODE_KEY")),
-		EmailSettingsEncryptionKey:      parseOptionalTokenKey(get("EMAIL_SETTINGS_ENCRYPTION_KEY")),
+		PasswordResetTokenKey:      parseTokenKey(get("PASSWORD_RESET_TOKEN_KEY")),
+		InvitationTokenKey:         parseTokenKey(get("INVITATION_TOKEN_KEY")),
+		EmailChangeCodeKey:         parseOptionalTokenKey(get("EMAIL_CHANGE_CODE_KEY")),
+		EmailSettingsEncryptionKey: parseOptionalTokenKey(get("EMAIL_SETTINGS_ENCRYPTION_KEY")),
 
 		PasswordResetLinkTTL:            parseDuration(get, "PASSWORD_RESET_LINK_TTL", 30*time.Minute),
 		InvitationLinkTTL:               parseDuration(get, "INVITATION_LINK_TTL", 72*time.Hour),
@@ -280,6 +284,8 @@ func (c *Config) validate() error {
 		return err
 	}
 	c.Origin = origin
+	c.BasePath, _ = basePathOf(public.EscapedPath())
+	c.CookiePath = c.BasePath + "/"
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
 	c.WarnInsecurePublicURL = public.Scheme == "http" && !isLoopbackHost(public.Hostname())
 	if c.PublicURL == "" {
@@ -404,7 +410,12 @@ func (c *Config) validate() error {
 		return err
 	}
 	if public.Scheme == "https" {
+		// __Host- cookies must be scoped to the whole host; under a base path
+		// the cookie stays with the app, so it can only be __Secure-.
 		c.CookieName = "__Host-temvia_session"
+		if c.BasePath != "" {
+			c.CookieName = "__Secure-temvia_session"
+		}
 		c.SecureCookie = true
 	} else {
 		c.CookieName = "temvia_session"
@@ -480,19 +491,45 @@ func CanonicalOrigin(raw string) (string, error) {
 	return canonicalOrigin(value)
 }
 
-func parseOriginURL(raw string, allowRootPath bool) (*url.URL, error) {
+// parseOriginURL parses an origin. With allowBasePath it parses APP_PUBLIC_URL,
+// which may also name the path the app is served under.
+func parseOriginURL(raw string, allowBasePath bool) (*url.URL, error) {
 	value, err := url.Parse(raw)
 	validPath := value != nil && value.Path == ""
-	if allowRootPath && value != nil {
-		validPath = value.Path == "" || value.Path == "/"
+	if allowBasePath && value != nil {
+		_, validPath = basePathOf(value.EscapedPath())
 	}
 	if err != nil || value == nil || value.Scheme == "" || value.Host == "" || value.User != nil || !validPath || value.RawQuery != "" || value.ForceQuery || value.Fragment != "" || strings.Contains(raw, "#") {
+		if allowBasePath {
+			return nil, fmt.Errorf("must be an absolute URL without credentials, query or fragment, and any path made of plain segments such as /bind-plane")
+		}
 		return nil, fmt.Errorf("must be an absolute origin without credentials, query, fragment, or path")
 	}
 	if value.Scheme != "http" && value.Scheme != "https" {
 		return nil, fmt.Errorf("must use http or https")
 	}
 	return value, nil
+}
+
+var basePathSegment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]*$`)
+
+// basePathOf returns the base path an escaped URL path names ("" for none or
+// "/") without its trailing slash, and whether every segment is a plain name:
+// no escapes, no dot segments, no empty segments.
+func basePathOf(escaped string) (string, bool) {
+	trimmed := strings.TrimSuffix(escaped, "/")
+	if trimmed == "" {
+		return "", true
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", false
+	}
+	for _, segment := range strings.Split(trimmed[1:], "/") {
+		if !basePathSegment.MatchString(segment) {
+			return "", false
+		}
+	}
+	return trimmed, true
 }
 
 func isLoopbackHost(host string) bool {

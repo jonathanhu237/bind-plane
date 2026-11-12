@@ -64,6 +64,36 @@ func TestLoadDefaultsAndModes(t *testing.T) {
 	if c.CookieName != "temvia_session" || c.SecureCookie || !c.WarnInsecurePublicURL || c.Origin != "http://192.0.2.10:8080" {
 		t.Fatalf("deliberate plain-HTTP production config = %#v", c)
 	}
+	if c.BasePath != "" || c.CookiePath != "/" {
+		t.Fatalf("root deployment base path = %q, cookie path %q", c.BasePath, c.CookiePath)
+	}
+}
+
+// Behind a shared proxy the app lives under a path: links keep it, the origin
+// does not, and the session cookie stays with the app.
+func TestLoadBasePath(t *testing.T) {
+	values := map[string]string{"APP_ENV": "production", "APP_ALLOW_PLAIN_HTTP": "true", "POSTGRES_PASSWORD": "pg-secret", "PASSWORD_RESET_TOKEN_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "INVITATION_TOKEN_KEY": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}
+	for _, raw := range []string{"http://192.0.2.10/bind-plane", "http://192.0.2.10/bind-plane/"} {
+		values["APP_PUBLIC_URL"] = raw
+		c, err := Load(env(values))
+		if err != nil {
+			t.Fatalf("Load(%q) error = %v", raw, err)
+		}
+		if c.PublicURL != "http://192.0.2.10/bind-plane" || c.BasePath != "/bind-plane" || c.CookiePath != "/bind-plane/" || c.Origin != "http://192.0.2.10:80" || c.CookieName != "temvia_session" {
+			t.Fatalf("Load(%q) = %#v", raw, c)
+		}
+	}
+	values["APP_PUBLIC_URL"] = "https://example.com/ops/bind-plane"
+	c, err := Load(env(values))
+	if err != nil || c.BasePath != "/ops/bind-plane" || c.CookieName != "__Secure-temvia_session" || !c.SecureCookie || c.Origin != "https://example.com:443" {
+		t.Fatalf("https base path = %#v, %v", c, err)
+	}
+	for _, raw := range []string{"http://192.0.2.10/bind plane", "http://192.0.2.10/a/../b", "http://192.0.2.10/./b", "http://192.0.2.10//b", "http://192.0.2.10/a%2Fb", "http://192.0.2.10/b//"} {
+		values["APP_PUBLIC_URL"] = raw
+		if _, err := Load(env(values)); err == nil {
+			t.Errorf("Load accepted APP_PUBLIC_URL %q", raw)
+		}
+	}
 }
 
 func TestLoadEmailChangeSettings(t *testing.T) {

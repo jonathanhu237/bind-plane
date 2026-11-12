@@ -1,3 +1,5 @@
+import { withBase } from '@/lib/base-path'
+
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const PASSWORD_RESET_TOKEN_PATTERN = /^v1\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}$/
 const INVITATION_TOKEN_PATTERN = PASSWORD_RESET_TOKEN_PATTERN
@@ -24,7 +26,7 @@ function captureAuthority(
 	pathname: string,
 	validate: (value: string) => boolean,
 ): string | undefined {
-	if (location.pathname !== pathname) return undefined
+	if (location.pathname !== withBase(pathname)) return undefined
 
 	const hasFragment = location.hash.length > 0
 	let candidate: string | undefined

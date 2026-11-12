@@ -13,6 +13,7 @@ import { isForbidden, translateProblemWithFields } from '@/shared/api/problems'
 import { notifyRequestError, notifySuccess, readFailureFeedback, useRequestErrorToast } from '@/shared/feedback'
 import { FileButton } from '@/shared/file-button'
 import { DefaultSystemIcon, publicSystemIdentityQueryKey } from '@/features/identity/system-identity'
+import { withBase } from '@/lib/base-path'
 
 type IconAction = 'preserve' | 'replace' | 'default'
 
@@ -90,7 +91,7 @@ export function SystemIdentityPage({ api, canWrite = true }: { api: ApiClient; c
   }
   const restoreDefault = () => {
     if (inputRef.current) inputRef.current.value = ''
-    update({ iconAction: 'default', iconFile: undefined, iconPreview: '/api/public/system-identity/icon?default=1' })
+    update({ iconAction: 'default', iconFile: undefined, iconPreview: withBase('/api/public/system-identity/icon?default=1') })
   }
   const reloadConflict = async () => {
     const refreshed = await query.refetch()
@@ -114,7 +115,7 @@ export function SystemIdentityPage({ api, canWrite = true }: { api: ApiClient; c
   </SettingsSection>
 }
 
-const emptyDraft = (): SystemIdentityDraft => ({ systemName: 'Bind Plane', iconAction: 'preserve', iconPreview: '/api/public/system-identity/icon?default=1', revision: 0, dirty: false, conflict: false })
+const emptyDraft = (): SystemIdentityDraft => ({ systemName: 'Bind Plane', iconAction: 'preserve', iconPreview: withBase('/api/public/system-identity/icon?default=1'), revision: 0, dirty: false, conflict: false })
 
 function fromSystemIdentity(identity: SystemIdentity): SystemIdentityDraft {
   return { systemName: identity.systemName, iconAction: 'preserve', iconPreview: identity.iconUrl, revision: identity.revision, dirty: false, conflict: false }

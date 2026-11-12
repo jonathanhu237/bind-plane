@@ -1,5 +1,6 @@
 import type { User } from '@/shared/api/contracts'
 import { serverText } from './messages'
+import { withBase } from '@/lib/base-path'
 
 export type Job = {
   id: string; job_id?: string; target_ip: string; switch_id: string; switch_name?: string; switch_management_ip?: string; command_profile_id?: string; status: string; phase: string; kind: string; reason: string; force: boolean
@@ -20,7 +21,7 @@ export type JobFilter = { q?: string; kind?: string; status?: string; latest?: b
 export type AssetOptions = { switches: { id: string; name: string; is_enabled: boolean }[]; profiles: { id: string; name: string }[] }
 
 export async function request<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(withBase(path), {
     method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),

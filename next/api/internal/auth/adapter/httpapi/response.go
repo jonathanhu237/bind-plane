@@ -235,11 +235,19 @@ func writeDecodeError(w http.ResponseWriter, err error) {
 	}
 }
 
+// cookiePath scopes the session cookie to the path the app is served under.
+func (h *Handler) cookiePath() string {
+	if h.cfg.CookiePath == "" {
+		return "/"
+	}
+	return h.cfg.CookiePath
+}
+
 func (h *Handler) setSessionCookie(w http.ResponseWriter, value string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cfg.CookieName,
 		Value:    value,
-		Path:     "/",
+		Path:     h.cookiePath(),
 		HttpOnly: true,
 		Secure:   h.cfg.SecureCookie,
 		SameSite: http.SameSiteLaxMode,
@@ -250,7 +258,7 @@ func (h *Handler) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cfg.CookieName,
 		Value:    "",
-		Path:     "/",
+		Path:     h.cookiePath(),
 		HttpOnly: true,
 		Secure:   h.cfg.SecureCookie,
 		SameSite: http.SameSiteLaxMode,

@@ -67,6 +67,30 @@ that URL; set the same port as `BIND_PLANE_PORT`.
 
 Switching between them changes the session cookie, so everyone signs in again.
 
+## Under a path, behind a shared proxy
+
+On a host whose port 80 belongs to a shared proxy (on 222.200.161.40, the
+`ecnc-nginx` that also serves `/switch/`, `/zabbix/` and `/swmn/`), Bind Plane
+can live under a path such as `/bind-plane/`:
+
+- Build the admin image for that path; the page and Caddy both take it from the
+  build: `docker build --build-arg BIND_PLANE_BASE_PATH=/bind-plane/ -t bind-plane-admin:$TAG next/admin`.
+- In `.env`, `APP_PUBLIC_URL` names the same path
+  (`http://222.200.161.40/bind-plane`), so links in emails and chat messages
+  lead there and the session cookie stays with the app. `BIND_PLANE_SITE` says
+  where Caddy listens instead (`http://:18404`), published only on the host's
+  loopback (`BIND_PLANE_LISTEN=127.0.0.1`, `BIND_PLANE_PORT=18404`).
+- The proxy forwards `/bind-plane/` to `127.0.0.1:18404` with the path kept
+  and `X-Forwarded-For` set to the browser's address. Docker hands Caddy that
+  connection from the network's gateway, so trust it:
+  `BIND_PLANE_TRUSTED_PROXIES=172.31.240.1/32`. Otherwise every request seems to
+  come from the proxy, and one person's failed sign-ins slow down everyone's.
+
+Every other path on Caddy's port leads to `/bind-plane/`. Over plain HTTP the
+same caveats apply as above, and the app shares its origin with the other
+services on the host, so restrict the proxy's location to the operators'
+networks.
+
 ## Backups
 
 Back up three things, separately:

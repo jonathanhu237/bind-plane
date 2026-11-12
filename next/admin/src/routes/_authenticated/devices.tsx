@@ -28,6 +28,7 @@ import {
 import { errorText, serverText } from '@/features/release/messages'
 import { useRequiredFields } from '@/features/release/required-fields'
 import { notifyRequestError, notifySuccess } from '@/shared/feedback'
+import { withBase } from '@/lib/base-path'
 
 type DeviceSearch = { q?: string; group?: string; vendor?: string; site?: string; connection?: string; backup?: string; networks?: string; version?: string; state?: string; page?: number }
 const filterKeys = ['q', 'group', 'vendor', 'site', 'connection', 'backup', 'networks', 'version', 'state'] as const
@@ -179,7 +180,7 @@ function DevicesPage() {
   const [site, setSite] = useState('')
   const [pending, setPending] = useState<Pending | null>(null)
   const params = filterParams(search)
-  const exportPath = `/api/ops/switches/export?${params}`
+  const exportPath = withBase(`/api/ops/switches/export?${params}`)
   const configsPath = `backups/export?${params}`
   params.set('page', String(page))
   const listKey = params.toString()
