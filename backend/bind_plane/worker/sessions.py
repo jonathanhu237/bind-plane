@@ -170,17 +170,24 @@ class NetmikoSwitchSession:
             expect_string=self.settings.query_before_expect_string,
         )
 
+    def elevate_privilege(self, command: str, output: list[str] | None = None) -> list[str]:
+        """Enter the privileged level (super on H3C and Huawei, enable on Ruijie), answering the
+        privilege password when the switch asks. The password never appears in the output."""
+        output = [] if output is None else output
+        privilege_output = self._send_timing(command)
+        output.append(privilege_output)
+        if "assword" in privilege_output:
+            if not self.settings.secret:
+                raise SwitchAuthenticationError("Switch privilege password is required")
+            secret_output = self._send_timing(self.settings.secret)
+            output.append(secret_output.replace(self.settings.secret, "***REDACTED***"))
+        return output
+
     def release(self, commands: RenderedCommands) -> str:
         output: list[str] = []
         try:
             if commands.elevate_privilege:
-                privilege_output = self._send_timing(commands.elevate_privilege)
-                output.append(privilege_output)
-                if "assword" in privilege_output:
-                    if not self.settings.secret:
-                        raise SwitchAuthenticationError("Switch privilege password is required")
-                    secret_output = self._send_timing(self.settings.secret)
-                    output.append(secret_output.replace(self.settings.secret, "***REDACTED***"))
+                self.elevate_privilege(commands.elevate_privilege, output)
             if commands.enter_config:
                 output.append(self._send_timing(commands.enter_config))
             if self.settings.release_expect_string:

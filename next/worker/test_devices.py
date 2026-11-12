@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -8,6 +9,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from worker.devices import (
     BackupRejected,
+    ConfigurationSession,
     config_fingerprint,
     describe_failure,
     normalize_config,
@@ -78,6 +80,7 @@ def profile_dep(templates=None, errors=("^Error:",)):
 
 class FakeSession:
     output = ""
+    elevated = None
 
     def __init__(self, settings):
         self.settings = settings
@@ -85,7 +88,8 @@ class FakeSession:
     def connect(self):
         pass
 
-    def read_configuration(self, command, disable_paging):
+    def read_configuration(self, command, disable_paging, elevate_privilege=None):
+        FakeSession.elevated = elevate_privilege
         return self.output
 
     def close(self):
@@ -117,6 +121,59 @@ def test_backup_requires_a_backup_command_and_normalizes_output():
             read_switch_configuration(profile_dep(), lambda dep, profile: None)
             == "sysname X\n#\nreturn"
         )
+
+
+def test_configuration_is_read_at_the_privileged_level():
+    # The profile's super (or enable) command goes to the session; without one, nothing is sent.
+    FakeSession.output = "sysname X\n#\nreturn"
+    templates = {"config_backup": "display current-configuration", "super": "super"}
+    with patch("worker.devices.ConfigurationSession", FakeSession):
+        read_switch_configuration(profile_dep(templates=templates), lambda dep, profile: None)
+        assert FakeSession.elevated == "super"
+        read_switch_configuration(
+            profile_dep(templates={"config_backup": "display current-configuration"}),
+            lambda dep, profile: None,
+        )
+        assert FakeSession.elevated is None
+
+
+class PrivilegeConnection:
+    """A switch that shows its configuration only after super and the super password."""
+
+    def __init__(self):
+        self.calls = []
+        self.privileged = False
+
+    def send_command_timing(self, command, **kwargs):
+        self.calls.append(command)
+        if command == "super":
+            return "Password:"
+        if command == "super-secret":
+            self.privileged = True
+            return "User privilege level is 3"
+        return ""
+
+    def disable_paging(self, *, command):
+        self.calls.append(command)
+
+    def send_command(self, command, **kwargs):
+        self.calls.append(command)
+        return "sysname X\n#\nreturn" if self.privileged else "% Unrecognized command"
+
+
+def test_configuration_session_enters_super_before_reading():
+    session = ConfigurationSession(SimpleNamespace(secret="super-secret", timeout=20))
+    session._connection = PrivilegeConnection()
+    text = session.read_configuration(
+        "display current-configuration", "screen-length disable", "super"
+    )
+    assert text == "sysname X\n#\nreturn"
+    assert session._connection.calls == [
+        "super",
+        "super-secret",
+        "screen-length disable",
+        "display current-configuration",
+    ]
 
 
 def test_failure_messages_never_echo_device_output():

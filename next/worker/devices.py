@@ -143,9 +143,16 @@ def config_fingerprint(text: str, ignore_patterns) -> str:
 
 
 class ConfigurationSession(NetmikoSwitchSession):
-    def read_configuration(self, command: str, disable_paging: str | None) -> str:
+    def read_configuration(
+        self, command: str, disable_paging: str | None, elevate_privilege: str | None = None
+    ) -> str:
+        """Read the running configuration. Many switches show it only at the privileged level
+        (H3C and Huawei after super, Ruijie after enable), so enter that first when the profile
+        has the command, the same way a release does."""
         connection = self._require_connection()
         try:
+            if elevate_privilege:
+                self.elevate_privilege(elevate_privilege)
             if disable_paging:
                 connection.disable_paging(command=disable_paging)
             return connection.send_command(command, read_timeout=180)
@@ -201,10 +208,15 @@ def read_switch_configuration(dep, settings_builder) -> str:
         ),
         None,
     )
+    elevate = profile.command_templates.get("super")
     session = ConfigurationSession(settings_builder(dep, profile))
     try:
         session.connect()
-        raw = session.read_configuration(command, disable_paging)
+        raw = session.read_configuration(
+            command,
+            disable_paging,
+            elevate if isinstance(elevate, str) and elevate.strip() else None,
+        )
     finally:
         with suppress(Exception):
             session.close()
