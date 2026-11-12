@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, Database, FileCode, FileSearch, History, House, KeyRound, ListChecks, LogOut, Mail, MessagesSquare, Monitor, Network, ScrollText, Send, Server, Settings, ShieldCheck, SquareTerminal, Unlink, UserCog, UserRound, Users, Wrench } from 'lucide-react'
+import { Activity, BellRing, CalendarClock, Check, ChevronDown, ClipboardCheck, Compass, Database, FileCode, FileSearch, History, House, KeyRound, ListChecks, LogOut, Mail, MessagesSquare, Monitor, Network, ScrollText, Send, Server, Settings, ShieldCheck, SquareTerminal, Unlink, UserCog, UserRound, Users, Wrench } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -31,6 +31,9 @@ import { clearAccessDrafts, useAccessDraftStore } from '@/features/access/drafts
 import { IdentityMark } from '@/features/identity/system-identity'
 import { canRelease } from '@/features/release/jobs'
 import { UserAvatar } from './user-avatar'
+import { GuidedTour } from '@/features/guide/guided-tour'
+import { GUIDE_VERSION, guideSteps } from '@/features/guide/steps'
+import { guideQueryKey, readGuide, seeGuide } from '@/features/guide/api'
 import { changeAccountLocale, restoreGuestLocale } from '@/shared/i18n'
 
 // On a phone the menu is a drawer over the page; following a link in it should show the page.
@@ -41,7 +44,7 @@ function CloseMobileMenuOnNavigation() {
   return null
 }
 
-function AccountMenu({ user, isPersonalSettings, logoutPending, onLogout }: { user: User; isPersonalSettings: boolean; logoutPending: boolean; onLogout: () => void }) {
+function AccountMenu({ user, isPersonalSettings, logoutPending, onLogout, guideLabel, onGuide }: { user: User; isPersonalSettings: boolean; logoutPending: boolean; onLogout: () => void; guideLabel: string; onGuide?: () => void }) {
   const { setOpenMobile } = useSidebar()
   const { t } = useTranslation(['common', 'auth'])
 
@@ -73,6 +76,10 @@ function AccountMenu({ user, isPersonalSettings, logoutPending, onLogout }: { us
             {isPersonalSettings ? <Check aria-hidden="true" className="ml-auto" /> : null}
           </Link>
         </DropdownMenuItem>
+        {onGuide ? <DropdownMenuItem onSelect={() => { setOpenMobile(false); onGuide() }}>
+          <Compass aria-hidden="true" data-icon="inline-start" />
+          {guideLabel}
+        </DropdownMenuItem> : null}
       </DropdownMenuGroup>
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
@@ -115,33 +122,50 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
   const zhShell = user.locale === 'zh-CN'
   const isBindPlaneAdmin = Boolean(user.superAdmin || user.roles?.some((role) => role.name === 'Admin'))
   const releasePages = [
-    { to: '/release', icon: SquareTerminal, label: zhShell ? '解绑控制台' : 'Release console' },
-    { to: '/releases', icon: ListChecks, label: zhShell ? '解绑记录' : 'Release history' },
+    { to: '/release', icon: SquareTerminal, label: zhShell ? '解绑控制台' : 'Release console', guide: undefined },
+    { to: '/releases', icon: ListChecks, label: zhShell ? '解绑记录' : 'Release history', guide: 'nav-releases' },
   ] as const
   const releasePage = releasePages.find((page) => location.pathname === page.to)
   const releaseMenuExpanded = releaseMenuOpen || Boolean(releasePage)
   const opsPages = [
-    { to: '/devices', icon: Server, label: zhShell ? '设备' : 'Devices' },
-    { to: '/config-search', icon: FileSearch, label: zhShell ? '配置搜索' : 'Config search' },
-    { to: '/schedules', icon: CalendarClock, label: zhShell ? '计划任务' : 'Schedules' },
-    { to: '/compliance', icon: ClipboardCheck, label: zhShell ? '合规检查' : 'Compliance' },
-    { to: '/alerts', icon: BellRing, label: zhShell ? '告警' : 'Alerts' },
-    { to: '/audit', icon: ScrollText, label: zhShell ? '审计日志' : 'Audit log' },
+    { to: '/devices', icon: Server, label: zhShell ? '设备' : 'Devices', guide: 'nav-devices' },
+    { to: '/config-search', icon: FileSearch, label: zhShell ? '配置搜索' : 'Config search', guide: undefined },
+    { to: '/schedules', icon: CalendarClock, label: zhShell ? '计划任务' : 'Schedules', guide: undefined },
+    { to: '/compliance', icon: ClipboardCheck, label: zhShell ? '合规检查' : 'Compliance', guide: undefined },
+    { to: '/alerts', icon: BellRing, label: zhShell ? '告警' : 'Alerts', guide: undefined },
+    { to: '/audit', icon: ScrollText, label: zhShell ? '审计日志' : 'Audit log', guide: undefined },
   ] as const
   const opsPage = opsPages.find((page) => location.pathname.startsWith(page.to))
   const opsMenuExpanded = opsMenuOpen || Boolean(opsPage)
   // Set up once and rarely changed, apart from the day-to-day device operations.
   const assetPages = [
-    { to: '/credentials', icon: KeyRound, label: zhShell ? '凭据' : 'Credentials' },
-    { to: '/command-profiles', icon: FileCode, label: zhShell ? '命令模板' : 'Command profiles' },
-    { to: '/networks', icon: Network, label: zhShell ? '网段' : 'Networks' },
-    { to: '/wecom', icon: MessagesSquare, label: zhShell ? '企业微信' : 'WeCom' },
-    { to: '/feishu', icon: Send, label: zhShell ? '飞书' : 'Feishu' },
+    { to: '/credentials', icon: KeyRound, label: zhShell ? '凭据' : 'Credentials', guide: 'nav-credentials' },
+    { to: '/command-profiles', icon: FileCode, label: zhShell ? '命令模板' : 'Command profiles', guide: 'nav-command-profiles' },
+    { to: '/networks', icon: Network, label: zhShell ? '网段' : 'Networks', guide: 'nav-networks' },
+    { to: '/wecom', icon: MessagesSquare, label: zhShell ? '企业微信' : 'WeCom', guide: 'nav-wecom' },
+    { to: '/feishu', icon: Send, label: zhShell ? '飞书' : 'Feishu', guide: undefined },
   ] as const
   const assetPage = assetPages.find((page) => location.pathname.startsWith(page.to))
   const assetMenuExpanded = assetMenuOpen || Boolean(assetPage)
   const accessMenuExpanded = accessMenuOpen || accessMenuActive
   const monitoringMenuExpanded = monitoringMenuOpen || monitoringMenuActive
+  // The guided tour: once at a user's first sign-in, on the home page, and from the account menu
+  // whenever asked. Only people who can release have it, which includes every admin.
+  const guideAvailable = canRelease(user)
+  const guide = useQuery({ queryKey: guideQueryKey(user.id), queryFn: readGuide, enabled: guideAvailable, staleTime: Infinity, retry: false })
+  const [touring, setTouring] = useState(false)
+  const [guideOffered, setGuideOffered] = useState(false)
+  if (!guideOffered && guide.data && location.pathname === '/') {
+    setGuideOffered(true)
+    if (guide.data.seen_version < GUIDE_VERSION) setTouring(true)
+  }
+  function endTour() {
+    setTouring(false)
+    if ((guide.data?.seen_version ?? 0) >= GUIDE_VERSION) return
+    queryClient.setQueryData(guideQueryKey(user.id), { seen_version: GUIDE_VERSION })
+    // If this fails the tour shows again at the next sign-in, which does no harm.
+    seeGuide(GUIDE_VERSION).catch(() => queryClient.invalidateQueries({ queryKey: guideQueryKey(user.id) }))
+  }
   useEffect(() => {
     void changeAccountLocale(user.locale === 'zh-CN' ? 'zh-CN' : 'en')
   }, [user.id, user.locale])
@@ -194,7 +218,7 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
             <SidebarGroupLabel>{t('menu')}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                <SidebarMenuItem>
+                <SidebarMenuItem data-guide="nav-home">
                   <SidebarMenuButton asChild isActive={location.pathname === '/'} tooltip={zhShell ? '首页' : 'Home'}>
                     <Link to="/" aria-current={location.pathname === '/' ? 'page' : undefined}>
                       <House aria-hidden="true" data-icon="inline-start" />
@@ -204,49 +228,49 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
                 </SidebarMenuItem>
                 {canRelease(user) ? (
                   <SidebarMenuItem>
-                    <SidebarMenuButton type="button" isActive={Boolean(releasePage)} tooltip={zhShell ? '解绑 IP' : 'Release'} aria-expanded={releaseMenuExpanded} onClick={() => setReleaseMenuOpen((open) => !open)}>
+                    <SidebarMenuButton type="button" data-guide="nav-release" isActive={Boolean(releasePage)} tooltip={zhShell ? '解绑 IP' : 'Release'} aria-expanded={releaseMenuExpanded} onClick={() => setReleaseMenuOpen((open) => !open)}>
                       <Unlink aria-hidden="true" data-icon="inline-start" />
                       <span>{zhShell ? '解绑 IP' : 'Release'}</span>
                       <ChevronDown aria-hidden="true" className="ml-auto transition-transform data-[open=false]:-rotate-90 group-data-[collapsible=icon]:hidden" data-open={releaseMenuExpanded} />
                     </SidebarMenuButton>
                     {releaseMenuExpanded ? <SidebarMenuSub>
-                      {releasePages.map((page) => <SidebarMenuSubItem key={page.to}><SidebarMenuSubButton asChild isActive={releasePage?.to === page.to}><Link to={page.to} aria-current={releasePage?.to === page.to ? 'page' : undefined}><page.icon aria-hidden="true" /><span>{page.label}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem>)}
+                      {releasePages.map((page) => <SidebarMenuSubItem key={page.to} data-guide={page.guide}><SidebarMenuSubButton asChild isActive={releasePage?.to === page.to}><Link to={page.to} aria-current={releasePage?.to === page.to ? 'page' : undefined}><page.icon aria-hidden="true" /><span>{page.label}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem>)}
                     </SidebarMenuSub> : null}
                   </SidebarMenuItem>
                 ) : null}
                 {isBindPlaneAdmin ? (
                   <SidebarMenuItem>
-                    <SidebarMenuButton type="button" isActive={Boolean(opsPage)} tooltip={zhShell ? '设备运维' : 'Device operations'} aria-expanded={opsMenuExpanded} onClick={() => setOpsMenuOpen((open) => !open)}>
+                    <SidebarMenuButton type="button" data-guide="nav-ops" isActive={Boolean(opsPage)} tooltip={zhShell ? '设备运维' : 'Device operations'} aria-expanded={opsMenuExpanded} onClick={() => setOpsMenuOpen((open) => !open)}>
                       <Wrench aria-hidden="true" data-icon="inline-start" />
                       <span>{zhShell ? '设备运维' : 'Device operations'}</span>
                       <ChevronDown aria-hidden="true" className="ml-auto transition-transform data-[open=false]:-rotate-90 group-data-[collapsible=icon]:hidden" data-open={opsMenuExpanded} />
                     </SidebarMenuButton>
                     {opsMenuExpanded ? <SidebarMenuSub>
-                      {opsPages.map((page) => <SidebarMenuSubItem key={page.to}><SidebarMenuSubButton asChild isActive={opsPage?.to === page.to}><Link to={page.to} aria-current={opsPage?.to === page.to ? 'page' : undefined}><page.icon aria-hidden="true" /><span>{page.label}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem>)}
+                      {opsPages.map((page) => <SidebarMenuSubItem key={page.to} data-guide={page.guide}><SidebarMenuSubButton asChild isActive={opsPage?.to === page.to}><Link to={page.to} aria-current={opsPage?.to === page.to ? 'page' : undefined}><page.icon aria-hidden="true" /><span>{page.label}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem>)}
                     </SidebarMenuSub> : null}
                   </SidebarMenuItem>
                 ) : null}
                 {isBindPlaneAdmin ? (
                   <SidebarMenuItem>
-                    <SidebarMenuButton type="button" isActive={Boolean(assetPage)} tooltip={zhShell ? '资产配置' : 'Asset settings'} aria-expanded={assetMenuExpanded} onClick={() => setAssetMenuOpen((open) => !open)}>
+                    <SidebarMenuButton type="button" data-guide="nav-assets" isActive={Boolean(assetPage)} tooltip={zhShell ? '资产配置' : 'Asset settings'} aria-expanded={assetMenuExpanded} onClick={() => setAssetMenuOpen((open) => !open)}>
                       <Database aria-hidden="true" data-icon="inline-start" />
                       <span>{zhShell ? '资产配置' : 'Asset settings'}</span>
                       <ChevronDown aria-hidden="true" className="ml-auto transition-transform data-[open=false]:-rotate-90 group-data-[collapsible=icon]:hidden" data-open={assetMenuExpanded} />
                     </SidebarMenuButton>
                     {assetMenuExpanded ? <SidebarMenuSub>
-                      {assetPages.map((page) => <SidebarMenuSubItem key={page.to}><SidebarMenuSubButton asChild isActive={assetPage?.to === page.to}><Link to={page.to} aria-current={assetPage?.to === page.to ? 'page' : undefined}><page.icon aria-hidden="true" /><span>{page.label}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem>)}
+                      {assetPages.map((page) => <SidebarMenuSubItem key={page.to} data-guide={page.guide}><SidebarMenuSubButton asChild isActive={assetPage?.to === page.to}><Link to={page.to} aria-current={assetPage?.to === page.to ? 'page' : undefined}><page.icon aria-hidden="true" /><span>{page.label}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem>)}
                     </SidebarMenuSub> : null}
                   </SidebarMenuItem>
                 ) : null}
                 {hasAccessMenu ? (
                   <SidebarMenuItem>
-                    <SidebarMenuButton type="button" isActive={accessMenuActive} tooltip={t('access:usersAccess')} aria-expanded={accessMenuExpanded} onClick={() => setAccessMenuOpen((open) => !open)}>
+                    <SidebarMenuButton type="button" data-guide="nav-access" isActive={accessMenuActive} tooltip={t('access:usersAccess')} aria-expanded={accessMenuExpanded} onClick={() => setAccessMenuOpen((open) => !open)}>
                       <Users aria-hidden="true" data-icon="inline-start" />
                       <span>{t('access:usersAccess')}</span>
                       <ChevronDown aria-hidden="true" className="ml-auto transition-transform data-[open=false]:-rotate-90 group-data-[collapsible=icon]:hidden" data-open={accessMenuExpanded} />
                     </SidebarMenuButton>
                     {accessMenuExpanded ? <SidebarMenuSub>
-                      {hasUsersAccess ? <SidebarMenuSubItem><SidebarMenuSubButton asChild isActive={location.pathname.startsWith('/users')}><Link to="/users" aria-current={location.pathname.startsWith('/users') ? 'page' : undefined}><UserRound aria-hidden="true" /><span>{t('access:users')}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem> : null}
+                      {hasUsersAccess ? <SidebarMenuSubItem data-guide="nav-users"><SidebarMenuSubButton asChild isActive={location.pathname.startsWith('/users')}><Link to="/users" aria-current={location.pathname.startsWith('/users') ? 'page' : undefined}><UserRound aria-hidden="true" /><span>{t('access:users')}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem> : null}
                       {hasInvitationsAccess ? <SidebarMenuSubItem><SidebarMenuSubButton asChild isActive={location.pathname.startsWith('/invitations')}><Link to="/invitations" aria-current={location.pathname.startsWith('/invitations') ? 'page' : undefined}><Mail aria-hidden="true" /><span>{t('access:invitations')}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem> : null}
                       {hasRolesAccess ? <SidebarMenuSubItem><SidebarMenuSubButton asChild isActive={location.pathname.startsWith('/roles')}><Link to="/roles" aria-current={location.pathname.startsWith('/roles') ? 'page' : undefined}><ShieldCheck aria-hidden="true" /><span>{t('access:roles')}</span></Link></SidebarMenuSubButton></SidebarMenuSubItem> : null}
                     </SidebarMenuSub> : null}
@@ -272,8 +296,9 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
-        <SidebarFooter>
-          <AccountMenu user={user} isPersonalSettings={location.pathname.startsWith('/personal-settings')} logoutPending={logout.isPending} onLogout={() => logout.mutate()} />
+        <SidebarFooter data-guide="account-menu">
+          <AccountMenu user={user} isPersonalSettings={location.pathname.startsWith('/personal-settings')} logoutPending={logout.isPending} onLogout={() => logout.mutate()}
+            guideLabel={zhShell ? '使用指引' : 'Guided tour'} onGuide={guideAvailable ? () => setTouring(true) : undefined} />
         </SidebarFooter>
       </Sidebar>
       {/* min-w-0 lets wide tables scroll inside their page instead of widening it past the window. */}
@@ -289,6 +314,7 @@ export function AuthenticatedShell({ api, user: initialUser, children }: { api: 
           {children}
         </div>
       </SidebarInset>
+      {touring ? <GuidedTour steps={guideSteps({ admin: isBindPlaneAdmin, release: guideAvailable })} zh={zhShell} onClose={endTour} /> : null}
     </SidebarProvider>
   )
 }

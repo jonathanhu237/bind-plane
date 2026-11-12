@@ -267,3 +267,20 @@ func (s *SQLStore) Jobs(ctx context.Context, actor string, admin bool, filter Jo
 }
 
 var _ Store = (*SQLStore)(nil)
+
+func (s *SQLStore) GuideVersion(ctx context.Context, userID string) (int, error) {
+	var version int
+	err := s.DB.QueryRowContext(ctx, `SELECT version FROM bp_user_guides WHERE user_id = $1`, userID).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return version, err
+}
+
+// SeeGuide never moves a user back to an older version: a stale page finishing an old tour
+// must not bring a newer one back.
+func (s *SQLStore) SeeGuide(ctx context.Context, userID string, version int) error {
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO bp_user_guides (user_id, version) VALUES ($1, $2)
+		ON CONFLICT (user_id) DO UPDATE SET version = GREATEST(bp_user_guides.version, EXCLUDED.version), seen_at = now()`, userID, version)
+	return err
+}

@@ -16,7 +16,7 @@ function HomePage() {
   const admin = isAdmin(user)
   return <main className="mx-auto flex w-full max-w-6xl flex-col gap-8">
     <PageHeader title={pick(zh, '首页', 'Home')}>
-      {canRelease(user) ? <Button asChild><Link to="/release"><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '发起解绑', 'New release')}</Link></Button> : null}
+      {canRelease(user) ? <Button asChild data-guide="home-new-release"><Link to="/release"><Plus aria-hidden="true" data-icon="inline-start" />{pick(zh, '发起解绑', 'New release')}</Link></Button> : null}
     </PageHeader>
     {canRelease(user) ? <>
       <UncertainReleases zh={zh} />

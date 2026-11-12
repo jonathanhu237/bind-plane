@@ -168,3 +168,42 @@ func TestStartQueuesOneReleasePerAddress(t *testing.T) {
 		t.Fatalf("lookup of an address without a switch: %+v %v", stopped, err)
 	}
 }
+
+// The guided tour a user has seen survives sign-ins and browsers, and never moves back to an
+// older version.
+func TestGuideVersionPerUser(t *testing.T) {
+	dsn := os.Getenv("BIND_PLANE_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("isolated migrated test database required")
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	var user string
+	if err = db.QueryRowContext(ctx, `INSERT INTO auth_users(name,email,email_canonical,password_hash) VALUES ('Guided','guided@test.invalid','guided@test.invalid','test') RETURNING id::text`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = db.ExecContext(context.Background(), `DELETE FROM auth_users WHERE id = $1`, user) })
+	store := NewSQLStore(db)
+	if version, err := store.GuideVersion(ctx, user); err != nil || version != 0 {
+		t.Fatalf("unseen = %d, %v", version, err)
+	}
+	for _, step := range []struct{ see, want int }{{1, 1}, {3, 3}, {2, 3}} {
+		if err := store.SeeGuide(ctx, user, step.see); err != nil {
+			t.Fatal(err)
+		}
+		if version, err := store.GuideVersion(ctx, user); err != nil || version != step.want {
+			t.Fatalf("after seeing %d = %d, %v; want %d", step.see, version, err, step.want)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM auth_users WHERE id = $1`, user); err != nil {
+		t.Fatalf("deleting a user with a seen guide: %v", err)
+	}
+	var left int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM bp_user_guides WHERE user_id = $1`, user).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("guide rows left = %d, %v", left, err)
+	}
+}

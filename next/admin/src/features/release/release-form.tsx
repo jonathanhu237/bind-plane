@@ -71,22 +71,22 @@ export function ReleaseForm({ zh, onStarted, prefill }: Props) {
     <CardContent className="pt-6">
       <form noValidate onSubmit={submit} className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-end">
-          <Field data-invalid={Boolean(ipProblem)}>
+          <Field data-guide="release-input" data-invalid={Boolean(ipProblem)}>
             <FieldLabel htmlFor={`${id}-ip`}>{labels.ip}</FieldLabel>
             <Input id={`${id}-ip`} ref={ipInput} inputMode="decimal" autoComplete="off" placeholder="10.0.0.42" className="font-mono" value={ip}
               onChange={(event) => { setIP(event.target.value); setIPProblem('') }} aria-invalid={ipProblem ? true : undefined} aria-describedby={ipProblem ? `${id}-ip-problem` : undefined} />
           </Field>
           {/* Under the address on phones; on wider screens a row of its own, so the bottom-aligned row keeps its line. */}
           {ipProblem ? <FieldError id={`${id}-ip-problem`} className="sm:order-last sm:col-span-4 sm:-mt-2">{ipProblem}</FieldError> : null}
-          <Field>
+          <Field data-guide="release-input">
             <FieldLabel htmlFor={`${id}-reason`}>{labels.reason}</FieldLabel>
             <Select value={reason} onValueChange={setReason}>
               <SelectTrigger id={`${id}-reason`} ref={reasonInput}><SelectValue /></SelectTrigger>
               <SelectContent><SelectGroup>{reasons.map((value) => <SelectItem key={value} value={value}>{reasonLabel(value, zh)}</SelectItem>)}</SelectGroup></SelectContent>
             </Select>
           </Field>
-          <Button type="button" variant="outline" disabled={busy} title={labels.lookupHint} onClick={() => { if (checked()) void start('/api/releases/lookups', { target_ip: ip.trim() }) }}>{labels.lookup}</Button>
-          <Button type="submit" disabled={busy}>{busy ? labels.releasing : labels.release}</Button>
+          <Button type="button" variant="outline" data-guide="release-lookup" disabled={busy} title={labels.lookupHint} onClick={() => { if (checked()) void start('/api/releases/lookups', { target_ip: ip.trim() }) }}>{labels.lookup}</Button>
+          <Button type="submit" data-guide="release-submit" disabled={busy}>{busy ? labels.releasing : labels.release}</Button>
         </div>
         {error ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertDescription>{error}</AlertDescription></Alert> : null}
         {stopped ? <Alert variant="warning"><TriangleAlert aria-hidden="true" /><AlertDescription>{stopped}</AlertDescription></Alert> : null}

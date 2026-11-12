@@ -94,6 +94,10 @@ type Store interface {
 	Retry(context.Context, string, Actor, bool) (Job, error)
 	Job(context.Context, string, string, bool) (Job, error)
 	Jobs(context.Context, string, bool, JobFilter) (JobPage, error)
+	// GuideVersion is the newest version of the guided tour the user has seen; 0 for none.
+	GuideVersion(ctx context.Context, userID string) (int, error)
+	// SeeGuide records that the user finished or skipped a version of the guided tour.
+	SeeGuide(ctx context.Context, userID string, version int) error
 }
 type Identity interface {
 	CurrentPrincipal(context.Context, string) (domain.Principal, error)
@@ -112,6 +116,8 @@ func NewHandler(store Store, identity Identity, cookieName, origin string) http.
 	mux.HandleFunc("GET /api/releases/jobs", h.jobs)
 	mux.HandleFunc("GET /api/releases/jobs/{id}", h.job)
 	mux.HandleFunc("POST /api/releases/jobs/{id}/retry", h.retry)
+	mux.HandleFunc("GET /api/releases/guide", h.guide)
+	mux.HandleFunc("PUT /api/releases/guide", h.seeGuide)
 	return mux
 }
 func write(w http.ResponseWriter, code int, body any) {
@@ -304,6 +310,40 @@ func jobFilter(q url.Values) (JobFilter, bool) {
 
 var ErrNotFound = errors.New("not found")
 var ErrConflict = errors.New("conflict")
+
+// guide says which version of the guided tour the user has seen, so that it shows once per user
+// rather than once per browser.
+func (h *handler) guide(w http.ResponseWriter, r *http.Request) {
+	p, _, ok := h.principal(w, r, false)
+	if !ok {
+		return
+	}
+	version, err := h.store.GuideVersion(r.Context(), p.User.ID)
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	write(w, http.StatusOK, map[string]int{"seen_version": version})
+}
+
+func (h *handler) seeGuide(w http.ResponseWriter, r *http.Request) {
+	p, _, ok := h.principal(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		Version int `json:"version"`
+	}
+	if err := decode(r, &input); err != nil || input.Version < 1 || input.Version > 1000 {
+		fail(w, 400, "invalid request")
+		return
+	}
+	if err := h.store.SeeGuide(r.Context(), p.User.ID, input.Version); err != nil {
+		storeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
 
 func storeError(w http.ResponseWriter, err error) {
 	switch {

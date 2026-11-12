@@ -181,6 +181,8 @@ Everyone lands on the home page after login. It shows where things stand and sta
 - Admins also see the device operations summary there; there is no separate overview page.
 - A "New release" (发起解绑) button in its header opens the release console, so the release workflow stays one click away.
 
+A guided tour walks each user through the real pages once, at their first sign-in on the home page: admins first see the setup order (credentials, command profiles, devices and 负责解绑, networks, the chat bots, users), then everyone who can release sees the home page, the console's address, reason, Query and Release, and the release history. It is remembered per user on the server, not per browser; the account menu (使用指引) reopens it. Raise its version only when it changes enough to show everyone again.
+
 Every release starts in the release console or a chat bot (WeCom, Feishu); do not add another release form elsewhere. It is a focused page for one job at a time: address and reason, then the result; Query looks the address up instead, and a static binding it finds can be put back into the form to release. The job it shows is part of the URL, so a reload or a link from the history returns to it. Release history is its own page, with filters and pagination, listing releases or lookups. It only finds jobs: opening one shows it in the console, where Release again is.
 
 Navigation stays small:

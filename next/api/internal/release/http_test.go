@@ -25,6 +25,7 @@ type fakeStore struct {
 	calls   int
 	filter  JobFilter
 	started Job
+	guide   map[string]int
 }
 
 func (f *fakeStore) Start(context.Context, StartInput) (Job, error) {
@@ -47,6 +48,70 @@ func (f *fakeStore) Jobs(_ context.Context, _ string, _ bool, filter JobFilter) 
 	f.calls++
 	f.filter = filter
 	return JobPage{Items: []Job{}, PageSize: filter.Limit}, nil
+}
+
+func (f *fakeStore) GuideVersion(_ context.Context, userID string) (int, error) {
+	f.calls++
+	return f.guide[userID], nil
+}
+func (f *fakeStore) SeeGuide(_ context.Context, userID string, version int) error {
+	f.calls++
+	if f.guide == nil {
+		f.guide = map[string]int{}
+	}
+	f.guide[userID] = max(f.guide[userID], version)
+	return nil
+}
+
+// The guided tour is remembered per user: reading it is a plain read, marking it seen needs the
+// console's origin and a sensible version.
+func TestGuideIsRememberedPerUser(t *testing.T) {
+	operator := fakeIdentity{principal: domain.Principal{User: domain.User{ID: "u1"}, Roles: []domain.Role{{Name: "Operator"}}}}
+	store := &fakeStore{}
+	h := NewHandler(store, operator, "s", "http://x")
+	send := func(method, body string, origin bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/api/releases/guide", strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: "s", Value: "v"})
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if origin {
+			req.Header.Set("Origin", "http://x")
+		}
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		return res
+	}
+	if res := send(http.MethodGet, "", false); res.Code != 200 || strings.TrimSpace(res.Body.String()) != `{"seen_version":0}` {
+		t.Fatalf("unseen guide = %d %s", res.Code, res.Body.String())
+	}
+	for _, tc := range []struct {
+		body   string
+		origin bool
+		code   int
+	}{
+		{`{"version":1}`, false, 403},
+		{`{"version":0}`, true, 400},
+		{`{"version":1001}`, true, 400},
+		{`{"version":1,"extra":true}`, true, 400},
+		{`{"version":2}`, true, 204},
+		{`{"version":1}`, true, 204},
+	} {
+		if res := send(http.MethodPut, tc.body, tc.origin); res.Code != tc.code {
+			t.Fatalf("PUT %s origin=%t = %d %s, want %d", tc.body, tc.origin, res.Code, res.Body.String(), tc.code)
+		}
+	}
+	if res := send(http.MethodGet, "", false); strings.TrimSpace(res.Body.String()) != `{"seen_version":2}` {
+		t.Fatalf("seen guide = %s", res.Body.String())
+	}
+	unknown := NewHandler(store, fakeIdentity{err: application.ErrInvalidCredentials}, "s", "http://x")
+	req := httptest.NewRequest(http.MethodGet, "/api/releases/guide", nil)
+	req.AddCookie(&http.Cookie{Name: "s", Value: "v"})
+	res := httptest.NewRecorder()
+	unknown.ServeHTTP(res, req)
+	if res.Code != 401 {
+		t.Fatalf("signed-out guide = %d", res.Code)
+	}
 }
 
 func TestJobsReadsHistoryFilters(t *testing.T) {
